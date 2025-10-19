@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 class="h5 mb-3">{{ org.name }} — {{ project.name }} — Drive</h1>
+<ul class="list-group">
+  {% for f in roots %}
+    <li class="list-group-item">
+      <a href="{% url 'drive_folder' org.slug project.slug f.id %}">{{ f.name }}</a>
+    </li>
+  {% empty %}
+    <li class="list-group-item text-muted">No root folders yet.</li>
+  {% endfor %}
+</ul>
+{% endblock %}

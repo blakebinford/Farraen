@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 class="h4 mb-3">Invite to {{ org.name }}</h1>
+<form method="post" class="row gy-2 gx-3 align-items-center">
+  {% csrf_token %}
+  <div class="col-auto">
+    <input name="email" type="email" class="form-control" placeholder="user@company.com" required>
+  </div>
+  <div class="col-auto">
+    <select name="role" class="form-select">
+      <option value="MEMBER">Member</option>
+      <option value="ADMIN">Admin</option>
+      <option value="VIEWER">Viewer</option>
+    </select>
+  </div>
+  <div class="col-auto">
+    <button class="btn btn-primary">Send Invite</button>
+  </div>
+</form>
+{% endblock %}

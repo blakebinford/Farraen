@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 class="h5 mb-3">New Project</h1>
+{% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
+<form method="post" class="card card-body">
+  {% csrf_token %}
+  <input class="form-control mb-2" type="text" name="name" placeholder="Project name" required>
+  <div>
+    <button class="btn btn-primary">Create</button>
+    <a class="btn btn-outline-secondary" href="{% url 'project_list' org.slug %}">Cancel</a>
+  </div>
+</form>
+{% endblock %}

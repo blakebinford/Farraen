@@ -28,16 +28,29 @@
     <div class="d-flex gap-2">
       <a class="btn btn-outline-secondary" href="{% url 'drive_folder' org.slug project.slug node.folder.id %}">Back to folder</a>
       <a class="btn btn-primary" href="{% url 'drive_file_download' org.slug project.slug node.id %}">Download latest</a>
+
+
+
     </div>
   </div>
+
+
+
 
   <div class="file-card mb-3">
     <div class="row meta g-3">
       <div class="col-md-3"><span class="label">Size:</span> {{ node.size|human_filesize }}</div>
       <div class="col-md-3"><span class="label">Folder:</span> {{ node.folder.name }}</div>
         <div class="col-md-2"><span class="label">Version:</span> {{ node.latest_version.version }}</div>
-      <div class="col-md-4"><span class="label">Updated:</span>
-        {% if node.latest_version %}{{ node.latest_version.created_at|naturaltime }}{% else %}—{% endif %}
+        <div class="col-md-4">
+        <span class="label">Status:</span>
+        {% if node.checked_out_by %}
+          <span class="badge text-bg-warning">Checked out</span>
+          {{ node.checked_out_by.get_full_name|default:node.checked_out_by.email }}
+          {% if node.checked_out_at %} {{ node.checked_out_at|naturaltime }}{% endif %}
+        {% else %}
+          <span class="badge text-bg-success">Available</span>
+        {% endif %}
       </div>
     </div>
   </div>
@@ -198,21 +211,140 @@
   {% else %}
     <div class="alert alert-warning">This file has no content yet.</div>
   {% endif %}
+{% if user.is_authenticated %}
+        <!-- Member/Creator actions -->
+        {% if can_view_activity or node.created_by_id == user.id %}
+          {% if not node.checked_out_by %}
+            <form method="post" action="{% url 'drive_file_checkout' org.slug project.slug node.id %}" class="ms-2">
+              {% csrf_token %}
+              <button type="submit" class="btn btn-outline-primary">Check out</button>
+            </form>
+          {% elif node.checked_out_by_id == user.id %}
+            <form method="post" action="{% url 'drive_file_checkin' org.slug project.slug node.id %}" class="ms-2">
+              {% csrf_token %}
+              <button type="submit" class="btn btn-outline-success">Check in</button>
+            </form>
+          {% endif %}
+        {% endif %}
 
+        <!-- Admin override -->
+              <!-- Admin override -->
+      {% if can_force_checkin %}
+        <form method="post" action="{% url 'drive_file_force_checkin' org.slug project.slug node.id %}" class="ms-2">
+          {% csrf_token %}
+          <button type="submit" class="btn btn-outline-danger">Force check-in</button>
+        </form>
+      {% endif %}
+      {% endif %}
   {# Versions list (optional) #}
-  <div class="mt-4">
-    <h2 class="h6">Version History</h2>
-    <ul class="list-unstyled">
-      {% for v in versions %}
-        <li class="mb-1">
-          v{{ v.version }} · {{ v.created_at|naturaltime }} · {{ v.size|human_filesize }} —
-          <a href="{% url 'drive_file_download_version' org.slug project.slug node.id v.version %}">Download</a> |
-          <a href="{% url 'drive_file_stream_version' org.slug project.slug node.id v.version %}">Preview</a>
-        </li>
-      {% empty %}
-        <li class="text-muted">No versions</li>
-      {% endfor %}
-    </ul>
+    <!-- Tabs: Versions & Activity -->
+  <ul class="nav nav-tabs mt-4" id="fileTabs" role="tablist">
+    <li class="nav-item" role="presentation">
+      <button class="nav-link active" id="versions-tab" data-bs-toggle="tab" data-bs-target="#versions-pane" type="button" role="tab" aria-controls="versions-pane" aria-selected="true">
+        Versions
+      </button>
+    </li>
+    {% if can_view_activity %}
+    <li class="nav-item" role="presentation">
+      <button class="nav-link" id="activity-tab" data-bs-toggle="tab" data-bs-target="#activity-pane" type="button" role="tab" aria-controls="activity-pane" aria-selected="false">
+        Activity
+      </button>
+    </li>
+    {% endif %}
+  </ul>
+
+  <div class="tab-content border border-top-0 rounded-bottom p-3" id="fileTabsContent">
+    <!-- Versions pane -->
+    <div class="tab-pane fade show active" id="versions-pane" role="tabpanel" aria-labelledby="versions-tab">
+      <h2 class="h6 mb-3">Version History</h2>
+      <ul class="list-unstyled mb-0">
+        {% for v in versions %}
+          <li class="mb-1">
+              v{{ v.version }} · {{ v.created_at|naturaltime }} · {{ v.size|human_filesize }}
+              {% if v.note %} — <span class="text-muted">“{{ v.note }}”</span>{% endif %} —
+              <a href="{% url 'drive_file_download_version' org.slug project.slug node.id v.version %}">Download</a> |
+              <a href="{% url 'drive_file_stream_version' org.slug project.slug node.id v.version %}">Preview</a>
+          </li>
+
+        {% empty %}
+          <li class="text-muted">No versions</li>
+        {% endfor %}
+      </ul>
+    </div>
+
+    {% if can_view_activity %}
+    <!-- Activity pane -->
+    <div class="tab-pane fade" id="activity-pane" role="tabpanel" aria-labelledby="activity-tab">
+      <h2 class="h6 mb-3">Recent Activity</h2>
+
+      {% if events_page and events_page.object_list %}
+        <div class="table-responsive">
+          <table class="table table-sm align-middle">
+            <thead>
+              <tr>
+                <th style="width: 110px;">When</th>
+                <th style="width: 110px;">Action</th>
+                <th>Actor</th>
+                <th style="width: 90px;">Version</th>
+                <th>IP</th>
+                <th>User-Agent</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for e in events_page.object_list %}
+                <tr>
+                  <td class="text-nowrap">{{ e.at|naturaltime }}</td>
+                  <td><span class="badge text-bg-secondary">{{ e.action }}</span></td>
+                  <td>
+                    {% if e.actor %}
+                      {{ e.actor.get_full_name|default:e.actor.email }}
+                    {% else %}
+                      <span class="text-muted">system</span>
+                    {% endif %}
+                  </td>
+                  <td>{% if e.version_id %}v{{ e.version.version }}{% else %}—{% endif %}</td>
+                  <td class="text-nowrap">{{ e.ip|default:"—" }}</td>
+                  <td class="text-truncate" style="max-width: 320px;">{{ e.ua|default:"—" }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Pagination -->
+        <nav aria-label="Activity pagination">
+          <ul class="pagination pagination-sm mb-0">
+            {% if events_page.has_previous %}
+              <li class="page-item">
+                <a class="page-link" href="?apage={{ events_page.previous_page_number }}#activity-pane" aria-label="Previous">&laquo;</a>
+              </li>
+            {% else %}
+              <li class="page-item disabled"><span class="page-link">&laquo;</span></li>
+            {% endif %}
+
+            {% for i in events_page.paginator.page_range %}
+              {% if i == events_page.number %}
+                <li class="page-item active"><span class="page-link">{{ i }}</span></li>
+              {% else %}
+                <li class="page-item"><a class="page-link" href="?apage={{ i }}#activity-pane">{{ i }}</a></li>
+              {% endif %}
+            {% endfor %}
+
+            {% if events_page.has_next %}
+              <li class="page-item">
+                <a class="page-link" href="?apage={{ events_page.next_page_number }}#activity-pane" aria-label="Next">&raquo;</a>
+              </li>
+            {% else %}
+              <li class="page-item disabled"><span class="page-link">&raquo;</span></li>
+            {% endif %}
+          </ul>
+        </nav>
+      {% else %}
+        <div class="text-muted">No activity yet.</div>
+      {% endif %}
+    </div>
+    {% endif %}
   </div>
+
 </div>
 {% endblock %}

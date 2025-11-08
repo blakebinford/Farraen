@@ -13,5 +13,8 @@ urlpatterns = [
     path("drive/file/<int:file_id>/preview/", views.file_stream_latest, name="drive_file_stream"),  # NEW
 
     path("drive/file/<int:file_id>/versions/<int:version>/download/", views.file_download_version, name="drive_file_download_version"),
-    path("drive/file/<int:file_id>/versions/<int:version>/preview/", views.file_stream_version, name="drive_file_stream_version"),  # NEW
+    path("drive/file/<int:file_id>/versions/<int:version>/preview/", views.file_stream_version, name="drive_file_stream_version"),
+    path("drive/file/<int:file_id>/checkout/", views.file_checkout, name="drive_file_checkout"),
+    path("drive/file/<int:file_id>/checkin/", views.file_checkin, name="drive_file_checkin"),
+    path("drive/file/<int:file_id>/force-checkin/", views.file_force_checkin, name="drive_file_force_checkin"),
 ]

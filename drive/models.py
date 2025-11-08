@@ -1,6 +1,7 @@
 from django.db import models
 from django.conf import settings
 from django.utils.timezone import now
+from django.utils import timezone
 from django.utils.text import slugify
 
 
@@ -53,6 +54,13 @@ class FileNode(models.Model):
     is_archived    = models.BooleanField(default=False)
     created_by     = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL)
     created_at     = models.DateTimeField(auto_now_add=True)
+    checked_out_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name="checked_out_files",
+    )
+    checked_out_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         unique_together = [("org", "folder", "slug")]
@@ -87,6 +95,7 @@ class FileVersion(models.Model):
     content_type= models.CharField(max_length=150, blank=True)
     uploaded_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL)
     created_at  = models.DateTimeField(auto_now_add=True)
+    note = models.CharField(max_length=500, blank=True, default="")
 
     class Meta:
         unique_together = [("file_node", "version")]
@@ -94,3 +103,35 @@ class FileVersion(models.Model):
 
     def __str__(self):
         return f"{self.file_node} v{self.version}"
+
+class FileEvent(models.Model):
+    class Action(models.TextChoices):
+        VIEW = "VIEW", "View"
+        PREVIEW = "PREVIEW", "Preview"
+        DOWNLOAD = "DOWNLOAD", "Download"
+        UPLOAD = "UPLOAD", "Upload"
+        CHECKOUT = "CHECKOUT", "Check-out"
+        CHECKIN = "CHECKIN", "Check-in"
+        FORCE_CHECKIN = "FORCE_CHECKIN", "Force check-in"
+
+    org        = models.ForeignKey("organizations.Organization", on_delete=models.PROTECT, related_name="file_events")
+    file_node  = models.ForeignKey(FileNode, on_delete=models.CASCADE, related_name="events")
+    version    = models.ForeignKey(FileVersion, null=True, blank=True, on_delete=models.SET_NULL, related_name="events")
+    actor      = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="file_events")
+    action     = models.CharField(max_length=16, choices=Action.choices)
+    ip         = models.GenericIPAddressField(null=True, blank=True)
+    ua         = models.CharField(max_length=512, blank=True)
+    at         = models.DateTimeField(default=timezone.now, db_index=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["file_node", "-at"], name="fe_node_at_desc"),
+            models.Index(fields=["org", "-at"], name="fe_org_at_desc"),
+            models.Index(fields=["action", "-at"], name="fe_action_at"),
+        ]
+        ordering = ["-at"]
+
+    def __str__(self):
+        who = self.actor_id or "system"
+        ver = f" v{self.version_id}" if self.version_id else ""
+        return f"{self.action} {self.file_node_id}{ver} by {who} @ {self.at.isoformat()}"

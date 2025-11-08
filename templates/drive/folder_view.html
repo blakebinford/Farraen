@@ -5,6 +5,8 @@
 {% block extra_head %}
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/css/bootstrap.min.css" rel="stylesheet">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/dropzone@6.0.0-beta.2/dist/dropzone.css">
+<script src="https://cdn.jsdelivr.net/npm/dropzone@6.0.0-beta.2/dist/dropzone-min.js"></script>
 
 <style>
 /* ---- base palette (local, not relying on Bootstrap vars) ---- */
@@ -98,6 +100,19 @@ body{ background:var(--bg); color:var(--text); }
   }
   .size, .modified{ grid-column:1 / -1; text-align:left; }
 }
+
+#dropzone.dragover {
+background: #f8f9fa;
+border-color: #0d6efd !important;
+}
+#dropzone.dragover { background: #f8f9fa; border-color: #0d6efd !important; }
+.dd-row { display:flex; align-items:center; gap:.5rem; margin:.5rem 0; }
+.dd-name { flex: 1 1 auto; font-weight: 500; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.dd-size { color:#6c757d; font-size:.9rem; }
+.dd-remove { border:none; background:transparent; color:#dc3545; }
+.dd-bar { height: 6px; background: #e9ecef; border-radius: 6px; overflow: hidden; margin-top: .25rem; }
+.dd-bar > div { height: 100%; width: 0; background: #0d6efd; transition: width .15s linear; }
+.dd-msg { font-size:.85rem; }
 </style>
 {% endblock %}
 
@@ -121,13 +136,6 @@ body{ background:var(--bg); color:var(--text); }
       <a class="btn btn-primary" href="{% url 'drive_folder_create' org.slug project.slug folder.id %}">
         <i class="bi bi-folder-plus me-1"></i> New Folder
       </a>
-      <form method="post" action="{% url 'drive_upload' org.slug project.slug folder.id %}" enctype="multipart/form-data">
-        {% csrf_token %}
-        <label class="btn btn-outline-primary mb-0">
-          <i class="bi bi-upload me-1"></i> Upload
-          <input type="file" name="file" class="d-none" onchange="this.form.submit()">
-        </label>
-      </form>
     </div>
   </div>
 
@@ -199,5 +207,99 @@ body{ background:var(--bg); color:var(--text); }
       <div class="p-4 text-center text-secondary">This folder is empty</div>
     {% endfor %}
   </div>
+
+  <div class="card mt-3">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <div>
+        <strong>Upload files</strong>
+        <div class="text-muted small">
+          Max {{ max_upload_mb }} MB each.</div>
+      </div>
+
+      <div class="d-flex gap-2">
+        <button id="dz-add"   type="button" class="btn btn-outline-primary">Add files</button>
+        <button id="dz-start" type="button" class="btn btn-primary" disabled>Upload 0 files</button>
+        <button id="dz-clear" type="button" class="btn btn-outline-secondary" disabled>Clear</button>
+      </div>
+    </div>
+
+    <!-- Global note applied to all files in this batch -->
+    <input id="dz-note" type="text" class="form-control mb-3" maxlength="500"
+           placeholder="Change note (optional, applied to all files)">
+
+    <!-- Dropzone area (also clickable) -->
+    <form action="{{ upload_url }}" class="dropzone" id="pipeledger-dropzone" enctype="multipart/form-data">
+      {% csrf_token %}
+      <div class="dz-message">Drag & drop files here or click to select</div>
+    </form>
+  </div>
 </div>
+
+
+</div>
+<script>
+Dropzone.autoDiscover = false;
+
+(function () {
+  const startBtn = document.getElementById('dz-start');
+  const clearBtn = document.getElementById('dz-clear');
+  const addBtn   = document.getElementById('dz-add');
+  const noteEl   = document.getElementById('dz-note');
+
+  function getCookie(name) {
+    const cookies = document.cookie ? document.cookie.split('; ') : [];
+    for (const c of cookies) { const [k,v] = c.split('='); if (k === name) return decodeURIComponent(v); }
+    return null;
+  }
+  const csrftoken = getCookie('csrftoken');
+
+  const acceptedCsv = "{{ allowed_types|join:','|escapejs }}"; // optional
+  const dz = new Dropzone("#pipeledger-dropzone", {
+    url: "{{ upload_url }}",
+    paramName: "file",
+    autoProcessQueue: false,
+    parallelUploads: 3,
+    maxFilesize: {{ max_upload_mb|default:50 }},
+    addRemoveLinks: true,
+    headers: { "X-CSRFToken": csrftoken },
+    clickable: ["#pipeledger-dropzone", "#dz-add"],  // <- both area and button open file picker
+    ...(acceptedCsv ? { acceptedFiles: acceptedCsv } : {}),
+    dictDefaultMessage: "Drag & drop files here or click to select",
+    timeout: 0,
+  });
+
+  function refreshButtons() {
+    const queued = dz.getFilesWithStatus(Dropzone.ADDED)
+                  .concat(dz.getFilesWithStatus(Dropzone.QUEUED)).length;
+    const uploading = dz.getFilesWithStatus(Dropzone.UPLOADING).length;
+    startBtn.disabled = (queued === 0 || uploading > 0);
+    startBtn.textContent = queued ? `Upload ${queued} file${queued>1?'s':''}` : "Upload 0 files";
+    clearBtn.disabled = (queued + uploading + dz.getFilesWithStatus(Dropzone.SUCCESS).length) === 0;
+  }
+
+  dz.on("addedfile",    refreshButtons);
+  dz.on("removedfile",  refreshButtons);
+  dz.on("uploadprogress", refreshButtons);
+  dz.on("queuecomplete",() => {
+    refreshButtons();
+    // Optional: auto-refresh folder contents
+    // setTimeout(() => location.reload(), 700);
+  });
+  dz.on("error",   refreshButtons);
+  dz.on("success", refreshButtons);
+
+  dz.on("sending", (file, xhr, formData) => {
+    const note = (noteEl.value || "").trim();
+    if (note) formData.append("note", note);
+  });
+
+  startBtn.addEventListener("click", () => dz.processQueue());
+  clearBtn.addEventListener("click", () => { dz.removeAllFiles(true); refreshButtons(); });
+  // addBtn is already wired by `clickable`, but you can keep this as a safety no-op:
+  addBtn.addEventListener("click", () => {/* handled by Dropzone clickable */});
+
+  refreshButtons();
+})();
+</script>
 {% endblock %}

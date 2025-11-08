@@ -1,0 +1,340 @@
+{% extends "base.html" %}
+
+{% block extra_head %}
+  {{ block.super }}
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@32.3.3/styles/ag-grid.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@32.3.3/styles/ag-theme-alpine.css">
+  <style>
+    .ag-theme-alpine {
+      --ag-foreground-color: #1f2937;
+      --ag-data-color: #1f2937;
+      --ag-header-foreground-color: #0f172a;
+      --ag-border-color: #d1d5db;
+      --ag-font-size: 0.95rem;
+    }
+    #weld-grid {
+      height: 65vh;
+      min-height: 460px;
+    }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/ag-grid-community@32.3.3/dist/ag-grid-community.min.js"></script>
+{% endblock %}
+
+{% block content %}
+  <div class="d-flex flex-wrap align-items-center justify-content-between mb-3 gap-2">
+    <div>
+      <h1 class="h3 mb-1">{{ project.name }} Weld Log</h1>
+      <p class="text-muted mb-0">Inline register for capturing weld information with spreadsheet-style editing.</p>
+    </div>
+    <button class="btn btn-primary" id="add-weld-btn">Add Weld</button>
+  </div>
+
+  <div id="weld-grid" class="ag-theme-alpine"></div>
+  <p class="small text-muted mt-2" id="grid-status" role="status"></p>
+
+  <script>
+    const dataEndpoint = "{{ data_url }}";
+    const heatOptionsEndpoint = "{{ heat_options_url }}";
+    const ndeRigsEndpoint = "{{ nde_rigs_url }}";
+
+    function getCsrfToken() {
+      const name = 'csrftoken=';
+      const cookies = document.cookie.split(';');
+      for (let cookie of cookies) {
+        cookie = cookie.trim();
+        if (cookie.startsWith(name)) {
+          return decodeURIComponent(cookie.substring(name.length));
+        }
+      }
+      return '';
+    }
+
+    const statusEl = document.getElementById('grid-status');
+    let statusTimer = null;
+
+    function setStatus(message, kind = 'info') {
+      if (!statusEl) return;
+      statusEl.textContent = message;
+      statusEl.className = kind === 'error' ? 'text-danger small mt-2' : 'text-muted small mt-2';
+      if (statusTimer) {
+        window.clearTimeout(statusTimer);
+      }
+      if (message) {
+        statusTimer = window.setTimeout(() => {
+          statusEl.textContent = '';
+        }, 4000);
+      }
+    }
+
+    const heatNumberOptions = [];
+    const heatLookupByNumber = new Map();
+    const ndeRigNameOptions = [];
+    const ndeRigLookupByName = new Map();
+
+    function syncHeatOptions(options) {
+      heatNumberOptions.length = 0;
+      heatLookupByNumber.clear();
+      for (const heat of options) {
+        heatNumberOptions.push(heat.heat_number);
+        heatLookupByNumber.set(heat.heat_number, heat);
+      }
+    }
+
+    function syncNdeRigOptions(options) {
+      ndeRigNameOptions.length = 0;
+      ndeRigLookupByName.clear();
+      for (const rig of options) {
+        ndeRigNameOptions.push(rig.name);
+        ndeRigLookupByName.set(rig.name, rig);
+      }
+    }
+
+    function materialHeatValueSetter(prefix) {
+      return params => {
+        const newValue = params.newValue || '';
+        const heat = heatLookupByNumber.get(newValue) || null;
+        params.data[`${prefix}_heat_number`] = heat ? heat.heat_number : '';
+        params.data[`${prefix}_heat_id`] = heat ? heat.id : null;
+        params.data[`${prefix}_description`] = heat ? (heat.description || '') : '';
+        params.data[`${prefix}_grade`] = heat ? (heat.material_grade || '') : '';
+        params.data[`${prefix}_outer_diameter_in`] = heat && heat.outer_diameter_in !== undefined ? (heat.outer_diameter_in || '') : '';
+        params.data[`${prefix}_wall_thickness_in`] = heat && heat.wall_thickness_in !== undefined ? (heat.wall_thickness_in || '') : '';
+        params.data[`${prefix}_wps_number`] = heat ? (heat.wps_number || '') : '';
+        return true;
+      };
+    }
+
+    function ndeRigValueSetter(params) {
+      const newValue = params.newValue || '';
+      const rig = ndeRigLookupByName.get(newValue) || null;
+      params.data.nde_rig_name = rig ? rig.name : '';
+      params.data.nde_rig_id = rig ? rig.id : null;
+      return true;
+    }
+
+    const columnDefs = [
+      { headerName: 'Weld ID', field: 'weld_id', minWidth: 140 },
+      { headerName: 'NDE Number', field: 'nde_number', minWidth: 160 },
+      { headerName: 'Drawing Number', field: 'drawing_number', minWidth: 160 },
+      {
+        headerName: 'Material 1 Heat #',
+        field: 'material1_heat_number',
+        minWidth: 180,
+        cellEditor: 'agSelectCellEditor',
+        cellEditorParams: () => ({ values: heatNumberOptions }),
+        valueSetter: materialHeatValueSetter('material1'),
+      },
+      { headerName: 'Material 1 Description', field: 'material1_description', minWidth: 200, editable: false },
+      { headerName: 'Material 1 Grade', field: 'material1_grade', minWidth: 180, editable: false },
+      { headerName: 'Material 1 O.D.', field: 'material1_outer_diameter_in', minWidth: 160, editable: false },
+      { headerName: 'Material 1 Wall thickness', field: 'material1_wall_thickness_in', minWidth: 200, editable: false },
+      { headerName: '', valueGetter: () => 'to', editable: false, width: 60, suppressSizeToFit: true },
+      {
+        headerName: 'Material 2 Heat #',
+        field: 'material2_heat_number',
+        minWidth: 180,
+        cellEditor: 'agSelectCellEditor',
+        cellEditorParams: () => ({ values: heatNumberOptions }),
+        valueSetter: materialHeatValueSetter('material2'),
+      },
+      { headerName: 'Material 2 Description', field: 'material2_description', minWidth: 200, editable: false },
+      { headerName: 'Material 2 Grade', field: 'material2_grade', minWidth: 180, editable: false },
+      { headerName: 'Material 2 O.D.', field: 'material2_outer_diameter_in', minWidth: 160, editable: false },
+      { headerName: 'Material 2 Wall thickness', field: 'material2_wall_thickness_in', minWidth: 200, editable: false },
+      { headerName: 'Weld Type', field: 'weld_type', minWidth: 160 },
+      { headerName: 'Date Welded', field: 'date_welded', minWidth: 160 },
+      { headerName: 'Welder Stencil Root/Hotpass', field: 'welder_stencil_root_hotpass', minWidth: 220 },
+      { headerName: 'Welder Stencil Fill', field: 'welder_stencil_fill', minWidth: 200 },
+      { headerName: 'Welder Stencil Fill (2)', field: 'welder_stencil_fill_additional', minWidth: 200 },
+      { headerName: 'Welder Stencil Cap', field: 'welder_stencil_cap', minWidth: 200 },
+      { headerName: 'NDE Date', field: 'nde_date', minWidth: 160 },
+      {
+        headerName: 'NDE Rig',
+        field: 'nde_rig_name',
+        minWidth: 180,
+        cellEditor: 'agSelectCellEditor',
+        cellEditorParams: () => ({ values: ndeRigNameOptions }),
+        valueSetter: ndeRigValueSetter,
+      },
+      {
+        headerName: 'Weld Disposition',
+        field: 'disposition',
+        minWidth: 180,
+        cellEditor: 'agSelectCellEditor',
+        cellEditorParams: {
+          values: ['accepted', 'repair', 'cut_out']
+        },
+        valueFormatter: params => {
+          const mapping = {
+            accepted: 'Accepted',
+            repair: 'Repair',
+            cut_out: 'Cut out',
+          };
+          return mapping[params.value] || params.value;
+        }
+      },
+      { headerName: 'Comments', field: 'disposition_comment', minWidth: 220 },
+    ];
+
+    const gridOptions = {
+      columnDefs,
+      defaultColDef: {
+        flex: 1,
+        editable: true,
+        resizable: true,
+        sortable: true,
+        filter: true,
+      },
+      animateRows: true,
+      rowSelection: 'single',
+      stopEditingWhenCellsLoseFocus: true,
+      onRowValueChanged: event => {
+        if (!event.data) {
+          return;
+        }
+        if (!event.data.weld_id || String(event.data.weld_id).trim() === '') {
+          setStatus('Please provide a Weld ID before saving.', 'error');
+          event.node.setDataValue('weld_id', String(event.oldData?.weld_id || ''));
+          return;
+        }
+        persistRow(event);
+      },
+    };
+
+    function loadGrid() {
+      setStatus('Loading weld log...');
+      fetch(dataEndpoint, {
+        credentials: 'same-origin',
+      })
+        .then(response => {
+          if (!response.ok) {
+            throw new Error('Unable to load weld log');
+          }
+          return response.json();
+        })
+        .then(payload => {
+          gridOptions.api.setRowData(payload.rows || []);
+          setStatus('Weld log loaded.');
+        })
+        .catch(error => {
+          console.error(error);
+          setStatus('Failed to load weld log.', 'error');
+        });
+    }
+
+    function persistRow(event) {
+      const payload = { ...event.data };
+      if (payload.material1_heat_id === '') payload.material1_heat_id = null;
+      if (payload.material2_heat_id === '') payload.material2_heat_id = null;
+      if (payload.nde_rig_id === '') payload.nde_rig_id = null;
+      setStatus('Saving row...');
+      fetch(dataEndpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': getCsrfToken(),
+        },
+        credentials: 'same-origin',
+        body: JSON.stringify(payload),
+      })
+        .then(response => response.json().then(data => ({ response, data })))
+        .then(({ response, data }) => {
+          if (!response.ok || data.error) {
+            const message = data.error || 'Unable to save weld row.';
+            throw new Error(message);
+          }
+          event.node.setData(data.weld);
+          setStatus('Row saved.');
+        })
+        .catch(error => {
+          console.error(error);
+          setStatus(error.message, 'error');
+          if (event.oldData) {
+            event.node.setData(event.oldData);
+          }
+        });
+    }
+
+    function loadReferenceData() {
+      setStatus('Loading weld references...');
+      return Promise.all([
+        fetch(heatOptionsEndpoint, { credentials: 'same-origin' })
+          .then(response => {
+            if (!response.ok) {
+              throw new Error('Unable to load heat options');
+            }
+            return response.json();
+          })
+          .then(data => {
+            syncHeatOptions(data.heats || []);
+          }),
+        fetch(ndeRigsEndpoint, { credentials: 'same-origin' })
+          .then(response => {
+            if (!response.ok) {
+              throw new Error('Unable to load NDE rigs');
+            }
+            return response.json();
+          })
+          .then(data => {
+            syncNdeRigOptions(data.nde_rigs || []);
+          })
+      ]).then(() => {
+        setStatus('Reference data loaded.');
+      }).catch(error => {
+        console.error(error);
+        setStatus('Failed to load reference data.', 'error');
+      });
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      const gridDiv = document.querySelector('#weld-grid');
+      new agGrid.Grid(gridDiv, gridOptions);
+      loadReferenceData().finally(() => loadGrid());
+
+      const addButton = document.getElementById('add-weld-btn');
+      if (addButton) {
+        addButton.addEventListener('click', () => {
+          const newRow = {
+            weld_id: '',
+            nde_number: '',
+            drawing_number: '',
+            material1_heat_number: '',
+            material1_heat_id: null,
+            material1_description: '',
+            material1_grade: '',
+            material1_outer_diameter_in: '',
+            material1_wall_thickness_in: '',
+            material1_wps_number: '',
+            material2_heat_number: '',
+            material2_heat_id: null,
+            material2_description: '',
+            material2_grade: '',
+            material2_outer_diameter_in: '',
+            material2_wall_thickness_in: '',
+            material2_wps_number: '',
+            weld_type: '',
+            date_welded: '',
+            welder_stencil_root_hotpass: '',
+            welder_stencil_fill: '',
+            welder_stencil_fill_additional: '',
+            welder_stencil_cap: '',
+            nde_date: '',
+            nde_rig_name: '',
+            nde_rig_id: null,
+            disposition: 'accepted',
+            disposition_comment: '',
+          };
+          const result = gridOptions.api.applyTransaction({ add: [newRow], addIndex: 0 });
+          if (result.add && result.add.length > 0) {
+            const node = result.add[0];
+            gridOptions.api.setFocusedCell(node.rowIndex, 'weld_id');
+            gridOptions.api.startEditingCell({
+              rowIndex: node.rowIndex,
+              colKey: 'weld_id',
+            });
+          }
+        });
+      }
+    });
+  </script>
+{% endblock %}

@@ -119,9 +119,13 @@
       {
         headerName: 'Material 1 Heat #',
         field: 'material1_heat_number',
-        minWidth: 180,
-        cellEditor: 'agSelectCellEditor',
-        cellEditorParams: () => ({ values: heatNumberOptions }),
+        minWidth: 200,
+        cellEditor: 'agRichSelectCellEditor',
+        cellEditorParams: () => ({
+          values: heatNumberOptions,
+          filterList: true,
+          searchDebounceDelay: 120,
+        }),
         valueSetter: materialHeatValueSetter('material1'),
       },
       { headerName: 'Material 1 Description', field: 'material1_description', minWidth: 200, editable: false },
@@ -132,9 +136,13 @@
       {
         headerName: 'Material 2 Heat #',
         field: 'material2_heat_number',
-        minWidth: 180,
-        cellEditor: 'agSelectCellEditor',
-        cellEditorParams: () => ({ values: heatNumberOptions }),
+        minWidth: 200,
+        cellEditor: 'agRichSelectCellEditor',
+        cellEditorParams: () => ({
+          values: heatNumberOptions,
+          filterList: true,
+          searchDebounceDelay: 120,
+        }),
         valueSetter: materialHeatValueSetter('material2'),
       },
       { headerName: 'Material 2 Description', field: 'material2_description', minWidth: 200, editable: false },

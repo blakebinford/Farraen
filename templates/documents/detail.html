@@ -1,14 +1,52 @@
 {% extends "base.html" %}
 {% block content %}
-<h1 class="h5 mb-3">{{ doc.doc_type }} — {{ doc.number }} v{{ doc.version }}</h1>
-<p class="text-muted">{{ doc.title }}</p>
-<div class="mb-3">
-  <a class="btn btn-outline-primary btn-sm" href="{{ doc.file.url }}" target="_blank">Open</a>
-  <a class="btn btn-outline-secondary btn-sm" href="{% url 'doc_list' org.slug %}">Back</a>
+<div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
+  <div>
+    <h1 class="h5 mb-1">{{ doc.doc_type }} — {{ doc.number }} v{{ doc.version }}</h1>
+    <p class="text-muted mb-0">{{ doc.title }}</p>
+  </div>
+  <div class="d-flex gap-2">
+    <a class="btn btn-outline-primary btn-sm" href="{{ doc.file.url }}" target="_blank">Open</a>
+    <a class="btn btn-outline-secondary btn-sm" href="{% url 'doc_list' org.slug %}">Back</a>
+  </div>
 </div>
-<dl class="row">
-  <dt class="col-sm-3">SHA-256</dt><dd class="col-sm-9"><code>{{ doc.sha256|default:"(pending)" }}</code></dd>
-  <dt class="col-sm-3">Uploaded By</dt><dd class="col-sm-9">{{ doc.uploaded_by }}</dd>
-  <dt class="col-sm-3">Created</dt><dd class="col-sm-9">{{ doc.created_at|date:"Y-m-d H:i" }}</dd>
-</dl>
+
+{% if doc.doc_type == "MTR" and material_heat_form %}
+  <div class="row g-4 align-items-start">
+    <div class="col-12 col-lg-6">
+      <div class="ratio ratio-4x3 border rounded overflow-hidden shadow-sm">
+        <iframe src="{{ doc.file.url }}#view=FitH" title="MTR preview" class="w-100 h-100" loading="lazy"></iframe>
+      </div>
+    </div>
+    <div class="col-12 col-lg-6">
+      <div class="card shadow-sm">
+        <div class="card-body">
+          <h2 class="h5">Material heat details</h2>
+          <p class="text-muted">Provide the heat number and dimensions so the weld log can auto-populate material information.</p>
+          <form method="post" novalidate>
+            {% csrf_token %}
+            {{ material_heat_form|crispy }}
+            <div class="d-flex justify-content-end mt-3">
+              <button type="submit" class="btn btn-primary">Save heat details</button>
+            </div>
+          </form>
+        </div>
+      </div>
+      {% if material_heat %}
+        <p class="small text-muted mt-3">Last updated {{ material_heat.updated_at|date:"Y-m-d H:i" }}.</p>
+      {% endif %}
+    </div>
+  </div>
+  <dl class="row mt-4">
+    <dt class="col-sm-3">SHA-256</dt><dd class="col-sm-9"><code>{{ doc.sha256|default:"(pending)" }}</code></dd>
+    <dt class="col-sm-3">Uploaded By</dt><dd class="col-sm-9">{{ doc.uploaded_by }}</dd>
+    <dt class="col-sm-3">Created</dt><dd class="col-sm-9">{{ doc.created_at|date:"Y-m-d H:i" }}</dd>
+  </dl>
+{% else %}
+  <dl class="row">
+    <dt class="col-sm-3">SHA-256</dt><dd class="col-sm-9"><code>{{ doc.sha256|default:"(pending)" }}</code></dd>
+    <dt class="col-sm-3">Uploaded By</dt><dd class="col-sm-9">{{ doc.uploaded_by }}</dd>
+    <dt class="col-sm-3">Created</dt><dd class="col-sm-9">{{ doc.created_at|date:"Y-m-d H:i" }}</dd>
+  </dl>
+{% endif %}
 {% endblock %}

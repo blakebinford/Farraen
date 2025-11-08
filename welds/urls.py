@@ -14,4 +14,14 @@ urlpatterns = [
         views.weld_log_data,
         name="weld_log_data",
     ),
+    path(
+        "projects/<slug:project_slug>/weld-log/options/heats/",
+        views.material_heat_options,
+        name="weld_material_heat_options",
+    ),
+    path(
+        "projects/<slug:project_slug>/weld-log/options/nde-rigs/",
+        views.nde_rig_options,
+        name="weld_nde_rig_options",
+    ),
 ]

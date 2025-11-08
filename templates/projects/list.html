@@ -9,7 +9,10 @@
   {% for p in projects %}
     <li class="list-group-item d-flex justify-content-between">
       <span>{{ p.name }}</span>
-      <a class="btn btn-outline-secondary btn-sm" href="{% url 'project_drive_root' org.slug p.slug %}">Open Drive</a>
+      <div class="btn-group" role="group">
+        <a class="btn btn-outline-primary btn-sm" href="{% url 'weld_log' org.slug p.slug %}">Weld Log</a>
+        <a class="btn btn-outline-secondary btn-sm" href="{% url 'project_drive_root' org.slug p.slug %}">Open Drive</a>
+      </div>
 
     </li>
   {% empty %}

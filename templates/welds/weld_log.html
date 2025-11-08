@@ -1,0 +1,202 @@
+{% extends "base.html" %}
+
+{% block extra_head %}
+  {{ block.super }}
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@32.3.3/styles/ag-grid.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@32.3.3/styles/ag-theme-alpine.css">
+  <style>
+    .ag-theme-alpine {
+      --ag-foreground-color: #1f2937;
+      --ag-data-color: #1f2937;
+      --ag-header-foreground-color: #0f172a;
+      --ag-border-color: #d1d5db;
+      --ag-font-size: 0.95rem;
+    }
+    #weld-grid {
+      height: 65vh;
+      min-height: 460px;
+    }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/ag-grid-community@32.3.3/dist/ag-grid-community.min.js"></script>
+{% endblock %}
+
+{% block content %}
+  <div class="d-flex flex-wrap align-items-center justify-content-between mb-3 gap-2">
+    <div>
+      <h1 class="h3 mb-1">{{ project.name }} Weld Log</h1>
+      <p class="text-muted mb-0">Inline register for capturing weld information with spreadsheet-style editing.</p>
+    </div>
+    <button class="btn btn-primary" id="add-weld-btn">Add Weld</button>
+  </div>
+
+  <div id="weld-grid" class="ag-theme-alpine"></div>
+  <p class="small text-muted mt-2" id="grid-status" role="status"></p>
+
+  <script>
+    const dataEndpoint = "{{ data_url }}";
+
+    function getCsrfToken() {
+      const name = 'csrftoken=';
+      const cookies = document.cookie.split(';');
+      for (let cookie of cookies) {
+        cookie = cookie.trim();
+        if (cookie.startsWith(name)) {
+          return decodeURIComponent(cookie.substring(name.length));
+        }
+      }
+      return '';
+    }
+
+    const statusEl = document.getElementById('grid-status');
+    let statusTimer = null;
+
+    function setStatus(message, kind = 'info') {
+      if (!statusEl) return;
+      statusEl.textContent = message;
+      statusEl.className = kind === 'error' ? 'text-danger small mt-2' : 'text-muted small mt-2';
+      if (statusTimer) {
+        window.clearTimeout(statusTimer);
+      }
+      if (message) {
+        statusTimer = window.setTimeout(() => {
+          statusEl.textContent = '';
+        }, 4000);
+      }
+    }
+
+    const columnDefs = [
+      { headerName: 'Weld ID', field: 'weld_id', minWidth: 140 },
+      { headerName: 'Joint Type', field: 'joint_type', minWidth: 140 },
+      { headerName: 'Location', field: 'location', minWidth: 160 },
+      { headerName: 'WPS', field: 'wps', minWidth: 140 },
+      { headerName: 'Welder', field: 'welder', minWidth: 140 },
+      { headerName: 'Heat Number', field: 'heat_number', minWidth: 140 },
+      {
+        headerName: 'Status',
+        field: 'status',
+        minWidth: 130,
+        cellEditor: 'agSelectCellEditor',
+        cellEditorParams: {
+          values: ['planned', 'in_progress', 'complete', 'repair']
+        },
+        valueFormatter: params => {
+          const mapping = {
+            planned: 'Planned',
+            in_progress: 'In Progress',
+            complete: 'Complete',
+            repair: 'Repair'
+          };
+          return mapping[params.value] || params.value;
+        }
+      },
+      { headerName: 'Notes', field: 'notes', minWidth: 180, flex: 2 },
+    ];
+
+    const gridOptions = {
+      columnDefs,
+      defaultColDef: {
+        flex: 1,
+        editable: true,
+        resizable: true,
+        sortable: true,
+        filter: true,
+      },
+      animateRows: true,
+      rowSelection: 'single',
+      stopEditingWhenCellsLoseFocus: true,
+      onRowValueChanged: event => {
+        if (!event.data) {
+          return;
+        }
+        if (!event.data.weld_id || String(event.data.weld_id).trim() === '') {
+          setStatus('Please provide a Weld ID before saving.', 'error');
+          event.node.setDataValue('weld_id', String(event.oldData?.weld_id || ''));
+          return;
+        }
+        persistRow(event);
+      },
+    };
+
+    function loadGrid() {
+      setStatus('Loading weld log...');
+      fetch(dataEndpoint, {
+        credentials: 'same-origin',
+      })
+        .then(response => {
+          if (!response.ok) {
+            throw new Error('Unable to load weld log');
+          }
+          return response.json();
+        })
+        .then(payload => {
+          gridOptions.api.setRowData(payload.rows || []);
+          setStatus('Weld log loaded.');
+        })
+        .catch(error => {
+          console.error(error);
+          setStatus('Failed to load weld log.', 'error');
+        });
+    }
+
+    function persistRow(event) {
+      const payload = { ...event.data };
+      setStatus('Saving row...');
+      fetch(dataEndpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': getCsrfToken(),
+        },
+        credentials: 'same-origin',
+        body: JSON.stringify(payload),
+      })
+        .then(response => response.json().then(data => ({ response, data })))
+        .then(({ response, data }) => {
+          if (!response.ok || data.error) {
+            const message = data.error || 'Unable to save weld row.';
+            throw new Error(message);
+          }
+          event.node.setData(data.weld);
+          setStatus('Row saved.');
+        })
+        .catch(error => {
+          console.error(error);
+          setStatus(error.message, 'error');
+          if (event.oldData) {
+            event.node.setData(event.oldData);
+          }
+        });
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      const gridDiv = document.querySelector('#weld-grid');
+      new agGrid.Grid(gridDiv, gridOptions);
+      loadGrid();
+
+      const addButton = document.getElementById('add-weld-btn');
+      if (addButton) {
+        addButton.addEventListener('click', () => {
+          const newRow = {
+            weld_id: '',
+            joint_type: '',
+            location: '',
+            wps: '',
+            welder: '',
+            heat_number: '',
+            status: 'planned',
+            notes: '',
+          };
+          const result = gridOptions.api.applyTransaction({ add: [newRow], addIndex: 0 });
+          if (result.add && result.add.length > 0) {
+            const node = result.add[0];
+            gridOptions.api.setFocusedCell(node.rowIndex, 'weld_id');
+            gridOptions.api.startEditingCell({
+              rowIndex: node.rowIndex,
+              colKey: 'weld_id',
+            });
+          }
+        });
+      }
+    });
+  </script>
+{% endblock %}

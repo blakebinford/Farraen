@@ -276,6 +276,30 @@
       },
     };
 
+    function logFetchError(context, error) {
+      const details = {
+        context,
+        message: error && error.message,
+        status: error && error.status,
+        body: error && error.body,
+        stack: error && error.stack,
+      };
+      console.error(`[${context}] request failed`, details);
+    }
+
+    function logFetchSuccess(context, { status, payload }) {
+      console.debug(`[${context}] request succeeded`, { status, payload });
+    }
+
+    function handleErrorResponse(response, context) {
+      return response.text().then(text => {
+        const error = new Error(`${context} failed with status ${response.status}`);
+        error.status = response.status;
+        error.body = text;
+        throw error;
+      });
+    }
+
     function loadGrid() {
       if (!gridApi) {
         return;
@@ -286,17 +310,18 @@
       })
         .then(response => {
           if (!response.ok) {
-            throw new Error('Unable to load weld log');
+            return handleErrorResponse(response, 'Weld log load');
           }
-          return response.json();
+          return response.json().then(payload => ({ status: response.status, payload }));
         })
-        .then(payload => {
+        .then(({ payload, status }) => {
+          logFetchSuccess('Weld log load', { status, payload });
           gridApi.setRowData(payload.rows || []);
           gridApi.forEachNode(node => ensureRowFlags(node));
           setStatus('Weld log loaded.');
         })
         .catch(error => {
-          console.error(error);
+          logFetchError('Weld log load', error);
           setStatus('Failed to load weld log.', 'error');
         });
     }
@@ -331,18 +356,26 @@
         credentials: 'same-origin',
         body: JSON.stringify(payload),
       })
-        .then(response => response.json().then(data => ({ response, data })))
+        .then(response => {
+          return response.json()
+            .catch(() => ({ }))
+            .then(data => ({ response, data }));
+        })
         .then(({ response, data }) => {
           if (!response.ok || data.error) {
             const message = data.error || 'Unable to save weld row.';
-            throw new Error(message);
+            const error = new Error(message);
+            error.status = response.status;
+            error.body = JSON.stringify(data);
+            throw error;
           }
+          logFetchSuccess('Weld row save', { status: response.status, payload: data });
           node.updateData(data.weld);
           ensureRowFlags(node);
           setStatus('All changes saved.');
         })
         .catch(error => {
-          console.error(error);
+          logFetchError('Weld row save', error);
           setStatus(error.message, 'error');
         })
         .finally(() => {
@@ -360,27 +393,29 @@
         fetch(heatOptionsEndpoint, { credentials: 'same-origin' })
           .then(response => {
             if (!response.ok) {
-              throw new Error('Unable to load heat options');
+              return handleErrorResponse(response, 'Heat options load');
             }
-            return response.json();
+            return response.json().then(payload => ({ status: response.status, payload }));
           })
-          .then(data => {
-            syncHeatOptions(data.heats || []);
+          .then(({ payload, status }) => {
+            logFetchSuccess('Heat options load', { status, payload });
+            syncHeatOptions(payload.heats || []);
           }),
         fetch(ndeRigsEndpoint, { credentials: 'same-origin' })
           .then(response => {
             if (!response.ok) {
-              throw new Error('Unable to load NDE rigs');
+              return handleErrorResponse(response, 'NDE rigs load');
             }
-            return response.json();
+            return response.json().then(payload => ({ status: response.status, payload }));
           })
-          .then(data => {
-            syncNdeRigOptions(data.nde_rigs || []);
+          .then(({ payload, status }) => {
+            logFetchSuccess('NDE rigs load', { status, payload });
+            syncNdeRigOptions(payload.nde_rigs || []);
           })
       ]).then(() => {
         setStatus('Reference data loaded.');
       }).catch(error => {
-        console.error(error);
+        logFetchError('Reference data load', error);
         setStatus('Failed to load reference data.', 'error');
       });
     }

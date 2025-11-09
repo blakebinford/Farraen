@@ -1,4 +1,5 @@
 import json
+import logging
 from decimal import Decimal, InvalidOperation
 
 from django.db import connection
@@ -14,6 +15,9 @@ from projects.utils import get_project_for_request, user_has_project_access
 from .models import MaterialHeat, NDERig, Weld
 
 
+logger = logging.getLogger(__name__)
+
+
 def _existing_table_names():
     return set(connection.introspection.table_names())
 
@@ -25,7 +29,10 @@ def _missing_weld_tables():
         NDERig._meta.db_table: "NDE rigs",
         Weld._meta.db_table: "weld log entries",
     }
-    return [label for table, label in required.items() if table not in existing]
+    missing = [label for table, label in required.items() if table not in existing]
+    if missing:
+        logger.warning("Missing weld tables detected", extra={"missing": missing})
+    return missing
 
 
 def _migrations_required_message(missing_labels):
@@ -100,10 +107,28 @@ def weld_log(request, org_slug, project_slug):
     project = get_project_for_request(request, request.org, project_slug)
     forbidden = _require_project_membership(request, project)
     if forbidden:
+        logger.warning(
+            "User without access attempted to load weld log",
+            extra={
+                "user_id": getattr(request.user, "id", None),
+                "org_slug": org_slug,
+                "project_slug": project_slug,
+            },
+        )
         return forbidden
 
     missing_tables = _missing_weld_tables()
     setup_error = _migrations_required_message(missing_tables)
+
+    logger.info(
+        "Rendering weld log",
+        extra={
+            "user_id": getattr(request.user, "id", None),
+            "org_slug": org_slug,
+            "project_slug": project_slug,
+            "setup_error": setup_error,
+        },
+    )
 
     context = {
         "org": request.org,
@@ -148,11 +173,28 @@ def weld_log_data(request, org_slug, project_slug):
     project = get_project_for_request(request, request.org, project_slug)
     forbidden = _require_project_membership(request, project)
     if forbidden:
+        logger.warning(
+            "User without access attempted to query weld log data",
+            extra={
+                "user_id": getattr(request.user, "id", None),
+                "org_slug": org_slug,
+                "project_slug": project_slug,
+            },
+        )
         return forbidden
 
     missing_tables = _missing_weld_tables()
     if missing_tables:
         message = _migrations_required_message(missing_tables)
+        logger.error(
+            "Weld log data unavailable due to missing tables",
+            extra={
+                "user_id": getattr(request.user, "id", None),
+                "org_slug": org_slug,
+                "project_slug": project_slug,
+                "missing": missing_tables,
+            },
+        )
         return JsonResponse({"error": message}, status=503)
 
     if request.method == "GET":
@@ -162,15 +204,40 @@ def weld_log_data(request, org_slug, project_slug):
                 "material1_heat", "material2_heat", "nde_rig"
             )
         ]
+        logger.info(
+            "Loaded weld log rows",
+            extra={
+                "user_id": getattr(request.user, "id", None),
+                "org_slug": org_slug,
+                "project_slug": project_slug,
+                "row_count": len(rows),
+            },
+        )
         return JsonResponse({"rows": rows})
 
     try:
         payload = json.loads(request.body.decode("utf-8")) if request.body else {}
     except json.JSONDecodeError:
+        logger.exception(
+            "Failed to decode weld log payload",
+            extra={
+                "user_id": getattr(request.user, "id", None),
+                "org_slug": org_slug,
+                "project_slug": project_slug,
+            },
+        )
         return HttpResponseBadRequest("Invalid JSON body")
 
     weld_id = payload.get("weld_id", "").strip()
     if not weld_id:
+        logger.warning(
+            "Rejecting weld save without weld_id",
+            extra={
+                "user_id": getattr(request.user, "id", None),
+                "org_slug": org_slug,
+                "project_slug": project_slug,
+            },
+        )
         return JsonResponse({"error": "Weld ID is required."}, status=400)
 
     def _clean_text(key):
@@ -208,6 +275,15 @@ def weld_log_data(request, org_slug, project_slug):
             "material2_wall_thickness_in"
         )
     except ValueError as exc:
+        logger.warning(
+            "Rejecting weld save with invalid decimal",
+            extra={
+                "user_id": getattr(request.user, "id", None),
+                "org_slug": org_slug,
+                "project_slug": project_slug,
+                "field": exc.args[0],
+            },
+        )
         return JsonResponse(
             {"error": f"Invalid numeric value for {exc.args[0].replace('_', ' ')}."},
             status=400,
@@ -217,6 +293,15 @@ def weld_log_data(request, org_slug, project_slug):
         date_welded = _parse_date_field("date_welded")
         nde_date = _parse_date_field("nde_date")
     except ValueError as exc:
+        logger.warning(
+            "Rejecting weld save with invalid date",
+            extra={
+                "user_id": getattr(request.user, "id", None),
+                "org_slug": org_slug,
+                "project_slug": project_slug,
+                "field": exc.args[0],
+            },
+        )
         return JsonResponse(
             {"error": f"Invalid date value for {exc.args[0].replace('_', ' ')}."},
             status=400,
@@ -230,6 +315,15 @@ def weld_log_data(request, org_slug, project_slug):
                 pk=material1_heat_id, org=request.org, is_active=True
             )
         except MaterialHeat.DoesNotExist:
+            logger.warning(
+                "Rejecting weld save with invalid material1 heat",
+                extra={
+                    "user_id": getattr(request.user, "id", None),
+                    "org_slug": org_slug,
+                    "project_slug": project_slug,
+                    "heat_id": material1_heat_id,
+                },
+            )
             return JsonResponse(
                 {"error": "Invalid Material 1 heat selection."}, status=400
             )
@@ -242,6 +336,15 @@ def weld_log_data(request, org_slug, project_slug):
                 pk=material2_heat_id, org=request.org, is_active=True
             )
         except MaterialHeat.DoesNotExist:
+            logger.warning(
+                "Rejecting weld save with invalid material2 heat",
+                extra={
+                    "user_id": getattr(request.user, "id", None),
+                    "org_slug": org_slug,
+                    "project_slug": project_slug,
+                    "heat_id": material2_heat_id,
+                },
+            )
             return JsonResponse(
                 {"error": "Invalid Material 2 heat selection."}, status=400
             )
@@ -254,14 +357,41 @@ def weld_log_data(request, org_slug, project_slug):
                 pk=nde_rig_id, org=request.org, is_active=True
             )
         except NDERig.DoesNotExist:
+            logger.warning(
+                "Rejecting weld save with invalid NDE rig",
+                extra={
+                    "user_id": getattr(request.user, "id", None),
+                    "org_slug": org_slug,
+                    "project_slug": project_slug,
+                    "nde_rig_id": nde_rig_id,
+                },
+            )
             return JsonResponse({"error": "Invalid NDE rig."}, status=400)
 
     disposition = payload.get("disposition", Weld.Disposition.ACCEPTED)
     if disposition not in Weld.Disposition.values:
+        logger.warning(
+            "Rejecting weld save with invalid disposition",
+            extra={
+                "user_id": getattr(request.user, "id", None),
+                "org_slug": org_slug,
+                "project_slug": project_slug,
+                "disposition": disposition,
+            },
+        )
         return JsonResponse({"error": "Invalid weld disposition."}, status=400)
 
     disposition_comment = _clean_text("disposition_comment")
     if disposition in {Weld.Disposition.REPAIR, Weld.Disposition.CUT_OUT} and not disposition_comment:
+        logger.warning(
+            "Rejecting weld save missing disposition comment",
+            extra={
+                "user_id": getattr(request.user, "id", None),
+                "org_slug": org_slug,
+                "project_slug": project_slug,
+                "disposition": disposition,
+            },
+        )
         return JsonResponse(
             {"error": "Comments are required when the weld is marked for repair or cut out."},
             status=400,
@@ -312,15 +442,44 @@ def weld_log_data(request, org_slug, project_slug):
     if weld_pk:
         weld = get_object_or_404(Weld, pk=weld_pk, project=project)
         if existing_qs.exclude(pk=weld.pk).exists():
+            logger.warning(
+                "Rejecting weld update due to duplicate weld_id",
+                extra={
+                    "user_id": getattr(request.user, "id", None),
+                    "org_slug": org_slug,
+                    "project_slug": project_slug,
+                    "weld_id": weld_id,
+                    "weld_pk": weld_pk,
+                },
+            )
             return JsonResponse({"error": "Weld ID already exists for this project."}, status=400)
         weld.weld_id = weld_id
         for field, value in attrs.items():
             setattr(weld, field, value)
         weld.updated_by = request.user
         weld.save()
+        logger.info(
+            "Updated weld entry",
+            extra={
+                "user_id": getattr(request.user, "id", None),
+                "org_slug": org_slug,
+                "project_slug": project_slug,
+                "weld_id": weld_id,
+                "weld_pk": weld.pk,
+            },
+        )
         return JsonResponse({"weld": _serialize_weld(weld)})
 
     if existing_qs.exists():
+        logger.warning(
+            "Rejecting weld create due to duplicate weld_id",
+            extra={
+                "user_id": getattr(request.user, "id", None),
+                "org_slug": org_slug,
+                "project_slug": project_slug,
+                "weld_id": weld_id,
+            },
+        )
         return JsonResponse({"error": "Weld ID already exists for this project."}, status=400)
 
     weld = Weld.objects.create(
@@ -330,6 +489,16 @@ def weld_log_data(request, org_slug, project_slug):
         updated_by=request.user,
         **attrs,
     )
+    logger.info(
+        "Created weld entry",
+        extra={
+            "user_id": getattr(request.user, "id", None),
+            "org_slug": org_slug,
+            "project_slug": project_slug,
+            "weld_id": weld_id,
+            "weld_pk": weld.pk,
+        },
+    )
     return JsonResponse({"weld": _serialize_weld(weld)}, status=201)
 
 
@@ -338,11 +507,28 @@ def material_heat_options(request, org_slug, project_slug):
     project = get_project_for_request(request, request.org, project_slug)
     forbidden = _require_project_membership(request, project)
     if forbidden:
+        logger.warning(
+            "User without access attempted to query heat options",
+            extra={
+                "user_id": getattr(request.user, "id", None),
+                "org_slug": org_slug,
+                "project_slug": project_slug,
+            },
+        )
         return forbidden
 
     missing_tables = _missing_weld_tables()
     if missing_tables:
         message = _migrations_required_message(missing_tables)
+        logger.error(
+            "Heat options unavailable due to missing tables",
+            extra={
+                "user_id": getattr(request.user, "id", None),
+                "org_slug": org_slug,
+                "project_slug": project_slug,
+                "missing": missing_tables,
+            },
+        )
         return JsonResponse({"error": message}, status=503)
 
     heats = MaterialHeat.objects.filter(org=request.org, is_active=True).order_by(
@@ -361,6 +547,15 @@ def material_heat_options(request, org_slug, project_slug):
                 "wps_number": heat.wps_number,
             }
         )
+    logger.info(
+        "Loaded heat options",
+        extra={
+            "user_id": getattr(request.user, "id", None),
+            "org_slug": org_slug,
+            "project_slug": project_slug,
+            "heat_count": len(data),
+        },
+    )
     return JsonResponse({"heats": data})
 
 
@@ -369,11 +564,28 @@ def nde_rig_options(request, org_slug, project_slug):
     project = get_project_for_request(request, request.org, project_slug)
     forbidden = _require_project_membership(request, project)
     if forbidden:
+        logger.warning(
+            "User without access attempted to query NDE rigs",
+            extra={
+                "user_id": getattr(request.user, "id", None),
+                "org_slug": org_slug,
+                "project_slug": project_slug,
+            },
+        )
         return forbidden
 
     missing_tables = _missing_weld_tables()
     if missing_tables:
         message = _migrations_required_message(missing_tables)
+        logger.error(
+            "NDE rig options unavailable due to missing tables",
+            extra={
+                "user_id": getattr(request.user, "id", None),
+                "org_slug": org_slug,
+                "project_slug": project_slug,
+                "missing": missing_tables,
+            },
+        )
         return JsonResponse({"error": message}, status=503)
 
     rigs = NDERig.objects.filter(org=request.org, is_active=True).order_by("name")
@@ -384,4 +596,13 @@ def nde_rig_options(request, org_slug, project_slug):
         }
         for rig in rigs
     ]
+    logger.info(
+        "Loaded NDE rig options",
+        extra={
+            "user_id": getattr(request.user, "id", None),
+            "org_slug": org_slug,
+            "project_slug": project_slug,
+            "nde_rig_count": len(data),
+        },
+    )
     return JsonResponse({"nde_rigs": data})

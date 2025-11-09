@@ -5,7 +5,6 @@ import os
 from django.conf import settings
 from django.contrib import messages
 from django.urls import reverse
-from django.db.models import OuterRef, Subquery, Max
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
 from django.utils.text import slugify
@@ -15,14 +14,14 @@ from django.http import (
     HttpResponseBadRequest,
     HttpResponseForbidden,
     HttpResponseRedirect,
+    JsonResponse,
 )
 from django.utils.encoding import iri_to_uri
 from django.utils import timezone
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.clickjacking import xframe_options_sameorigin
-from django.views.decorators.http import require_POST
+from django.core.exceptions import ValidationError
 
-from accounts.models import User
 from organizations.models import Membership
 from organizations.decorators import require_membership
 from .models import Folder, FileNode, FileVersion, FileEvent
@@ -77,90 +76,96 @@ def project_drive_root(request, org_slug, project_slug):
 def folder_view(request, org_slug, project_slug, folder_id):
     org = request.org
     folder = get_object_or_404(Folder, pk=folder_id, org=org)
+    project = folder.project
 
-    # Prefetch/annotate latest version metadata for files
-    latest_version_qs = FileVersion.objects.filter(file_node=OuterRef("pk")).order_by("-version")
-    files_qs = (
-        FileNode.objects.filter(org=org, folder=folder)
-        .select_related("project", "folder")
-        .annotate(
-            latest_version_num=Subquery(latest_version_qs.values("version")[:1]),
-            latest_size=Subquery(latest_version_qs.values("size")[:1]),
-            latest_ct=Subquery(latest_version_qs.values("content_type")[:1]),
-            latest_when=Subquery(latest_version_qs.values("created_at")[:1]),
-            latest_who_id=Subquery(latest_version_qs.values("uploaded_by_id")[:1]),
-        )
+    child_folders = (
+        Folder.objects.filter(org=org, parent=folder)
+        .select_related("project")
+        .order_by("name")
     )
 
-    # You may also want to fetch the users (for latest_who display)
-    user_map = {u.id: u for u in User.objects.filter(id__in=files_qs.values_list("latest_who_id", flat=True))}
-
-    # Build entry list
-    entries = []
-
-    # Folders first
-    child_folders = Folder.objects.filter(org=org, parent=folder).order_by("name")
-    for f in child_folders:
-        entries.append({
-            "kind": "folder",
-            "name": f.name,
-            "icon": "folder",
-            "size": None,
-            "content_type": "folder",
-            "modified_at": getattr(f, "updated_at", None) or getattr(f, "created_at", None),
-            "modified_by": "",
-            "href": reverse("drive_folder", kwargs={
-                "org_slug": org.slug,
-                "project_slug": f.project.slug,
-                "folder_id": f.id
-            }),
-            "tooltip": "Open folder",
-        })
-
-    # Then files, ordered by name (or whatever you prefer)
-    for n in files_qs.order_by("name"):
-        modified_by = ""
-        if n.latest_who_id and n.latest_who_id in user_map:
-            u = user_map[n.latest_who_id]
-            modified_by = u.get_full_name() or u.email or u.username
-
-        entries.append({
-            "kind": "file",
-            "name": n.name,
-            "icon": n.latest_ct or "",  # content-type; mapped by template filter
-            "size": n.latest_size or n.size,
-            "content_type": n.latest_ct or "",
-            "modified_at": n.latest_when,
-            "modified_by": modified_by,
-            "href": reverse("drive_file", kwargs={  # <-- make files clickable
-                "org_slug": org.slug,
-                "project_slug": folder.project.slug,
-                "file_id": n.id,
-            }),
-            "download_url": reverse("drive_file_download", kwargs={  # quick download
-                "org_slug": org.slug,
-                "project_slug": folder.project.slug,
-                "file_id": n.id,
-            }),
-            "tooltip": f"{(n.latest_size or n.size or 0)} bytes",
-        })
+    files = (
+        FileNode.objects.filter(org=org, folder=folder)
+        .select_related("latest_version", "checked_out_by")
+        .order_by("doc_type", "number", "name")
+    )
 
     allowed_list = sorted(list(getattr(settings, "ALLOWED_CONTENT_TYPES", [])))
     context = {
-        "org": request.org,
-        "project": folder.project,
+        "org": org,
+        "project": project,
         "folder": folder,
-        "entries": entries,
+        "child_folders": child_folders,
+        "files": files,
+        "doc_type_choices": FileNode.DocType.choices,
         "max_upload_mb": getattr(settings, "MAX_UPLOAD_SIZE_MB", 50),
-        "allowed_types": allowed_list,  # for display
-        "allowed_types_json": json.dumps(allowed_list),  # for data-* attribute
-        "upload_url": reverse("drive_upload", kwargs={
-            "org_slug": request.org.slug,
-            "project_slug": folder.project.slug,
-            "folder_id": folder.id,
-        }),
+        "allowed_types": allowed_list,
+        "allowed_types_json": json.dumps(allowed_list),
+        "upload_url": reverse(
+            "drive_upload",
+            kwargs={
+                "org_slug": org.slug,
+                "project_slug": project.slug,
+                "folder_id": folder.id,
+            },
+        ),
     }
     return render(request, "drive/folder_view.html", context)
+
+
+@login_required
+@require_membership("MEMBER")
+@require_POST
+def file_inline_update(request, org_slug, project_slug, file_id):
+    project = get_project_for_request(request, request.org, project_slug)
+    forbidden = _require_project_access(request, project)
+    if forbidden:
+        return forbidden
+
+    node = get_object_or_404(
+        FileNode.objects.select_related("latest_version"),
+        pk=file_id,
+        org=request.org,
+        project=project,
+    )
+
+    if request.content_type and "application/json" in request.content_type:
+        try:
+            payload = json.loads(request.body or "{}")
+        except json.JSONDecodeError:
+            return JsonResponse({"error": "Invalid JSON payload."}, status=400)
+    else:
+        payload = request.POST
+
+    field = (payload.get("field") or "").strip()
+    raw_value = payload.get("value", "")
+    value = raw_value.strip()
+
+    editable_fields = {"number", "name", "doc_type"}
+    if field not in editable_fields:
+        return JsonResponse({"error": "This field cannot be updated inline."}, status=400)
+
+    if field in {"number", "name"} and not value:
+        return JsonResponse({"error": "This field cannot be empty."}, status=400)
+
+    if field == "doc_type":
+        value = value.upper()
+        valid_doc_types = {choice for choice, _ in FileNode.DocType.choices if choice}
+        if value and value not in valid_doc_types:
+            return JsonResponse({"error": "Unknown document type."}, status=400)
+
+    setattr(node, field, value)
+
+    try:
+        node.save(update_fields=[field])
+    except ValidationError as exc:
+        return JsonResponse({"error": "; ".join(exc.messages)}, status=400)
+
+    display_value = value or "—"
+    if field == "doc_type":
+        display_value = node.get_doc_type_display() or value or "—"
+
+    return JsonResponse({"value": value, "display": display_value})
 
 @login_required
 @require_membership("MEMBER")  # members+ can create

@@ -9,6 +9,11 @@ urlpatterns = [
     path("drive/f/<int:folder_id>/upload/", views.file_upload, name="drive_upload"),
 
     path("drive/file/<int:file_id>/", views.file_detail, name="drive_file"),
+    path(
+        "drive/file/<int:file_id>/inline-update/",
+        views.file_inline_update,
+        name="drive_file_inline_update",
+    ),
     path("drive/file/<int:file_id>/download/", views.file_download_latest, name="drive_file_download"),
     path("drive/file/<int:file_id>/preview/", views.file_stream_latest, name="drive_file_stream"),  # NEW
 

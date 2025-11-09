@@ -73,6 +73,56 @@
       }
     }
 
+    function ensureRowFlags(node) {
+      if (!node) {
+        return;
+      }
+      if (typeof node.__saving !== 'boolean') {
+        node.__saving = false;
+      }
+      if (typeof node.__needsSaveAfterInFlight !== 'boolean') {
+        node.__needsSaveAfterInFlight = false;
+      }
+    }
+
+    const pendingSaveTimers = new Map();
+
+    function clearPendingSave(node) {
+      if (!node) return;
+      const timer = pendingSaveTimers.get(node.id);
+      if (timer) {
+        window.clearTimeout(timer);
+        pendingSaveTimers.delete(node.id);
+      }
+    }
+
+    function queuePersist(node, { immediate = false } = {}) {
+      if (!node || !node.data) {
+        return;
+      }
+
+      ensureRowFlags(node);
+
+      const weldId = String(node.data.weld_id || '').trim();
+      if (!weldId) {
+        setStatus('Enter a Weld ID to start saving this row.', 'error');
+        return;
+      }
+
+      if (node.__saving) {
+        node.__needsSaveAfterInFlight = true;
+        return;
+      }
+
+      const delay = immediate ? 0 : 400;
+      clearPendingSave(node);
+      const timer = window.setTimeout(() => {
+        pendingSaveTimers.delete(node.id);
+        persistRow(node);
+      }, delay);
+      pendingSaveTimers.set(node.id, timer);
+    }
+
     const heatNumberOptions = [];
     const heatLookupByNumber = new Map();
     const ndeRigNameOptions = [];
@@ -203,16 +253,20 @@
       animateRows: true,
       rowSelection: 'single',
       stopEditingWhenCellsLoseFocus: true,
-      onRowValueChanged: event => {
-        if (!event.data) {
+      onCellValueChanged: event => {
+        if (!event.node) {
           return;
         }
-        if (!event.data.weld_id || String(event.data.weld_id).trim() === '') {
-          setStatus('Please provide a Weld ID before saving.', 'error');
-          event.node.setDataValue('weld_id', String(event.oldData?.weld_id || ''));
-          return;
+        if (event.column && event.column.getColId() === 'weld_id') {
+          const nextValue = String(event.newValue || '').trim();
+          if (!nextValue) {
+            const previous = event.oldValue !== undefined ? event.oldValue : '';
+            event.node.setDataValue('weld_id', previous || '');
+            setStatus('Weld ID cannot be empty.', 'error');
+            return;
+          }
         }
-        persistRow(event);
+        queuePersist(event.node);
       },
     };
 
@@ -229,6 +283,7 @@
         })
         .then(payload => {
           gridOptions.api.setRowData(payload.rows || []);
+          gridOptions.api.forEachNode(node => ensureRowFlags(node));
           setStatus('Weld log loaded.');
         })
         .catch(error => {
@@ -237,12 +292,27 @@
         });
     }
 
-    function persistRow(event) {
-      const payload = { ...event.data };
+    function persistRow(node) {
+      if (!node || !node.data) {
+        return;
+      }
+
+      ensureRowFlags(node);
+
+      const payload = { ...node.data };
       if (payload.material1_heat_id === '') payload.material1_heat_id = null;
       if (payload.material2_heat_id === '') payload.material2_heat_id = null;
       if (payload.nde_rig_id === '') payload.nde_rig_id = null;
-      setStatus('Saving row...');
+      delete payload.__client_id;
+
+      const weldId = String(payload.weld_id || '').trim();
+      if (!weldId) {
+        setStatus('Enter a Weld ID to start saving this row.', 'error');
+        return;
+      }
+
+      node.__saving = true;
+      setStatus('Saving changes...');
       fetch(dataEndpoint, {
         method: 'POST',
         headers: {
@@ -258,14 +328,19 @@
             const message = data.error || 'Unable to save weld row.';
             throw new Error(message);
           }
-          event.node.setData(data.weld);
-          setStatus('Row saved.');
+          node.updateData(data.weld);
+          ensureRowFlags(node);
+          setStatus('All changes saved.');
         })
         .catch(error => {
           console.error(error);
           setStatus(error.message, 'error');
-          if (event.oldData) {
-            event.node.setData(event.oldData);
+        })
+        .finally(() => {
+          node.__saving = false;
+          if (node.__needsSaveAfterInFlight) {
+            node.__needsSaveAfterInFlight = false;
+            queuePersist(node, { immediate: true });
           }
         });
     }
@@ -342,6 +417,7 @@
           const result = gridOptions.api.applyTransaction({ add: [newRow], addIndex: 0 });
           if (result.add && result.add.length > 0) {
             const node = result.add[0];
+            ensureRowFlags(node);
             gridOptions.api.setFocusedCell(node.rowIndex, 'weld_id');
             gridOptions.api.startEditingCell({
               rowIndex: node.rowIndex,

@@ -14,7 +14,11 @@ from .models import Document
 @login_required
 @require_membership("MEMBER")  # guests read-only; members+ can upload
 def doc_list(request, org_slug):
-    docs = Document.objects.filter(org=request.org).order_by("doc_type","number","-version")
+    docs = (
+        Document.objects.filter(org=request.org)
+        .select_related("latest_version")
+        .order_by("doc_type", "number", "-latest_version__version", "name")
+    )
     return render(request, "documents/list.html", {"org": request.org, "docs": docs})
 
 @login_required
@@ -23,17 +27,7 @@ def doc_upload(request, org_slug):
     if request.method == "POST":
         form = DocumentForm(request.POST, request.FILES)
         if form.is_valid():
-            base = form.save(commit=False)
-            base.org = request.org
-            base.uploaded_by = request.user
-            # auto-increment version when same (org, type, number) exists
-            latest = (
-                Document.objects.filter(org=request.org, doc_type=base.doc_type, number=base.number)
-                .order_by("-version")
-                .first()
-            )
-            base.version = 1 if not latest else latest.version + 1
-            base.save()
+            form.save(org=request.org, user=request.user)
             return redirect("doc_list", org_slug=request.org.slug)
     else:
         form = DocumentForm()
@@ -42,7 +36,11 @@ def doc_upload(request, org_slug):
 @login_required
 @require_membership("GUEST")  # guests allowed to view
 def doc_detail(request, org_slug, doc_id):
-    doc = get_object_or_404(Document, pk=doc_id, org=request.org)
+    doc = get_object_or_404(
+        Document.objects.select_related("latest_version", "latest_version__uploaded_by"),
+        pk=doc_id,
+        org=request.org,
+    )
 
     material_heat_form = None
     material_heat = None

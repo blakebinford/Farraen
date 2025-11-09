@@ -13,16 +13,63 @@
   {% block extra_head %}{% endblock %}
 </head>
 <body>
-<nav class="navbar navbar-expand-lg bg-light border-bottom">
+<nav class="navbar navbar-expand-lg navbar-light bg-light border-bottom mb-3">
   <div class="container-fluid">
     <a class="navbar-brand" href="/">WeldLog</a>
-    <div class="d-flex">
-      {% if user.is_authenticated %}
-        <span class="me-3 text-secondary">{{ user.email }}</span>
-        <a class="btn btn-outline-secondary" href="/accounts/logout/">Logout</a>
-      {% else %}
-        <a class="btn btn-primary" href="/accounts/login/">Login</a>
-      {% endif %}
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#mainNav"
+            aria-controls="mainNav" aria-expanded="false" aria-label="Toggle navigation">
+      <span class="navbar-toggler-icon"></span>
+    </button>
+    <div class="collapse navbar-collapse" id="mainNav">
+      {% with match=request.resolver_match %}
+        {% with url_name=match.url_name|default:'' %}
+          {% if request.org %}
+            <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+              <li class="nav-item">
+                <a class="nav-link{% if url_name == 'org_dashboard' %} active{% endif %}" href="{% url 'org_dashboard' request.org.slug %}">Dashboard</a>
+              </li>
+              <li class="nav-item">
+                <a class="nav-link{% if url_name == 'doc_list' or url_name == 'doc_detail' or url_name == 'doc_upload' %} active{% endif %}"
+                   href="{% url 'doc_list' request.org.slug %}">Documents</a>
+              </li>
+              <li class="nav-item">
+                <a class="nav-link{% if url_name == 'project_list' or url_name == 'project_create' %} active{% endif %}"
+                   href="{% url 'project_list' request.org.slug %}">Projects</a>
+              </li>
+              {% if project %}
+                <li class="nav-item dropdown">
+                  <a class="nav-link dropdown-toggle{% if url_name == 'weld_log' or 'drive_' in url_name %} active{% endif %}"
+                     href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                    {{ project.name }}
+                  </a>
+                  <ul class="dropdown-menu">
+                    <li>
+                      <a class="dropdown-item" href="{% url 'project_drive_root' request.org.slug project.slug %}">Project Drive</a>
+                    </li>
+                    <li>
+                      <a class="dropdown-item" href="{% url 'weld_log' request.org.slug project.slug %}">Weld Log</a>
+                    </li>
+                  </ul>
+                </li>
+              {% endif %}
+              <li class="nav-item">
+                <a class="nav-link{% if url_name == 'org_members' or url_name == 'invite_member' %} active{% endif %}"
+                   href="{% url 'org_members' request.org.slug %}">Members</a>
+              </li>
+            </ul>
+          {% else %}
+            <div class="me-auto"></div>
+          {% endif %}
+        {% endwith %}
+      {% endwith %}
+      <div class="ms-lg-auto d-flex flex-column flex-lg-row align-items-lg-center gap-2">
+        {% if user.is_authenticated %}
+          <span class="text-secondary small">{{ user.email }}</span>
+          <a class="btn btn-outline-secondary btn-sm" href="/accounts/logout/">Logout</a>
+        {% else %}
+          <a class="btn btn-primary btn-sm" href="/accounts/login/">Login</a>
+        {% endif %}
+      </div>
     </div>
   </div>
 </nav>

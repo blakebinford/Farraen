@@ -26,11 +26,26 @@
       <h1 class="h3 mb-1">{{ project.name }} Weld Log</h1>
       <p class="text-muted mb-0">Inline register for capturing weld information with spreadsheet-style editing.</p>
     </div>
-    <button class="btn btn-primary" id="add-weld-btn">Add Weld</button>
+    {% if not setup_error %}
+      <button class="btn btn-primary" id="add-weld-btn">Add Weld</button>
+    {% endif %}
   </div>
 
-  <div id="weld-grid" class="ag-theme-alpine"></div>
-  <p class="small text-muted mt-2" id="grid-status" role="status"></p>
+  {% if setup_error %}
+    <div class="alert alert-warning" role="alert">
+      {{ setup_error }}
+    </div>
+  {% else %}
+    <div id="weld-grid" class="ag-theme-alpine"></div>
+    <p class="small text-muted mt-2" id="grid-status" role="status"></p>
+    <details id="grid-debug-panel" class="mt-3" hidden>
+      <summary class="small text-muted">Weld log request diagnostics</summary>
+      <div class="d-flex justify-content-end align-items-center gap-2 mb-2">
+        <span class="badge text-bg-light small" id="grid-debug-count">0 events</span>
+        <button type="button" class="btn btn-sm btn-outline-secondary" id="clear-grid-debug">Clear log</button>
+      </div>
+      <div id="grid-debug-list" class="small d-flex flex-column"></div>
+    </details>
 
   <script>
     const dataEndpoint = "{{ data_url }}";
@@ -58,12 +73,163 @@
       statusEl.className = kind === 'error' ? 'text-danger small mt-2' : 'text-muted small mt-2';
       if (statusTimer) {
         window.clearTimeout(statusTimer);
+        statusTimer = null;
       }
-      if (message) {
+      if (message && kind !== 'error') {
         statusTimer = window.setTimeout(() => {
           statusEl.textContent = '';
         }, 4000);
       }
+    }
+
+    const debugPanel = document.getElementById('grid-debug-panel');
+    const debugListEl = document.getElementById('grid-debug-list');
+    const debugCountEl = document.getElementById('grid-debug-count');
+    const clearDebugButton = document.getElementById('clear-grid-debug');
+    const debugEvents = [];
+
+    function clipText(value, maxLength = 600) {
+      if (value === null || value === undefined) {
+        return '';
+      }
+      const text = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+      if (text.length <= maxLength) {
+        return text;
+      }
+      return `${text.slice(0, maxLength)}…`;
+    }
+
+    function ensureDebugPanelVisible() {
+      if (debugPanel && debugPanel.hasAttribute('hidden')) {
+        debugPanel.removeAttribute('hidden');
+      }
+    }
+
+    function renderDebugEvents() {
+      if (!debugListEl) {
+        return;
+      }
+      debugListEl.innerHTML = '';
+      debugEvents.forEach(event => {
+        const row = document.createElement('div');
+        row.className = 'border rounded p-2 mb-2 bg-body-tertiary';
+
+        const header = document.createElement('div');
+        header.className = 'd-flex justify-content-between align-items-start gap-2';
+
+        const title = document.createElement('div');
+        title.className = 'fw-semibold';
+        title.textContent = `[${event.level.toUpperCase()}] ${event.context}`;
+
+        const time = document.createElement('time');
+        time.className = 'text-muted small text-end flex-shrink-0';
+        time.dateTime = event.timestamp.toISOString();
+        time.textContent = event.timestamp.toLocaleTimeString();
+
+        header.appendChild(title);
+        header.appendChild(time);
+        row.appendChild(header);
+
+        const message = document.createElement('div');
+        message.className = 'small mt-2';
+        const statusSuffix = event.status ? ` (HTTP ${event.status})` : '';
+        message.textContent = `${event.message}${statusSuffix}`.trim();
+        row.appendChild(message);
+
+        if (event.body) {
+          const body = document.createElement('pre');
+          body.className = 'small bg-white border rounded p-2 mt-2 overflow-auto';
+          body.textContent = clipText(event.body);
+          row.appendChild(body);
+        }
+
+        debugListEl.appendChild(row);
+      });
+
+      if (debugCountEl) {
+        debugCountEl.textContent = `${debugEvents.length} event${debugEvents.length === 1 ? '' : 's'}`;
+      }
+    }
+
+    function recordDebugEvent({ context, level, message, status = null, body = null }) {
+      const event = {
+        context,
+        level,
+        message: message || '',
+        status,
+        body,
+        timestamp: new Date(),
+      };
+      debugEvents.unshift(event);
+      if (debugEvents.length > 25) {
+        debugEvents.pop();
+      }
+      ensureDebugPanelVisible();
+      renderDebugEvents();
+    }
+
+    function clearDebugEvents() {
+      debugEvents.length = 0;
+      if (debugPanel && !debugPanel.hasAttribute('hidden')) {
+        debugPanel.setAttribute('hidden', '');
+      }
+      renderDebugEvents();
+    }
+
+    if (clearDebugButton) {
+      clearDebugButton.addEventListener('click', () => {
+        clearDebugEvents();
+      });
+    }
+
+    function ensureRowFlags(node) {
+      if (!node) {
+        return;
+      }
+      if (typeof node.__saving !== 'boolean') {
+        node.__saving = false;
+      }
+      if (typeof node.__needsSaveAfterInFlight !== 'boolean') {
+        node.__needsSaveAfterInFlight = false;
+      }
+    }
+
+    const pendingSaveTimers = new Map();
+
+    function clearPendingSave(node) {
+      if (!node) return;
+      const timer = pendingSaveTimers.get(node.id);
+      if (timer) {
+        window.clearTimeout(timer);
+        pendingSaveTimers.delete(node.id);
+      }
+    }
+
+    function queuePersist(node, { immediate = false } = {}) {
+      if (!node || !node.data) {
+        return;
+      }
+
+      ensureRowFlags(node);
+
+      const weldId = String(node.data.weld_id || '').trim();
+      if (!weldId) {
+        setStatus('Enter a Weld ID to start saving this row.', 'error');
+        return;
+      }
+
+      if (node.__saving) {
+        node.__needsSaveAfterInFlight = true;
+        return;
+      }
+
+      const delay = immediate ? 0 : 400;
+      clearPendingSave(node);
+      const timer = window.setTimeout(() => {
+        pendingSaveTimers.delete(node.id);
+        persistRow(node);
+      }, delay);
+      pendingSaveTimers.set(node.id, timer);
     }
 
     const heatNumberOptions = [];
@@ -112,6 +278,8 @@
       return true;
     }
 
+    let gridApi = null;
+
     const columnDefs = [
       { headerName: 'Weld ID', field: 'weld_id', minWidth: 140 },
       { headerName: 'NDE Number', field: 'nde_number', minWidth: 160 },
@@ -119,9 +287,13 @@
       {
         headerName: 'Material 1 Heat #',
         field: 'material1_heat_number',
-        minWidth: 180,
-        cellEditor: 'agSelectCellEditor',
-        cellEditorParams: () => ({ values: heatNumberOptions }),
+        minWidth: 200,
+        cellEditor: 'agRichSelectCellEditor',
+        cellEditorParams: () => ({
+          values: heatNumberOptions,
+          filterList: true,
+          searchDebounceDelay: 120,
+        }),
         valueSetter: materialHeatValueSetter('material1'),
       },
       { headerName: 'Material 1 Description', field: 'material1_description', minWidth: 200, editable: false },
@@ -132,9 +304,13 @@
       {
         headerName: 'Material 2 Heat #',
         field: 'material2_heat_number',
-        minWidth: 180,
-        cellEditor: 'agSelectCellEditor',
-        cellEditorParams: () => ({ values: heatNumberOptions }),
+        minWidth: 200,
+        cellEditor: 'agRichSelectCellEditor',
+        cellEditorParams: () => ({
+          values: heatNumberOptions,
+          filterList: true,
+          searchDebounceDelay: 120,
+        }),
         valueSetter: materialHeatValueSetter('material2'),
       },
       { headerName: 'Material 2 Description', field: 'material2_description', minWidth: 200, editable: false },
@@ -188,46 +364,146 @@
       animateRows: true,
       rowSelection: 'single',
       stopEditingWhenCellsLoseFocus: true,
-      onRowValueChanged: event => {
-        if (!event.data) {
+      onGridReady: params => {
+        gridApi = params.api;
+        loadReferenceData().finally(() => loadGrid());
+      },
+      onCellValueChanged: event => {
+        if (!event.node) {
           return;
         }
-        if (!event.data.weld_id || String(event.data.weld_id).trim() === '') {
-          setStatus('Please provide a Weld ID before saving.', 'error');
-          event.node.setDataValue('weld_id', String(event.oldData?.weld_id || ''));
-          return;
+        if (event.column && event.column.getColId() === 'weld_id') {
+          const nextValue = String(event.newValue || '').trim();
+          if (!nextValue) {
+            const previous = event.oldValue !== undefined ? event.oldValue : '';
+            event.node.setDataValue('weld_id', previous || '');
+            setStatus('Weld ID cannot be empty.', 'error');
+            return;
+          }
         }
-        persistRow(event);
+        queuePersist(event.node);
       },
     };
 
+    function logFetchError(context, error) {
+      const details = {
+        context,
+        message: error && error.message,
+        status: error && error.status,
+        body: error && error.body,
+        stack: error && error.stack,
+      };
+      console.error(`[${context}] request failed`, details);
+      recordDebugEvent({
+        context,
+        level: 'error',
+        message: details.message || 'Request failed',
+        status: details.status || null,
+        body: details.body || null,
+      });
+    }
+
+    function logFetchSuccess(context, { status, payload, summary = null }) {
+      console.info(`[${context}] request succeeded`, { status, payload });
+      recordDebugEvent({
+        context,
+        level: 'success',
+        message: summary || 'Request succeeded',
+        status: status || null,
+        body: payload ? JSON.stringify(payload, null, 2) : null,
+      });
+    }
+
+    function handleErrorResponse(response, context) {
+      return response.text().then(text => {
+        const error = new Error(`${context} failed with status ${response.status}`);
+        error.status = response.status;
+        error.body = text;
+        throw error;
+      });
+    }
+
+    function setGridRowData(rows) {
+      if (!gridApi) {
+        return;
+      }
+
+      const nextRows = Array.isArray(rows) ? rows : [];
+
+      if (typeof gridApi.setGridOption === 'function') {
+        gridApi.setGridOption('rowData', nextRows);
+        return;
+      }
+
+      if (typeof gridApi.setRowData === 'function') {
+        gridApi.setRowData(nextRows);
+        return;
+      }
+
+      console.warn('Unable to set grid row data: grid API does not support setGridOption or setRowData.');
+    }
+
     function loadGrid() {
+      if (!gridApi) {
+        return;
+      }
       setStatus('Loading weld log...');
+      recordDebugEvent({
+        context: 'Weld log load',
+        level: 'info',
+        message: 'Requesting weld log rows',
+      });
       fetch(dataEndpoint, {
         credentials: 'same-origin',
       })
         .then(response => {
           if (!response.ok) {
-            throw new Error('Unable to load weld log');
+            return handleErrorResponse(response, 'Weld log load');
           }
-          return response.json();
+          return response.json().then(payload => ({ status: response.status, payload }));
         })
-        .then(payload => {
-          gridOptions.api.setRowData(payload.rows || []);
-          setStatus('Weld log loaded.');
+        .then(({ payload, status }) => {
+          const rowCount = typeof payload.row_count === 'number'
+            ? payload.row_count
+            : Array.isArray(payload.rows)
+              ? payload.rows.length
+              : 0;
+          logFetchSuccess('Weld log load', {
+            status,
+            payload,
+            summary: `Loaded ${rowCount} weld row${rowCount === 1 ? '' : 's'}`,
+          });
+          setGridRowData(payload.rows || []);
+          gridApi.forEachNode(node => ensureRowFlags(node));
+          setStatus(`Loaded ${rowCount} weld row${rowCount === 1 ? '' : 's'} at ${new Date().toLocaleTimeString()}.`);
         })
         .catch(error => {
-          console.error(error);
-          setStatus('Failed to load weld log.', 'error');
+          logFetchError('Weld log load', error);
+          setStatus(error && error.message ? error.message : 'Failed to load weld log.', 'error');
         });
     }
 
-    function persistRow(event) {
-      const payload = { ...event.data };
+    function persistRow(node) {
+      if (!node || !node.data) {
+        return;
+      }
+
+      ensureRowFlags(node);
+
+      const payload = { ...node.data };
       if (payload.material1_heat_id === '') payload.material1_heat_id = null;
       if (payload.material2_heat_id === '') payload.material2_heat_id = null;
       if (payload.nde_rig_id === '') payload.nde_rig_id = null;
-      setStatus('Saving row...');
+      delete payload.__client_id;
+
+      const weldId = String(payload.weld_id || '').trim();
+      if (!weldId) {
+        setStatus('Enter a Weld ID to start saving this row.', 'error');
+        return;
+      }
+
+      node.__saving = true;
+      setStatus('Saving changes...');
       fetch(dataEndpoint, {
         method: 'POST',
         headers: {
@@ -237,51 +513,88 @@
         credentials: 'same-origin',
         body: JSON.stringify(payload),
       })
-        .then(response => response.json().then(data => ({ response, data })))
+        .then(response => {
+          return response.json()
+            .catch(() => ({ }))
+            .then(data => ({ response, data }));
+        })
         .then(({ response, data }) => {
           if (!response.ok || data.error) {
             const message = data.error || 'Unable to save weld row.';
-            throw new Error(message);
+            const error = new Error(message);
+            error.status = response.status;
+            error.body = JSON.stringify(data);
+            throw error;
           }
-          event.node.setData(data.weld);
-          setStatus('Row saved.');
+          logFetchSuccess('Weld row save', {
+            status: response.status,
+            payload: data,
+            summary: data && data.weld && data.weld.weld_id
+              ? `Saved weld ${data.weld.weld_id}`
+              : 'Saved weld row',
+          });
+          node.updateData(data.weld);
+          ensureRowFlags(node);
+          const weldLabel = data && data.weld && data.weld.weld_id ? `weld ${data.weld.weld_id}` : 'weld row';
+          setStatus(`Saved ${weldLabel} at ${new Date().toLocaleTimeString()}.`);
         })
         .catch(error => {
-          console.error(error);
+          logFetchError('Weld row save', error);
           setStatus(error.message, 'error');
-          if (event.oldData) {
-            event.node.setData(event.oldData);
+        })
+        .finally(() => {
+          node.__saving = false;
+          if (node.__needsSaveAfterInFlight) {
+            node.__needsSaveAfterInFlight = false;
+            queuePersist(node, { immediate: true });
           }
         });
     }
 
     function loadReferenceData() {
       setStatus('Loading weld references...');
+      recordDebugEvent({
+        context: 'Reference data load',
+        level: 'info',
+        message: 'Fetching heat numbers and NDE rigs',
+      });
       return Promise.all([
         fetch(heatOptionsEndpoint, { credentials: 'same-origin' })
           .then(response => {
             if (!response.ok) {
-              throw new Error('Unable to load heat options');
+              return handleErrorResponse(response, 'Heat options load');
             }
-            return response.json();
+            return response.json().then(payload => ({ status: response.status, payload }));
           })
-          .then(data => {
-            syncHeatOptions(data.heats || []);
+          .then(({ payload, status }) => {
+            const heats = payload && Array.isArray(payload.heats) ? payload.heats : [];
+            logFetchSuccess('Heat options load', {
+              status,
+              payload,
+              summary: `Loaded ${heats.length} heat option${heats.length === 1 ? '' : 's'}`,
+            });
+            syncHeatOptions(heats);
           }),
         fetch(ndeRigsEndpoint, { credentials: 'same-origin' })
           .then(response => {
             if (!response.ok) {
-              throw new Error('Unable to load NDE rigs');
+              return handleErrorResponse(response, 'NDE rigs load');
             }
-            return response.json();
+            return response.json().then(payload => ({ status: response.status, payload }));
           })
-          .then(data => {
-            syncNdeRigOptions(data.nde_rigs || []);
+          .then(({ payload, status }) => {
+            const rigs = payload && Array.isArray(payload.nde_rigs) ? payload.nde_rigs : [];
+            logFetchSuccess('NDE rigs load', {
+              status,
+              payload,
+              summary: `Loaded ${rigs.length} NDE rig${rigs.length === 1 ? '' : 's'}`,
+            });
+            syncNdeRigOptions(rigs);
           })
       ]).then(() => {
         setStatus('Reference data loaded.');
       }).catch(error => {
-        console.error(error);
+        logFetchError('Reference data load', error);
         setStatus('Failed to load reference data.', 'error');
       });
     }
@@ -289,11 +602,18 @@
     document.addEventListener('DOMContentLoaded', () => {
       const gridDiv = document.querySelector('#weld-grid');
       new agGrid.Grid(gridDiv, gridOptions);
-      loadReferenceData().finally(() => loadGrid());
 
       const addButton = document.getElementById('add-weld-btn');
       if (addButton) {
         addButton.addEventListener('click', () => {
+          if (!gridApi) {
+            return;
+          }
+          recordDebugEvent({
+            context: 'Grid interaction',
+            level: 'info',
+            message: 'Adding a new weld row from UI',
+          });
           const newRow = {
             weld_id: '',
             nde_number: '',
@@ -324,11 +644,12 @@
             disposition: 'accepted',
             disposition_comment: '',
           };
-          const result = gridOptions.api.applyTransaction({ add: [newRow], addIndex: 0 });
+          const result = gridApi.applyTransaction({ add: [newRow], addIndex: 0 });
           if (result.add && result.add.length > 0) {
             const node = result.add[0];
-            gridOptions.api.setFocusedCell(node.rowIndex, 'weld_id');
-            gridOptions.api.startEditingCell({
+            ensureRowFlags(node);
+            gridApi.setFocusedCell(node.rowIndex, 'weld_id');
+            gridApi.startEditingCell({
               rowIndex: node.rowIndex,
               colKey: 'weld_id',
             });
@@ -337,4 +658,5 @@
       }
     });
   </script>
+  {% endif %}
 {% endblock %}

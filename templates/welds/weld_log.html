@@ -26,11 +26,18 @@
       <h1 class="h3 mb-1">{{ project.name }} Weld Log</h1>
       <p class="text-muted mb-0">Inline register for capturing weld information with spreadsheet-style editing.</p>
     </div>
-    <button class="btn btn-primary" id="add-weld-btn">Add Weld</button>
+    {% if not setup_error %}
+      <button class="btn btn-primary" id="add-weld-btn">Add Weld</button>
+    {% endif %}
   </div>
 
-  <div id="weld-grid" class="ag-theme-alpine"></div>
-  <p class="small text-muted mt-2" id="grid-status" role="status"></p>
+  {% if setup_error %}
+    <div class="alert alert-warning" role="alert">
+      {{ setup_error }}
+    </div>
+  {% else %}
+    <div id="weld-grid" class="ag-theme-alpine"></div>
+    <p class="small text-muted mt-2" id="grid-status" role="status"></p>
 
   <script>
     const dataEndpoint = "{{ data_url }}";
@@ -64,6 +71,56 @@
           statusEl.textContent = '';
         }, 4000);
       }
+    }
+
+    function ensureRowFlags(node) {
+      if (!node) {
+        return;
+      }
+      if (typeof node.__saving !== 'boolean') {
+        node.__saving = false;
+      }
+      if (typeof node.__needsSaveAfterInFlight !== 'boolean') {
+        node.__needsSaveAfterInFlight = false;
+      }
+    }
+
+    const pendingSaveTimers = new Map();
+
+    function clearPendingSave(node) {
+      if (!node) return;
+      const timer = pendingSaveTimers.get(node.id);
+      if (timer) {
+        window.clearTimeout(timer);
+        pendingSaveTimers.delete(node.id);
+      }
+    }
+
+    function queuePersist(node, { immediate = false } = {}) {
+      if (!node || !node.data) {
+        return;
+      }
+
+      ensureRowFlags(node);
+
+      const weldId = String(node.data.weld_id || '').trim();
+      if (!weldId) {
+        setStatus('Enter a Weld ID to start saving this row.', 'error');
+        return;
+      }
+
+      if (node.__saving) {
+        node.__needsSaveAfterInFlight = true;
+        return;
+      }
+
+      const delay = immediate ? 0 : 400;
+      clearPendingSave(node);
+      const timer = window.setTimeout(() => {
+        pendingSaveTimers.delete(node.id);
+        persistRow(node);
+      }, delay);
+      pendingSaveTimers.set(node.id, timer);
     }
 
     const heatNumberOptions = [];
@@ -112,6 +169,8 @@
       return true;
     }
 
+    let gridApi = null;
+
     const columnDefs = [
       { headerName: 'Weld ID', field: 'weld_id', minWidth: 140 },
       { headerName: 'NDE Number', field: 'nde_number', minWidth: 160 },
@@ -119,9 +178,13 @@
       {
         headerName: 'Material 1 Heat #',
         field: 'material1_heat_number',
-        minWidth: 180,
-        cellEditor: 'agSelectCellEditor',
-        cellEditorParams: () => ({ values: heatNumberOptions }),
+        minWidth: 200,
+        cellEditor: 'agRichSelectCellEditor',
+        cellEditorParams: () => ({
+          values: heatNumberOptions,
+          filterList: true,
+          searchDebounceDelay: 120,
+        }),
         valueSetter: materialHeatValueSetter('material1'),
       },
       { headerName: 'Material 1 Description', field: 'material1_description', minWidth: 200, editable: false },
@@ -132,9 +195,13 @@
       {
         headerName: 'Material 2 Heat #',
         field: 'material2_heat_number',
-        minWidth: 180,
-        cellEditor: 'agSelectCellEditor',
-        cellEditorParams: () => ({ values: heatNumberOptions }),
+        minWidth: 200,
+        cellEditor: 'agRichSelectCellEditor',
+        cellEditorParams: () => ({
+          values: heatNumberOptions,
+          filterList: true,
+          searchDebounceDelay: 120,
+        }),
         valueSetter: materialHeatValueSetter('material2'),
       },
       { headerName: 'Material 2 Description', field: 'material2_description', minWidth: 200, editable: false },
@@ -188,20 +255,31 @@
       animateRows: true,
       rowSelection: 'single',
       stopEditingWhenCellsLoseFocus: true,
-      onRowValueChanged: event => {
-        if (!event.data) {
+      onGridReady: params => {
+        gridApi = params.api;
+        loadReferenceData().finally(() => loadGrid());
+      },
+      onCellValueChanged: event => {
+        if (!event.node) {
           return;
         }
-        if (!event.data.weld_id || String(event.data.weld_id).trim() === '') {
-          setStatus('Please provide a Weld ID before saving.', 'error');
-          event.node.setDataValue('weld_id', String(event.oldData?.weld_id || ''));
-          return;
+        if (event.column && event.column.getColId() === 'weld_id') {
+          const nextValue = String(event.newValue || '').trim();
+          if (!nextValue) {
+            const previous = event.oldValue !== undefined ? event.oldValue : '';
+            event.node.setDataValue('weld_id', previous || '');
+            setStatus('Weld ID cannot be empty.', 'error');
+            return;
+          }
         }
-        persistRow(event);
+        queuePersist(event.node);
       },
     };
 
     function loadGrid() {
+      if (!gridApi) {
+        return;
+      }
       setStatus('Loading weld log...');
       fetch(dataEndpoint, {
         credentials: 'same-origin',
@@ -213,7 +291,8 @@
           return response.json();
         })
         .then(payload => {
-          gridOptions.api.setRowData(payload.rows || []);
+          gridApi.setRowData(payload.rows || []);
+          gridApi.forEachNode(node => ensureRowFlags(node));
           setStatus('Weld log loaded.');
         })
         .catch(error => {
@@ -222,12 +301,27 @@
         });
     }
 
-    function persistRow(event) {
-      const payload = { ...event.data };
+    function persistRow(node) {
+      if (!node || !node.data) {
+        return;
+      }
+
+      ensureRowFlags(node);
+
+      const payload = { ...node.data };
       if (payload.material1_heat_id === '') payload.material1_heat_id = null;
       if (payload.material2_heat_id === '') payload.material2_heat_id = null;
       if (payload.nde_rig_id === '') payload.nde_rig_id = null;
-      setStatus('Saving row...');
+      delete payload.__client_id;
+
+      const weldId = String(payload.weld_id || '').trim();
+      if (!weldId) {
+        setStatus('Enter a Weld ID to start saving this row.', 'error');
+        return;
+      }
+
+      node.__saving = true;
+      setStatus('Saving changes...');
       fetch(dataEndpoint, {
         method: 'POST',
         headers: {
@@ -243,14 +337,19 @@
             const message = data.error || 'Unable to save weld row.';
             throw new Error(message);
           }
-          event.node.setData(data.weld);
-          setStatus('Row saved.');
+          node.updateData(data.weld);
+          ensureRowFlags(node);
+          setStatus('All changes saved.');
         })
         .catch(error => {
           console.error(error);
           setStatus(error.message, 'error');
-          if (event.oldData) {
-            event.node.setData(event.oldData);
+        })
+        .finally(() => {
+          node.__saving = false;
+          if (node.__needsSaveAfterInFlight) {
+            node.__needsSaveAfterInFlight = false;
+            queuePersist(node, { immediate: true });
           }
         });
     }
@@ -289,11 +388,13 @@
     document.addEventListener('DOMContentLoaded', () => {
       const gridDiv = document.querySelector('#weld-grid');
       new agGrid.Grid(gridDiv, gridOptions);
-      loadReferenceData().finally(() => loadGrid());
 
       const addButton = document.getElementById('add-weld-btn');
       if (addButton) {
         addButton.addEventListener('click', () => {
+          if (!gridApi) {
+            return;
+          }
           const newRow = {
             weld_id: '',
             nde_number: '',
@@ -324,11 +425,12 @@
             disposition: 'accepted',
             disposition_comment: '',
           };
-          const result = gridOptions.api.applyTransaction({ add: [newRow], addIndex: 0 });
+          const result = gridApi.applyTransaction({ add: [newRow], addIndex: 0 });
           if (result.add && result.add.length > 0) {
             const node = result.add[0];
-            gridOptions.api.setFocusedCell(node.rowIndex, 'weld_id');
-            gridOptions.api.startEditingCell({
+            ensureRowFlags(node);
+            gridApi.setFocusedCell(node.rowIndex, 'weld_id');
+            gridApi.startEditingCell({
               rowIndex: node.rowIndex,
               colKey: 'weld_id',
             });
@@ -337,4 +439,5 @@
       }
     });
   </script>
+  {% endif %}
 {% endblock %}

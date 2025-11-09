@@ -153,6 +153,13 @@ def weld_log(request, org_slug, project_slug):
                         "project_slug": project.slug,
                     },
                 ),
+                "heat_search_url": reverse(
+                    "weld_material_heat_search",
+                    kwargs={
+                        "org_slug": request.org.slug,
+                        "project_slug": project.slug,
+                    },
+                ),
                 "nde_rigs_url": reverse(
                     "weld_nde_rig_options",
                     kwargs={
@@ -557,6 +564,75 @@ def material_heat_options(request, org_slug, project_slug):
         },
     )
     return JsonResponse({"heats": data})
+
+
+@require_membership("GUEST")
+def material_heat_search(request, org_slug, project_slug):
+    project = get_project_for_request(request, request.org, project_slug)
+    forbidden = _require_project_membership(request, project)
+    if forbidden:
+        logger.warning(
+            "User without access attempted to search heat numbers",
+            extra={
+                "user_id": getattr(request.user, "id", None),
+                "org_slug": org_slug,
+                "project_slug": project_slug,
+            },
+        )
+        return forbidden
+
+    missing_tables = _missing_weld_tables()
+    if missing_tables:
+        message = _migrations_required_message(missing_tables)
+        logger.error(
+            "Heat search unavailable due to missing tables",
+            extra={
+                "user_id": getattr(request.user, "id", None),
+                "org_slug": org_slug,
+                "project_slug": project_slug,
+                "missing": missing_tables,
+            },
+        )
+        return JsonResponse({"error": message}, status=503)
+
+    query = (request.GET.get("q", "") or "").strip()
+    if len(query) < 2:
+        return JsonResponse({"results": []})
+
+    heats = (
+        MaterialHeat.objects.filter(
+            org=request.org, is_active=True, heat_number__icontains=query
+        )
+        .order_by("heat_number")[:20]
+    )
+
+    results = []
+    for heat in heats:
+        results.append(
+            {
+                "id": heat.id,
+                "heat_number": heat.heat_number,
+                "description": heat.description,
+                "grade": heat.material_grade,
+                "material_grade": heat.material_grade,
+                "od": _decimal_to_str(heat.outer_diameter_in),
+                "outer_diameter_in": _decimal_to_str(heat.outer_diameter_in),
+                "wall_thickness": _decimal_to_str(heat.wall_thickness_in),
+                "wall_thickness_in": _decimal_to_str(heat.wall_thickness_in),
+            }
+        )
+
+    logger.info(
+        "Performed heat search",
+        extra={
+            "user_id": getattr(request.user, "id", None),
+            "org_slug": org_slug,
+            "project_slug": project_slug,
+            "query": query,
+            "result_count": len(results),
+        },
+    )
+    return JsonResponse({"results": results})
 
 
 @require_membership("GUEST")

@@ -169,6 +169,8 @@
       return true;
     }
 
+    let gridApi = null;
+
     const columnDefs = [
       { headerName: 'Weld ID', field: 'weld_id', minWidth: 140 },
       { headerName: 'NDE Number', field: 'nde_number', minWidth: 160 },
@@ -253,6 +255,10 @@
       animateRows: true,
       rowSelection: 'single',
       stopEditingWhenCellsLoseFocus: true,
+      onGridReady: params => {
+        gridApi = params.api;
+        loadReferenceData().finally(() => loadGrid());
+      },
       onCellValueChanged: event => {
         if (!event.node) {
           return;
@@ -271,6 +277,9 @@
     };
 
     function loadGrid() {
+      if (!gridApi) {
+        return;
+      }
       setStatus('Loading weld log...');
       fetch(dataEndpoint, {
         credentials: 'same-origin',
@@ -282,8 +291,8 @@
           return response.json();
         })
         .then(payload => {
-          gridOptions.api.setRowData(payload.rows || []);
-          gridOptions.api.forEachNode(node => ensureRowFlags(node));
+          gridApi.setRowData(payload.rows || []);
+          gridApi.forEachNode(node => ensureRowFlags(node));
           setStatus('Weld log loaded.');
         })
         .catch(error => {
@@ -379,11 +388,13 @@
     document.addEventListener('DOMContentLoaded', () => {
       const gridDiv = document.querySelector('#weld-grid');
       new agGrid.Grid(gridDiv, gridOptions);
-      loadReferenceData().finally(() => loadGrid());
 
       const addButton = document.getElementById('add-weld-btn');
       if (addButton) {
         addButton.addEventListener('click', () => {
+          if (!gridApi) {
+            return;
+          }
           const newRow = {
             weld_id: '',
             nde_number: '',
@@ -414,12 +425,12 @@
             disposition: 'accepted',
             disposition_comment: '',
           };
-          const result = gridOptions.api.applyTransaction({ add: [newRow], addIndex: 0 });
+          const result = gridApi.applyTransaction({ add: [newRow], addIndex: 0 });
           if (result.add && result.add.length > 0) {
             const node = result.add[0];
             ensureRowFlags(node);
-            gridOptions.api.setFocusedCell(node.rowIndex, 'weld_id');
-            gridOptions.api.startEditingCell({
+            gridApi.setFocusedCell(node.rowIndex, 'weld_id');
+            gridApi.startEditingCell({
               rowIndex: node.rowIndex,
               colKey: 'weld_id',
             });

@@ -110,6 +110,25 @@ class WeldLogAPITests(TestCase):
         self.assertEqual(len(heats), 1)
         self.assertEqual(heats[0]["heat_number"], self.heat.heat_number)
 
+    def test_material_heat_search_endpoint(self):
+        url = self._data_url("weld_material_heat_search")
+        response = self.client.get(url, {"q": "H-1"})
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        results = payload.get("results", [])
+        self.assertEqual(len(results), 1)
+        match = results[0]
+        self.assertEqual(match["heat_number"], self.heat.heat_number)
+        self.assertEqual(match["description"], self.heat.description)
+        self.assertEqual(match["grade"], self.heat.material_grade)
+        self.assertEqual(match["od"], "10.75")
+
+    def test_material_heat_search_requires_two_characters(self):
+        url = self._data_url("weld_material_heat_search")
+        response = self.client.get(url, {"q": "H"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"results": []})
+
     def test_weld_log_data_includes_row_count(self):
         Weld.objects.create(
             project=self.project,
@@ -187,8 +206,12 @@ class WeldLogMissingTablesTests(TestCase):
         expected_message = _migrations_required_message(["NDE rigs"])
         self.assertEqual(response.json(), {"error": expected_message})
 
+        response = self.client.get(self._weld_log_url("weld_material_heat_search"))
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json(), {"error": expected_message})
+
         response = self.client.get(self._weld_log_url("weld_nde_rig_options"))
         self.assertEqual(response.status_code, 503)
         self.assertEqual(response.json(), {"error": expected_message})
-        self.assertEqual(mock_missing.call_count, 2)
+        self.assertEqual(mock_missing.call_count, 3)
 

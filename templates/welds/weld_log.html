@@ -16,6 +16,67 @@
       height: 65vh;
       min-height: 460px;
     }
+    .ag-theme-alpine .ag-cell-edit-wrapper {
+      overflow: visible;
+    }
+    .heat-cell-editor {
+      position: relative;
+      width: 100%;
+    }
+    .heat-cell-editor input {
+      width: 100%;
+    }
+    .heat-autocomplete {
+      position: relative;
+    }
+    .heat-autocomplete-results {
+      position: absolute;
+      top: calc(100% + 2px);
+      left: 0;
+      right: 0;
+      z-index: 20;
+      max-height: 16rem;
+      overflow-y: auto;
+      background-color: var(--bs-body-bg, #fff);
+      border: 1px solid var(--bs-border-color-translucent, rgba(15, 23, 42, 0.16));
+      border-radius: 0.375rem;
+      box-shadow: 0 0.5rem 1rem rgba(15, 23, 42, 0.1);
+    }
+    .heat-autocomplete-results.hidden {
+      display: none;
+    }
+    .heat-autocomplete-option {
+      padding: 0.5rem 0.75rem;
+      border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+      background-color: transparent;
+    }
+    .heat-autocomplete-option:last-child {
+      border-bottom: none;
+    }
+    .heat-autocomplete-option strong {
+      font-weight: 600;
+    }
+    .heat-autocomplete-option .heat-meta {
+      font-size: 0.8125rem;
+      color: #475569;
+      display: flex;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+    }
+    .heat-autocomplete-option.active,
+    .heat-autocomplete-option:hover,
+    .heat-autocomplete-option:focus {
+      background-color: rgba(37, 99, 235, 0.08);
+    }
+    .heat-autocomplete-empty {
+      padding: 0.5rem 0.75rem;
+      color: #6b7280;
+      font-size: 0.875rem;
+    }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/ag-grid-community@32.3.3/dist/ag-grid-community.min.js"></script>
 {% endblock %}
@@ -50,6 +111,7 @@
   <script>
     const dataEndpoint = "{{ data_url }}";
     const heatOptionsEndpoint = "{{ heat_options_url }}";
+    const heatSearchEndpoint = "{{ heat_search_url }}";
     const ndeRigsEndpoint = "{{ nde_rigs_url }}";
 
     function getCsrfToken() {
@@ -62,6 +124,347 @@
         }
       }
       return '';
+    }
+
+    function debounce(fn, wait = 300) {
+      let timeoutId = null;
+      return function debounced(...args) {
+        if (timeoutId) {
+          window.clearTimeout(timeoutId);
+        }
+        timeoutId = window.setTimeout(() => {
+          timeoutId = null;
+          fn.apply(this, args);
+        }, wait);
+      };
+    }
+
+    const heatLookupByNumber = new Map();
+
+    function normalizeHeatPayload(raw) {
+      if (!raw) {
+        return null;
+      }
+      const toStringOrEmpty = value => (value === null || value === undefined ? '' : String(value));
+      const heatNumber = toStringOrEmpty(raw.heat_number);
+      if (!heatNumber) {
+        return null;
+      }
+      const normalized = {
+        id: raw.id ?? null,
+        heat_number: heatNumber,
+        description: toStringOrEmpty(raw.description),
+        grade: toStringOrEmpty(raw.grade ?? raw.material_grade),
+        outer_diameter_in: toStringOrEmpty(raw.outer_diameter_in ?? raw.od),
+        wall_thickness_in: toStringOrEmpty(raw.wall_thickness_in ?? raw.wall_thickness),
+        wps_number: toStringOrEmpty(raw.wps_number),
+      };
+      normalized.material_grade = normalized.grade;
+      normalized.od = normalized.outer_diameter_in;
+      normalized.wall_thickness = normalized.wall_thickness_in;
+      return normalized;
+    }
+
+    function rememberHeatOption(raw) {
+      const normalized = normalizeHeatPayload(raw);
+      if (!normalized) {
+        return null;
+      }
+      heatLookupByNumber.set(normalized.heat_number, normalized);
+      return normalized;
+    }
+
+    class HeatAutocomplete {
+      constructor(input, { resultsContainer = null, onHeatSelected = null, minimumInputLength = 2 } = {}) {
+        this.input = input;
+        this.resultsEl = resultsContainer || input.closest('.heat-autocomplete')?.querySelector('.heat-autocomplete-results') || null;
+        this.onHeatSelected = typeof onHeatSelected === 'function' ? onHeatSelected : null;
+        this.minimumInputLength = minimumInputLength;
+        this.results = [];
+        this.activeIndex = -1;
+        this.abortController = null;
+        this.boundOnInput = this.onInput.bind(this);
+        this.boundOnKeyDown = this.onKeyDown.bind(this);
+        this.boundOnFocus = this.onFocus.bind(this);
+        this.boundOnBlur = this.onBlur.bind(this);
+        this.debouncedSearch = debounce(this.search.bind(this), 300);
+        input.setAttribute('autocomplete', 'off');
+        input.addEventListener('input', this.boundOnInput);
+        input.addEventListener('keydown', this.boundOnKeyDown);
+        input.addEventListener('focus', this.boundOnFocus);
+        input.addEventListener('blur', this.boundOnBlur);
+      }
+
+      destroy() {
+        if (this.abortController) {
+          this.abortController.abort();
+          this.abortController = null;
+        }
+        if (this.input) {
+          this.input.removeEventListener('input', this.boundOnInput);
+          this.input.removeEventListener('keydown', this.boundOnKeyDown);
+          this.input.removeEventListener('focus', this.boundOnFocus);
+          this.input.removeEventListener('blur', this.boundOnBlur);
+        }
+        this.hideResults();
+        this.results = [];
+      }
+
+      onFocus() {
+        if (this.results.length > 0) {
+          this.showResults();
+        }
+      }
+
+      onBlur() {
+        window.setTimeout(() => this.hideResults(), 150);
+      }
+
+      onInput(event) {
+        const query = (event.target.value || '').trim();
+        if (!query || query.length < this.minimumInputLength || !heatSearchEndpoint) {
+          this.results = [];
+          this.hideResults();
+          return;
+        }
+        this.showLoading();
+        this.debouncedSearch(query);
+      }
+
+      onKeyDown(event) {
+        if (!this.resultsEl || this.resultsEl.classList.contains('hidden')) {
+          return;
+        }
+        if (event.key === 'ArrowDown') {
+          event.preventDefault();
+          this.moveSelection(1);
+        } else if (event.key === 'ArrowUp') {
+          event.preventDefault();
+          this.moveSelection(-1);
+        } else if (event.key === 'Enter') {
+          if (this.activeIndex >= 0 && this.activeIndex < this.results.length) {
+            event.preventDefault();
+            this.applyHeat(this.results[this.activeIndex]);
+          }
+        } else if (event.key === 'Escape') {
+          this.hideResults();
+        }
+      }
+
+      moveSelection(delta) {
+        if (!this.results.length || !this.resultsEl) {
+          return;
+        }
+        this.activeIndex += delta;
+        if (this.activeIndex < 0) {
+          this.activeIndex = this.results.length - 1;
+        } else if (this.activeIndex >= this.results.length) {
+          this.activeIndex = 0;
+        }
+        const options = Array.from(this.resultsEl.querySelectorAll('.heat-autocomplete-option'));
+        options.forEach((option, index) => {
+          if (index === this.activeIndex) {
+            option.classList.add('active');
+            option.setAttribute('aria-selected', 'true');
+            option.scrollIntoView({ block: 'nearest' });
+          } else {
+            option.classList.remove('active');
+            option.removeAttribute('aria-selected');
+          }
+        });
+      }
+
+      showLoading() {
+        if (!this.resultsEl) {
+          return;
+        }
+        this.resultsEl.innerHTML = '<div class="heat-autocomplete-empty">Searching…</div>';
+        this.resultsEl.classList.remove('hidden');
+        this.activeIndex = -1;
+      }
+
+      showResults() {
+        if (this.resultsEl) {
+          this.resultsEl.classList.remove('hidden');
+        }
+      }
+
+      hideResults() {
+        if (this.resultsEl) {
+          this.resultsEl.classList.add('hidden');
+        }
+        this.activeIndex = -1;
+      }
+
+      search(query) {
+        if (!heatSearchEndpoint) {
+          return;
+        }
+        if (this.abortController) {
+          this.abortController.abort();
+        }
+        this.abortController = new AbortController();
+        fetch(`${heatSearchEndpoint}?q=${encodeURIComponent(query)}`, {
+          credentials: 'same-origin',
+          signal: this.abortController.signal,
+        })
+          .then(response => {
+            if (!response.ok) {
+              const error = new Error('Heat search failed');
+              error.status = response.status;
+              throw error;
+            }
+            return response.json();
+          })
+          .then(payload => {
+            const list = payload && Array.isArray(payload.results) ? payload.results : [];
+            this.results = list
+              .map(item => rememberHeatOption(item) || normalizeHeatPayload(item))
+              .filter(Boolean);
+            this.renderResults();
+          })
+          .catch(error => {
+            if (error.name === 'AbortError') {
+              return;
+            }
+            console.error('[heat search] request failed', error);
+            this.results = [];
+            this.renderResults({ error: 'Unable to load heat numbers.' });
+          });
+      }
+
+      renderResults({ error = null } = {}) {
+        if (!this.resultsEl) {
+          return;
+        }
+        this.resultsEl.innerHTML = '';
+        this.activeIndex = -1;
+        if (error) {
+          const item = document.createElement('div');
+          item.className = 'heat-autocomplete-empty';
+          item.textContent = error;
+          this.resultsEl.appendChild(item);
+          this.resultsEl.classList.remove('hidden');
+          return;
+        }
+        if (!this.results.length) {
+          const empty = document.createElement('div');
+          empty.className = 'heat-autocomplete-empty';
+          empty.textContent = 'No heat numbers found.';
+          this.resultsEl.appendChild(empty);
+          this.resultsEl.classList.remove('hidden');
+          return;
+        }
+        this.results.forEach((heat, index) => {
+          const option = document.createElement('button');
+          option.type = 'button';
+          option.className = 'heat-autocomplete-option';
+          option.setAttribute('role', 'option');
+          option.dataset.index = String(index);
+
+          const title = document.createElement('strong');
+          title.textContent = heat.heat_number || '';
+          option.appendChild(title);
+
+          const metaValues = [];
+          if (heat.grade) metaValues.push(`Grade ${heat.grade}`);
+          if (heat.description) metaValues.push(heat.description);
+          if (heat.outer_diameter_in) metaValues.push(`OD ${heat.outer_diameter_in}`);
+          if (heat.wall_thickness_in) metaValues.push(`WT ${heat.wall_thickness_in}`);
+          if (metaValues.length) {
+            const meta = document.createElement('span');
+            meta.className = 'heat-meta';
+            meta.textContent = metaValues.join(' • ');
+            option.appendChild(meta);
+          }
+
+          option.addEventListener('mousedown', event => {
+            event.preventDefault();
+            this.applyHeat(heat);
+          });
+          option.addEventListener('mouseenter', () => {
+            this.activeIndex = index;
+            this.moveSelection(0);
+          });
+
+          this.resultsEl.appendChild(option);
+        });
+        this.resultsEl.classList.remove('hidden');
+      }
+
+      applyHeat(heat) {
+        const normalized = rememberHeatOption(heat) || heat;
+        this.input.value = normalized.heat_number || '';
+        if (this.onHeatSelected) {
+          this.onHeatSelected(normalized);
+        }
+        this.hideResults();
+      }
+    }
+
+    class HeatCellEditor {
+      agInit(params) {
+        this.params = params;
+        this.input = document.createElement('input');
+        this.input.type = 'text';
+        this.input.className = 'form-control';
+
+        const initialValue = params.value != null ? String(params.value) : '';
+        const startedWithCharPress = params.charPress && params.charPress.length === 1;
+        this.input.value = startedWithCharPress ? params.charPress : initialValue;
+
+        this.wrapper = document.createElement('div');
+        this.wrapper.className = 'heat-cell-editor heat-autocomplete';
+        this.wrapper.appendChild(this.input);
+
+        this.resultsEl = document.createElement('div');
+        this.resultsEl.className = 'heat-autocomplete-results hidden';
+        this.resultsEl.setAttribute('role', 'listbox');
+        this.wrapper.appendChild(this.resultsEl);
+
+        this.autocomplete = new HeatAutocomplete(this.input, {
+          resultsContainer: this.resultsEl,
+          onHeatSelected: heat => {
+            const normalized = rememberHeatOption(heat) || heat;
+            this.input.value = normalized.heat_number || '';
+            if (this.params && typeof this.params.stopEditing === 'function') {
+              window.setTimeout(() => this.params.stopEditing(), 0);
+            }
+          },
+        });
+      }
+
+      getGui() {
+        return this.wrapper;
+      }
+
+      afterGuiAttached() {
+        window.setTimeout(() => {
+          if (this.input) {
+            this.input.focus();
+            if (typeof this.input.select === 'function') {
+              this.input.select();
+            }
+          }
+        }, 0);
+      }
+
+      getValue() {
+        if (!this.input) {
+          return '';
+        }
+        return this.input.value.trim();
+      }
+
+      destroy() {
+        if (this.autocomplete && typeof this.autocomplete.destroy === 'function') {
+          this.autocomplete.destroy();
+        }
+        this.input = null;
+        this.resultsEl = null;
+        this.wrapper = null;
+        this.params = null;
+      }
     }
 
     const statusEl = document.getElementById('grid-status');
@@ -232,17 +635,13 @@
       pendingSaveTimers.set(node.id, timer);
     }
 
-    const heatNumberOptions = [];
-    const heatLookupByNumber = new Map();
     const ndeRigNameOptions = [];
     const ndeRigLookupByName = new Map();
 
     function syncHeatOptions(options) {
-      heatNumberOptions.length = 0;
       heatLookupByNumber.clear();
       for (const heat of options) {
-        heatNumberOptions.push(heat.heat_number);
-        heatLookupByNumber.set(heat.heat_number, heat);
+        rememberHeatOption(heat);
       }
     }
 
@@ -257,15 +656,15 @@
 
     function materialHeatValueSetter(prefix) {
       return params => {
-        const newValue = params.newValue || '';
-        const heat = heatLookupByNumber.get(newValue) || null;
-        params.data[`${prefix}_heat_number`] = heat ? heat.heat_number : '';
+        const newValue = (params.newValue || '').trim();
+        const heat = newValue ? heatLookupByNumber.get(newValue) || null : null;
+        params.data[`${prefix}_heat_number`] = newValue;
         params.data[`${prefix}_heat_id`] = heat ? heat.id : null;
-        params.data[`${prefix}_description`] = heat ? (heat.description || '') : '';
-        params.data[`${prefix}_grade`] = heat ? (heat.material_grade || '') : '';
-        params.data[`${prefix}_outer_diameter_in`] = heat && heat.outer_diameter_in !== undefined ? (heat.outer_diameter_in || '') : '';
-        params.data[`${prefix}_wall_thickness_in`] = heat && heat.wall_thickness_in !== undefined ? (heat.wall_thickness_in || '') : '';
-        params.data[`${prefix}_wps_number`] = heat ? (heat.wps_number || '') : '';
+        params.data[`${prefix}_description`] = heat ? heat.description : '';
+        params.data[`${prefix}_grade`] = heat ? heat.grade : '';
+        params.data[`${prefix}_outer_diameter_in`] = heat ? heat.outer_diameter_in : '';
+        params.data[`${prefix}_wall_thickness_in`] = heat ? heat.wall_thickness_in : '';
+        params.data[`${prefix}_wps_number`] = heat ? heat.wps_number : '';
         return true;
       };
     }
@@ -288,12 +687,7 @@
         headerName: 'Material 1 Heat #',
         field: 'material1_heat_number',
         minWidth: 200,
-        cellEditor: 'agRichSelectCellEditor',
-        cellEditorParams: () => ({
-          values: heatNumberOptions,
-          filterList: true,
-          searchDebounceDelay: 120,
-        }),
+        cellEditor: HeatCellEditor,
         valueSetter: materialHeatValueSetter('material1'),
       },
       { headerName: 'Material 1 Description', field: 'material1_description', minWidth: 200, editable: false },
@@ -305,12 +699,7 @@
         headerName: 'Material 2 Heat #',
         field: 'material2_heat_number',
         minWidth: 200,
-        cellEditor: 'agRichSelectCellEditor',
-        cellEditorParams: () => ({
-          values: heatNumberOptions,
-          filterList: true,
-          searchDebounceDelay: 120,
-        }),
+        cellEditor: HeatCellEditor,
         valueSetter: materialHeatValueSetter('material2'),
       },
       { headerName: 'Material 2 Description', field: 'material2_description', minWidth: 200, editable: false },

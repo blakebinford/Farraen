@@ -20,6 +20,11 @@ urlpatterns = [
         name="weld_material_heat_options",
     ),
     path(
+        "projects/<slug:project_slug>/weld-log/options/heats/search/",
+        views.material_heat_search,
+        name="weld_material_heat_search",
+    ),
+    path(
         "projects/<slug:project_slug>/weld-log/options/nde-rigs/",
         views.nde_rig_options,
         name="weld_nde_rig_options",

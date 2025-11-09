@@ -110,6 +110,20 @@ class WeldLogAPITests(TestCase):
         self.assertEqual(len(heats), 1)
         self.assertEqual(heats[0]["heat_number"], self.heat.heat_number)
 
+    def test_weld_log_data_includes_row_count(self):
+        Weld.objects.create(
+            project=self.project,
+            weld_id="W-ROW-1",
+            created_by=self.user,
+            updated_by=self.user,
+        )
+        response = self.client.get(self._data_url())
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertIn("row_count", payload)
+        self.assertEqual(payload["row_count"], 1)
+        self.assertEqual(len(payload.get("rows", [])), 1)
+
 
 class WeldLogMissingTablesTests(TestCase):
     def setUp(self):

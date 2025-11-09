@@ -213,7 +213,7 @@ def weld_log_data(request, org_slug, project_slug):
                 "row_count": len(rows),
             },
         )
-        return JsonResponse({"rows": rows})
+        return JsonResponse({"rows": rows, "row_count": len(rows)})
 
     try:
         payload = json.loads(request.body.decode("utf-8")) if request.body else {}

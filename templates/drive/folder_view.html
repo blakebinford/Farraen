@@ -1,305 +1,485 @@
 {% extends "base.html" %}
 {% load humanize %}
-{% load drive_extras %}
 
 {% block extra_head %}
-<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/css/bootstrap.min.css" rel="stylesheet">
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/dropzone@6.0.0-beta.2/dist/dropzone.css">
-<script src="https://cdn.jsdelivr.net/npm/dropzone@6.0.0-beta.2/dist/dropzone-min.js"></script>
+  {{ block.super }}
+  <style>
+    .document-grid-container {
+      background: #ffffff;
+      border: 1px solid #dee2e6;
+      border-radius: 0.75rem;
+      padding: 1.5rem;
+      box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+      transition: box-shadow 0.2s ease, border-color 0.2s ease;
+    }
 
-<style>
-/* ---- base palette (local, not relying on Bootstrap vars) ---- */
-:root{
-  --bg:#f6f7fb; --panel:#fff; --text:#111827; --muted:#6b7280;
-  --border:#e5e7eb; --hover:#f3f4f6; --primary:#2563eb;
-  --accent:#eef2ff; --icon-bg:#eff6ff;
-}
+    .document-grid-container.is-editing {
+      border-color: rgba(13, 110, 253, 0.4);
+      box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.15);
+    }
 
-body{ background:var(--bg); color:var(--text); }
-.drive-panel{
-  background:var(--panel); border:1px solid var(--border); border-radius:10px;
-  box-shadow:0 2px 6px rgba(0,0,0,.04); overflow:hidden;
-}
+    .document-grid-header h1 {
+      font-weight: 600;
+    }
 
-/* ---- grid: SAME template for header and rows so columns align ---- */
-.drive-header,
-.drive-item{
-  display:grid;
-  /* name | size | typeIcon | modified | actions  */
-  grid-template-columns: minmax(0,1fr) 110px 48px 220px 120px;
-  gap:12px;
-  align-items:center; /* prevent weird vertical overlap */
-}
+    .document-grid-table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      font-size: 0.95rem;
+    }
 
-/* critical: let grid children SHRINK instead of overflowing */
-.drive-header > *,
-.drive-item > *{ min-width:0; }
+    .document-grid-table thead th {
+      text-transform: uppercase;
+      font-size: 0.75rem;
+      letter-spacing: 0.08em;
+      color: #6c757d;
+      background-color: #f8f9fa;
+      border-bottom: 1px solid #dee2e6;
+      padding: 0.75rem;
+      white-space: nowrap;
+    }
 
-/* header look */
-.drive-header{
-  padding:10px 14px; font-size:.9rem; color:var(--muted);
-  background:var(--accent); border-bottom:1px solid var(--border);
-  font-weight:600;
-}
-.drive-header > :nth-child(2){ text-align:right; } /* size column */
+    .document-grid-table tbody tr {
+      border-bottom: 1px solid #edf0f5;
+      transition: background-color 0.2s ease;
+    }
 
-/* rows */
-.drive-item{
-  padding:12px 14px; border-bottom:1px solid var(--border);
-  transition:background .12s ease-in-out;
-}
-.drive-item:hover{ background:var(--hover); }
+    .document-grid-table tbody tr:last-child {
+      border-bottom: none;
+    }
 
-/* name cell: allow 2-line wrap (no overlap) */
-.name a{ color:var(--text); text-decoration:none; font-weight:600; }
-.name a:hover{ color:var(--primary); }
-.name .label{
-  display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2;
-  overflow:hidden; word-break:break-word; line-height:1.25;
-}
+    .document-grid-table tbody tr:hover {
+      background-color: rgba(13, 110, 253, 0.08);
+    }
 
-/* size column: keep narrow and tidy */
-.size{ text-align:right; font-variant-numeric:tabular-nums; color:var(--muted); white-space:nowrap; }
+    .document-grid-table td {
+      padding: 0.85rem 0.75rem;
+      vertical-align: middle;
+      position: relative;
+    }
 
-/* type: center icon badge */
-.type{ display:flex; justify-content:center; }
-.type .icon{
-  font-size:1.1rem; background:var(--icon-bg); color:var(--primary);
-  padding:6px; border-radius:6px;
-}
+    .document-grid-table td .cell-display {
+      display: inline-flex;
+      align-items: center;
+      min-height: 1.6rem;
+    }
 
-/* modified: stacked name (bold) + small time, truncatable */
-.modified{ display:flex; flex-direction:column; gap:2px; line-height:1.2; }
-.modified .by{ font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.modified .time{ font-size:.8rem; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .document-grid-table td[data-editable="true"] {
+      cursor: text;
+    }
 
-/* actions: fixed buttons, no wrap */
-.drive-actions{ justify-self:end; display:flex; gap:8px; white-space:nowrap; }
-.drive-actions .btn{ padding:2px 8px; border-color:var(--border); color:var(--muted); }
-.drive-actions .btn:hover{ background:#eaf1ff; color:var(--primary); border-color:var(--primary); }
+    .document-grid-container.is-editing td[data-editable="true"] {
+      background-image: linear-gradient(135deg, rgba(13, 110, 253, 0.08) 0%, rgba(13, 110, 253, 0.02) 100%);
+    }
 
-/* responsive tweaks */
-@media (max-width: 992px){
-  .drive-header, .drive-item{
-    grid-template-columns: minmax(0,1fr) 100px 44px 180px 110px;
-  }
-}
-@media (max-width: 768px){
-  /* hide explicit type column to free space */
-  .drive-header > :nth-child(3),
-  .drive-item  > :nth-child(3){ display:none; }
-  .drive-header, .drive-item{
-    grid-template-columns: minmax(0,1fr) 100px 1fr 110px; /* name | size | modified | actions */
-  }
-}
-@media (max-width: 576px){
-  .drive-header{ display:none; }
-  .drive-item{
-    grid-template-columns: minmax(0,1fr) auto; row-gap:8px;
-  }
-  .size, .modified{ grid-column:1 / -1; text-align:left; }
-}
+    .document-grid-container.is-editing td[data-editable="true"]:hover {
+      background-color: rgba(13, 110, 253, 0.12);
+    }
 
-#dropzone.dragover {
-background: #f8f9fa;
-border-color: #0d6efd !important;
-}
-#dropzone.dragover { background: #f8f9fa; border-color: #0d6efd !important; }
-.dd-row { display:flex; align-items:center; gap:.5rem; margin:.5rem 0; }
-.dd-name { flex: 1 1 auto; font-weight: 500; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.dd-size { color:#6c757d; font-size:.9rem; }
-.dd-remove { border:none; background:transparent; color:#dc3545; }
-.dd-bar { height: 6px; background: #e9ecef; border-radius: 6px; overflow: hidden; margin-top: .25rem; }
-.dd-bar > div { height: 100%; width: 0; background: #0d6efd; transition: width .15s linear; }
-.dd-msg { font-size:.85rem; }
-</style>
+    .document-grid-table td.is-editing {
+      background-color: #fff9e6;
+      box-shadow: inset 0 0 0 1px #ffe08a;
+    }
+
+    .document-grid-table td .inline-editor {
+      width: 100%;
+      min-width: 8rem;
+      font-size: 0.9rem;
+    }
+
+    .document-grid-table td.has-error {
+      background-color: #fff5f5;
+    }
+
+    .document-grid-table td .cell-feedback {
+      font-size: 0.75rem;
+      color: #dc3545;
+      margin-top: 0.35rem;
+    }
+
+    .document-grid-table td.saving {
+      opacity: 0.65;
+    }
+
+    .document-grid-table td.saving::after {
+      content: "";
+      position: absolute;
+      right: 0.75rem;
+      top: 50%;
+      width: 1rem;
+      height: 1rem;
+      border-radius: 50%;
+      border: 2px solid rgba(13, 110, 253, 0.35);
+      border-top-color: #0d6efd;
+      animation: doc-grid-spin 0.8s linear infinite;
+      transform: translateY(-50%);
+    }
+
+    .document-grid-header .editing-indicator {
+      display: none;
+    }
+
+    @keyframes doc-grid-spin {
+      from {
+        transform: translateY(-50%) rotate(0deg);
+      }
+      to {
+        transform: translateY(-50%) rotate(360deg);
+      }
+    }
+
+    @media (max-width: 992px) {
+      .document-grid-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.75rem;
+      }
+
+      .document-grid-header-actions {
+        width: 100%;
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+      }
+
+      .document-grid-header-actions .btn,
+      .document-grid-header-actions .badge {
+        flex: 1 1 auto;
+      }
+    }
+  </style>
 {% endblock %}
 
 {% block content %}
-<div class="container py-4">
-  <!-- Top Actions -->
-  <div class="d-flex align-items-center justify-content-between mb-3">
-    <div>
-      <h1 class="h5 mb-0 fw-bold text-primary">{{ project.name }} / {{ folder.name }}</h1>
-    </div>
-    <div class="d-flex gap-2">
-      {% if folder.parent %}
-        <a class="btn btn-outline-secondary" href="{% url 'drive_folder' org.slug project.slug folder.parent.id %}">
-          <i class="bi bi-arrow-90deg-up me-1"></i> Up
-        </a>
-      {% else %}
-        <button class="btn btn-outline-secondary" disabled>
-          <i class="bi bi-arrow-90deg-up me-1"></i> Up
-        </button>
-      {% endif %}
-      <a class="btn btn-primary" href="{% url 'drive_folder_create' org.slug project.slug folder.id %}">
-        <i class="bi bi-folder-plus me-1"></i> New Folder
-      </a>
-    </div>
-  </div>
-
-  <!-- File list -->
-  <div class="drive-panel">
-    <div class="drive-header">
-      <div>Name</div>
-      <div>Size</div>
-      <div>Type</div>
-      <div>Last Modified</div>
-      <div></div>
-    </div>
-
-    {% for e in entries %}
-      <div class="drive-item"
-           title="{% if e.size %}{{ e.size|human_filesize }}{% endif %}{% if e.content_type %}{% if e.size %} • {% endif %}{{ e.content_type|upper }}{% endif %}">
-        <!-- Name (2-line wrap, click-through if present) -->
-        <div class="name">
-          {% if e.href %}
-            <a class="text-decoration-none" href="{{ e.href }}">
-              <span class="label">{{ e.name }}</span>
-            </a>
-          {% else %}
-            <span class="label">{{ e.name }}</span>
-          {% endif %}
-        </div>
-
-        <!-- Size -->
-        <div class="size">
-          {% if e.size %}{{ e.size|human_filesize }}{% else %}—{% endif %}
-        </div>
-
-        <!-- Type icon (only icon here) -->
-        <div class="type">
-          {% with klass=e.icon|file_icon %}
-            {% if klass %}
-              <i class="icon {{ klass }}"></i>
-            {% else %}
-              <i class="icon bi bi-file-earmark"></i>
-            {% endif %}
-          {% endwith %}
-        </div>
-
-        <!-- Modified (who on top, time below) -->
-        <div class="modified">
-          <span class="by">
-            {% if e.modified_by %}{{ e.modified_by }}{% else %}&nbsp;{% endif %}
-          </span>
-          <span class="time">
-            {% if e.modified_at %}{{ e.modified_at|naturaltime }}{% else %}—{% endif %}
-          </span>
-        </div>
-
-        <!-- Actions -->
-        <div class="drive-actions">
-          {% if e.href %}
-            <a class="btn btn-sm btn-outline-secondary" href="{{ e.href }}" title="Open">
-              <i class="bi bi-box-arrow-in-right"></i>
-            </a>
-          {% endif %}
-          {% if e.download_url %}
-            <a class="btn btn-sm btn-outline-secondary" href="{{ e.download_url }}" title="Download">
-              <i class="bi bi-download"></i>
-            </a>
-          {% endif %}
-        </div>
-      </div>
-    {% empty %}
-      <div class="p-4 text-center text-secondary">This folder is empty</div>
-    {% endfor %}
-  </div>
-
-  <div class="card mt-3">
-  <div class="card-body">
-    <div class="d-flex justify-content-between align-items-center mb-2">
+  <div class="container py-4">
+    <div class="document-grid-header d-flex justify-content-between align-items-start mb-4">
       <div>
-        <strong>Upload files</strong>
-        <div class="text-muted small">
-          Max {{ max_upload_mb }} MB each.</div>
+        <h1 class="h4 mb-1">{{ project.name }} — {{ folder.name }}</h1>
+        <p class="text-muted mb-0">Browse and quickly edit the metadata for your project documents.</p>
       </div>
-
-      <div class="d-flex gap-2">
-        <button id="dz-add"   type="button" class="btn btn-outline-primary">Add files</button>
-        <button id="dz-start" type="button" class="btn btn-primary" disabled>Upload 0 files</button>
-        <button id="dz-clear" type="button" class="btn btn-outline-secondary" disabled>Clear</button>
+      <div class="document-grid-header-actions d-flex align-items-center gap-2">
+        <span class="badge bg-warning-subtle text-warning-emphasis editing-indicator" id="drive-documents-editing-indicator">Editing</span>
+        <button type="button" class="btn btn-outline-primary" id="drive-documents-edit-toggle" aria-pressed="false">Edit</button>
+        <a class="btn btn-outline-secondary" href="{% if folder.parent %}{% url 'drive_folder' org.slug project.slug folder.parent.id %}{% else %}{% url 'project_drive_root' org.slug project.slug %}{% endif %}">Up One Level</a>
+        <a class="btn btn-outline-secondary" href="{% url 'drive_folder_create' org.slug project.slug folder.id %}">New Folder</a>
+        <a class="btn btn-primary" href="{{ upload_url }}">Upload Files</a>
       </div>
     </div>
 
-    <!-- Global note applied to all files in this batch -->
-    <input id="dz-note" type="text" class="form-control mb-3" maxlength="500"
-           placeholder="Change note (optional, applied to all files)">
+    {% if child_folders %}
+      <div class="mb-4">
+        <h2 class="h6 text-uppercase text-muted">Subfolders</h2>
+        <div class="d-flex flex-wrap gap-2">
+          {% for child in child_folders %}
+            <a class="btn btn-sm btn-outline-secondary" href="{% url 'drive_folder' org.slug project.slug child.id %}">{{ child.name }}</a>
+          {% endfor %}
+        </div>
+      </div>
+    {% endif %}
 
-    <!-- Dropzone area (also clickable) -->
-    <form action="{{ upload_url }}" class="dropzone" id="pipeledger-dropzone" enctype="multipart/form-data">
+    <div class="document-grid-container" id="drive-documents-grid-container">
+      <div class="table-responsive">
+        <table class="table table-borderless align-middle document-grid-table mb-0" id="drive-documents-grid">
+          <thead>
+            <tr>
+              <th scope="col">Doc Number</th>
+              <th scope="col">Name</th>
+              <th scope="col">Doc Type</th>
+              <th scope="col">Content Type</th>
+              <th scope="col">Size</th>
+              <th scope="col">Version</th>
+              <th scope="col">Is Checked Out</th>
+              <th scope="col">Checked Out By</th>
+              <th scope="col">Checked Out At</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for node in files %}
+              <tr data-node-id="{{ node.id }}" data-update-url="{% url 'drive_file_inline_update' org.slug project.slug node.id %}">
+                <td class="editable-cell" data-editable="true" data-field="number" data-value="{{ node.number|default_if_none:''|escape }}">
+                  <span class="cell-display">{{ node.number|default:"—" }}</span>
+                </td>
+                <td class="editable-cell" data-editable="true" data-field="name" data-value="{{ node.name|default_if_none:''|escape }}">
+                  <span class="cell-display">{{ node.name|default:"—" }}</span>
+                </td>
+                <td class="editable-cell" data-editable="true" data-field="doc_type" data-value="{{ node.doc_type|default_if_none:''|escape }}">
+                  <span class="cell-display">{{ node.get_doc_type_display|default:"—" }}</span>
+                </td>
+                <td>
+                  <span class="cell-display">{{ node.latest_version.content_type|default:node.content_type|default:"—" }}</span>
+                </td>
+                <td>
+                  <span class="cell-display">{{ node.latest_version.size|default:node.size|filesizeformat }}</span>
+                </td>
+                <td>
+                  <span class="cell-display">{{ node.version }}</span>
+                </td>
+                <td>
+                  {% if node.checked_out_by %}
+                    <span class="badge bg-warning text-dark">Yes</span>
+                  {% else %}
+                    <span class="text-muted">No</span>
+                  {% endif %}
+                </td>
+                <td>
+                  {% if node.checked_out_by %}
+                    <span class="cell-display">{{ node.checked_out_by.get_full_name|default:node.checked_out_by.username }}</span>
+                  {% else %}
+                    <span class="text-muted">—</span>
+                  {% endif %}
+                </td>
+                <td>
+                  {% if node.checked_out_at %}
+                    <span class="cell-display">{{ node.checked_out_at|date:"Y-m-d H:i" }}</span>
+                  {% else %}
+                    <span class="text-muted">—</span>
+                  {% endif %}
+                </td>
+              </tr>
+            {% empty %}
+              <tr>
+                <td colspan="9" class="text-center text-muted py-4">No documents yet.</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <form id="drive-documents-inline-csrf" class="d-none">
       {% csrf_token %}
-      <div class="dz-message">Drag & drop files here or click to select</div>
     </form>
+
+    <datalist id="drive-doc-type-options">
+      {% for value, label in doc_type_choices %}
+        {% if value %}
+          <option value="{{ value }}">{{ label }}</option>
+        {% endif %}
+      {% endfor %}
+    </datalist>
   </div>
-</div>
 
+  <script>
+    document.addEventListener("DOMContentLoaded", () => {
+      const gridContainer = document.getElementById("drive-documents-grid-container");
+      const grid = document.getElementById("drive-documents-grid");
+      const toggleButton = document.getElementById("drive-documents-edit-toggle");
+      const editingIndicator = document.getElementById("drive-documents-editing-indicator");
+      const csrfInput = document.querySelector("#drive-documents-inline-csrf input[name=csrfmiddlewaretoken]");
+      const csrfToken = csrfInput ? csrfInput.value : "";
 
-</div>
-<script>
-Dropzone.autoDiscover = false;
+      if (!gridContainer || !grid || !toggleButton) {
+        return;
+      }
 
-(function () {
-  const startBtn = document.getElementById('dz-start');
-  const clearBtn = document.getElementById('dz-clear');
-  const addBtn   = document.getElementById('dz-add');
-  const noteEl   = document.getElementById('dz-note');
+      if (editingIndicator) {
+        editingIndicator.style.display = "none";
+      }
 
-  function getCookie(name) {
-    const cookies = document.cookie ? document.cookie.split('; ') : [];
-    for (const c of cookies) { const [k,v] = c.split('='); if (k === name) return decodeURIComponent(v); }
-    return null;
-  }
-  const csrftoken = getCookie('csrftoken');
+      let activeCell = null;
+      let activeInput = null;
+      let originalValue = "";
 
-  const acceptedCsv = "{{ allowed_types|join:','|escapejs }}"; // optional
-  const dz = new Dropzone("#pipeledger-dropzone", {
-    url: "{{ upload_url }}",
-    paramName: "file",
-    autoProcessQueue: false,
-    parallelUploads: 3,
-    maxFilesize: {{ max_upload_mb|default:50 }},
-    addRemoveLinks: true,
-    headers: { "X-CSRFToken": csrftoken },
-    clickable: ["#pipeledger-dropzone", "#dz-add"],  // <- both area and button open file picker
-    ...(acceptedCsv ? { acceptedFiles: acceptedCsv } : {}),
-    dictDefaultMessage: "Drag & drop files here or click to select",
-    timeout: 0,
-  });
+      function isEditing() {
+        return gridContainer.classList.contains("is-editing");
+      }
 
-  function refreshButtons() {
-    const queued = dz.getFilesWithStatus(Dropzone.ADDED)
-                  .concat(dz.getFilesWithStatus(Dropzone.QUEUED)).length;
-    const uploading = dz.getFilesWithStatus(Dropzone.UPLOADING).length;
-    startBtn.disabled = (queued === 0 || uploading > 0);
-    startBtn.textContent = queued ? `Upload ${queued} file${queued>1?'s':''}` : "Upload 0 files";
-    clearBtn.disabled = (queued + uploading + dz.getFilesWithStatus(Dropzone.SUCCESS).length) === 0;
-  }
+      function closeActiveInput(options = {}) {
+        if (!activeCell || !activeInput) {
+          return;
+        }
 
-  dz.on("addedfile",    refreshButtons);
-  dz.on("removedfile",  refreshButtons);
-  dz.on("uploadprogress", refreshButtons);
-  dz.on("queuecomplete",() => {
-    refreshButtons();
-    // Optional: auto-refresh folder contents
-    // setTimeout(() => location.reload(), 700);
-  });
-  dz.on("error",   refreshButtons);
-  dz.on("success", refreshButtons);
+        const cell = activeCell;
+        const displayEl = cell.querySelector(".cell-display");
+        if (!displayEl) {
+          cell.classList.remove("is-editing", "has-error", "saving");
+          const orphanFeedback = cell.querySelector(".cell-feedback");
+          if (orphanFeedback) {
+            orphanFeedback.remove();
+          }
+          activeInput.remove();
+          activeCell = null;
+          activeInput = null;
+          originalValue = "";
+          return;
+        }
 
-  dz.on("sending", (file, xhr, formData) => {
-    const note = (noteEl.value || "").trim();
-    if (note) formData.append("note", note);
-  });
+        const { revert = false, value = null, display = null } = options;
+        const nextValue = revert
+          ? originalValue
+          : value !== null
+            ? value
+            : activeInput.value;
+        const nextDisplay = display !== null ? display : (nextValue || "—");
 
-  startBtn.addEventListener("click", () => dz.processQueue());
-  clearBtn.addEventListener("click", () => { dz.removeAllFiles(true); refreshButtons(); });
-  // addBtn is already wired by `clickable`, but you can keep this as a safety no-op:
-  addBtn.addEventListener("click", () => {/* handled by Dropzone clickable */});
+        displayEl.textContent = nextDisplay;
+        cell.dataset.value = nextValue;
 
-  refreshButtons();
-})();
-</script>
+        cell.classList.remove("is-editing", "has-error", "saving");
+        const feedback = cell.querySelector(".cell-feedback");
+        if (feedback) {
+          feedback.remove();
+        }
+        activeInput.remove();
+        activeCell = null;
+        activeInput = null;
+        originalValue = "";
+      }
+
+      function showError(cell, message) {
+        cell.classList.add("has-error");
+        let feedback = cell.querySelector(".cell-feedback");
+        if (!feedback) {
+          feedback = document.createElement("div");
+          feedback.className = "cell-feedback";
+          cell.appendChild(feedback);
+        }
+        feedback.textContent = message;
+      }
+
+      function clearError(cell) {
+        cell.classList.remove("has-error");
+        const feedback = cell.querySelector(".cell-feedback");
+        if (feedback) {
+          feedback.remove();
+        }
+      }
+
+      function activateCell(cell) {
+        if (activeCell === cell) {
+          return;
+        }
+
+        if (activeInput) {
+          activeInput.blur();
+        }
+
+        const currentValue = cell.dataset.value || "";
+        const input = document.createElement("input");
+        input.type = "text";
+        input.value = currentValue;
+        input.className = "form-control form-control-sm inline-editor";
+        input.setAttribute("aria-label", (cell.dataset.field || "") + " editor");
+        if (cell.dataset.field === "doc_type") {
+          input.setAttribute("list", "drive-doc-type-options");
+          input.setAttribute("autocomplete", "off");
+        }
+
+        clearError(cell);
+        cell.classList.add("is-editing");
+        const display = cell.querySelector(".cell-display");
+        if (display) {
+          display.textContent = "";
+        }
+        cell.appendChild(input);
+        input.focus();
+        input.select();
+
+        originalValue = currentValue;
+        activeCell = cell;
+        activeInput = input;
+
+        input.addEventListener("keydown", (event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            input.blur();
+          } else if (event.key === "Escape") {
+            event.preventDefault();
+            closeActiveInput({ revert: true });
+          }
+        });
+
+        input.addEventListener("blur", () => {
+          commitChange(cell, input);
+        });
+      }
+
+      function validate(field, value) {
+        if ((field === "number" || field === "name") && !value.trim()) {
+          return "This value is required.";
+        }
+        return "";
+      }
+
+      async function commitChange(cell, input) {
+        const field = cell.dataset.field;
+        const row = cell.closest("tr");
+        const updateUrl = row ? row.dataset.updateUrl : null;
+        const newValue = input.value.trim();
+        const validationError = validate(field, newValue);
+
+        if (validationError) {
+          showError(cell, validationError);
+          input.focus();
+          return;
+        }
+
+        if (!updateUrl || newValue === originalValue) {
+          closeActiveInput();
+          return;
+        }
+
+        clearError(cell);
+        cell.classList.add("saving");
+
+        try {
+          const response = await fetch(updateUrl, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-CSRFToken": csrfToken,
+            },
+            body: JSON.stringify({ field, value: newValue }),
+          });
+          let data = {};
+          try {
+            data = await response.json();
+          } catch (jsonError) {
+            data = {};
+          }
+
+          if (!response.ok) {
+            throw new Error(data.error || "Unable to save change.");
+          }
+
+          const nextValue = data.value !== undefined ? data.value : newValue;
+          const displayValue = data.display !== undefined ? data.display : null;
+          closeActiveInput({ value: nextValue, display: displayValue });
+        } catch (error) {
+          showError(cell, error.message);
+          cell.classList.remove("saving");
+          input.focus();
+          input.select();
+        }
+      }
+
+      toggleButton.addEventListener("click", () => {
+        const editing = !isEditing();
+        gridContainer.classList.toggle("is-editing", editing);
+        toggleButton.textContent = editing ? "Stop Editing" : "Edit";
+        toggleButton.setAttribute("aria-pressed", editing ? "true" : "false");
+        if (editingIndicator) {
+          editingIndicator.style.display = editing ? "inline-flex" : "none";
+        }
+
+        if (!editing) {
+          closeActiveInput({ revert: true });
+        }
+      });
+
+      grid.addEventListener("click", (event) => {
+        if (!isEditing()) {
+          return;
+        }
+
+        const cell = event.target.closest("td[data-editable='true']");
+        if (!cell) {
+          return;
+        }
+
+        activateCell(cell);
+      });
+    });
+  </script>
 {% endblock %}

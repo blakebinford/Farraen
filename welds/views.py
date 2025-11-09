@@ -1,6 +1,7 @@
 import json
 from decimal import Decimal, InvalidOperation
 
+from django.db import connection
 from django.http import JsonResponse, HttpResponseBadRequest, HttpResponseForbidden
 from django.shortcuts import render, get_object_or_404
 from django.urls import reverse
@@ -11,6 +12,30 @@ from organizations.decorators import require_membership
 from projects.utils import get_project_for_request, user_has_project_access
 
 from .models import MaterialHeat, NDERig, Weld
+
+
+def _existing_table_names():
+    return set(connection.introspection.table_names())
+
+
+def _missing_weld_tables():
+    existing = _existing_table_names()
+    required = {
+        MaterialHeat._meta.db_table: "material heat records",
+        NDERig._meta.db_table: "NDE rigs",
+        Weld._meta.db_table: "weld log entries",
+    }
+    return [label for table, label in required.items() if table not in existing]
+
+
+def _migrations_required_message(missing_labels):
+    if not missing_labels:
+        return ""
+    missing = ", ".join(missing_labels)
+    return (
+        "The weld tracking tables are not available in this environment yet "
+        f"(missing: {missing}). Run `python manage.py migrate` and reload this page."
+    )
 
 
 def _require_project_membership(request, project):
@@ -77,29 +102,44 @@ def weld_log(request, org_slug, project_slug):
     if forbidden:
         return forbidden
 
+    missing_tables = _missing_weld_tables()
+    setup_error = _migrations_required_message(missing_tables)
+
     context = {
         "org": request.org,
         "project": project,
-        "data_url": reverse("weld_log_data", kwargs={
-            "org_slug": request.org.slug,
-            "project_slug": project.slug,
-        }),
-        "heat_options_url": reverse(
-            "weld_material_heat_options",
-            kwargs={
-                "org_slug": request.org.slug,
-                "project_slug": project.slug,
-            },
-        ),
-        "nde_rigs_url": reverse(
-            "weld_nde_rig_options",
-            kwargs={
-                "org_slug": request.org.slug,
-                "project_slug": project.slug,
-            },
-        ),
+        "setup_error": setup_error,
     }
-    return render(request, "welds/weld_log.html", context)
+
+    if not setup_error:
+        context.update(
+            {
+                "data_url": reverse(
+                    "weld_log_data",
+                    kwargs={
+                        "org_slug": request.org.slug,
+                        "project_slug": project.slug,
+                    },
+                ),
+                "heat_options_url": reverse(
+                    "weld_material_heat_options",
+                    kwargs={
+                        "org_slug": request.org.slug,
+                        "project_slug": project.slug,
+                    },
+                ),
+                "nde_rigs_url": reverse(
+                    "weld_nde_rig_options",
+                    kwargs={
+                        "org_slug": request.org.slug,
+                        "project_slug": project.slug,
+                    },
+                ),
+            }
+        )
+
+    status = 503 if setup_error else 200
+    return render(request, "welds/weld_log.html", context, status=status)
 
 
 @require_membership("GUEST")
@@ -109,6 +149,11 @@ def weld_log_data(request, org_slug, project_slug):
     forbidden = _require_project_membership(request, project)
     if forbidden:
         return forbidden
+
+    missing_tables = _missing_weld_tables()
+    if missing_tables:
+        message = _migrations_required_message(missing_tables)
+        return JsonResponse({"error": message}, status=503)
 
     if request.method == "GET":
         rows = [
@@ -295,6 +340,11 @@ def material_heat_options(request, org_slug, project_slug):
     if forbidden:
         return forbidden
 
+    missing_tables = _missing_weld_tables()
+    if missing_tables:
+        message = _migrations_required_message(missing_tables)
+        return JsonResponse({"error": message}, status=503)
+
     heats = MaterialHeat.objects.filter(org=request.org, is_active=True).order_by(
         "heat_number"
     )
@@ -320,6 +370,11 @@ def nde_rig_options(request, org_slug, project_slug):
     forbidden = _require_project_membership(request, project)
     if forbidden:
         return forbidden
+
+    missing_tables = _missing_weld_tables()
+    if missing_tables:
+        message = _migrations_required_message(missing_tables)
+        return JsonResponse({"error": message}, status=503)
 
     rigs = NDERig.objects.filter(org=request.org, is_active=True).order_by("name")
     data = [

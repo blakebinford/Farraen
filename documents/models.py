@@ -4,13 +4,12 @@ import hashlib
 
 class Document(models.Model):
     DOC_TYPES = [
-        ("DRAWING", "Drawing"),
-        ("MTR", "Material Test Report"),
-        ("WPS", "Welding Procedure Spec"),
         ("NDE", "NDE Report"),
-        ("COATING", "Coating Report"),
-        ("TORQUE", "Torque Report"),
-        ("OTHER", "Other"),
+        ("INSPECTOR", "Inspector Qualification"),
+        ("WELDER", "Welder Qualification"),
+        ("MTR", "MTR"),
+        ("WPS", "WPS"),
+        ("CALIBRATION", "Calibration"),
     ]
     org         = models.ForeignKey("organizations.Organization", on_delete=models.PROTECT, related_name="documents")
     doc_type    = models.CharField(max_length=16, choices=DOC_TYPES)

@@ -61,7 +61,7 @@ class DocumentDetailViewTests(TestCase):
         self.assertContains(response, "Save heat details")
 
     def test_non_mtr_detail_does_not_include_material_heat_form(self):
-        doc = self._create_document(doc_type="DRAWING", number="DRW-2001")
+        doc = self._create_document(doc_type="NDE", number="DRW-2001")
         url = reverse("doc_detail", kwargs={"org_slug": self.org.slug, "doc_id": doc.id})
 
         response = self.client.get(url)

@@ -10,4 +10,36 @@
     <a href="{% url 'doc_list' org.slug %}" class="btn btn-outline-secondary">Cancel</a>
   </div>
 </form>
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    const fileInput = document.getElementById("id_file");
+    const nameInput = document.getElementById("id_name");
+    const titleInput = document.getElementById("id_title");
+    let titleTouched = false;
+
+    if (titleInput) {
+      titleInput.addEventListener("input", function () {
+        titleTouched = titleInput.value.trim().length > 0;
+      });
+    }
+
+    function updateFromFile() {
+      if (!fileInput || !fileInput.files || !fileInput.files.length) {
+        return;
+      }
+      const selectedName = fileInput.files[0].name;
+      if (nameInput && !nameInput.value) {
+        nameInput.value = selectedName;
+      }
+      if (titleInput && !titleTouched) {
+        titleInput.value = selectedName;
+      }
+    }
+
+    if (fileInput) {
+      fileInput.addEventListener("change", updateFromFile);
+      updateFromFile();
+    }
+  });
+</script>
 {% endblock %}

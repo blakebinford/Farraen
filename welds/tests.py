@@ -1,4 +1,5 @@
 from decimal import Decimal
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
@@ -8,6 +9,7 @@ from organizations.models import Membership, Organization
 from projects.models import Project, ProjectMember
 
 from .models import MaterialHeat, NDERig, Weld
+from .views import _migrations_required_message
 
 
 class WeldLogAPITests(TestCase):
@@ -107,4 +109,86 @@ class WeldLogAPITests(TestCase):
         heats = response.json().get("heats", [])
         self.assertEqual(len(heats), 1)
         self.assertEqual(heats[0]["heat_number"], self.heat.heat_number)
+
+    def test_weld_log_data_includes_row_count(self):
+        Weld.objects.create(
+            project=self.project,
+            weld_id="W-ROW-1",
+            created_by=self.user,
+            updated_by=self.user,
+        )
+        response = self.client.get(self._data_url())
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertIn("row_count", payload)
+        self.assertEqual(payload["row_count"], 1)
+        self.assertEqual(len(payload.get("rows", [])), 1)
+
+
+class WeldLogMissingTablesTests(TestCase):
+    def setUp(self):
+        User = get_user_model()
+        self.user = User.objects.create_user(
+            email="viewer@example.com",
+            password="pass1234",
+        )
+        self.org = Organization.objects.create(
+            name="Acme", slug="acme", owner=self.user
+        )
+        Membership.objects.create(
+            org=self.org,
+            user=self.user,
+            role=Membership.Role.ADMIN,
+        )
+        self.project = Project.objects.create(
+            org=self.org,
+            name="Pipeline A",
+            slug="pipeline-a",
+            created_by=self.user,
+            is_archived=False,
+        )
+        ProjectMember.objects.create(
+            project=self.project,
+            user=self.user,
+            role=ProjectMember.Role.MEMBER,
+        )
+        self.client.force_login(self.user)
+
+    def _weld_log_url(self, name="weld_log"):
+        return reverse(
+            name,
+            kwargs={
+                "org_slug": self.org.slug,
+                "project_slug": self.project.slug,
+            },
+        )
+
+    @patch("welds.views._missing_weld_tables", return_value=["weld log entries"])
+    def test_weld_log_page_prompts_for_migration(self, mock_missing):
+        response = self.client.get(self._weld_log_url())
+        self.assertEqual(response.status_code, 503)
+        expected_message = _migrations_required_message(["weld log entries"])
+        self.assertEqual(response.context["setup_error"], expected_message)
+        self.assertContains(response, expected_message, status_code=503)
+        mock_missing.assert_called_once()
+
+    @patch("welds.views._missing_weld_tables", return_value=["weld log entries"])
+    def test_weld_log_data_missing_tables_returns_503(self, mock_missing):
+        response = self.client.get(self._weld_log_url("weld_log_data"))
+        self.assertEqual(response.status_code, 503)
+        expected_message = _migrations_required_message(["weld log entries"])
+        self.assertEqual(response.json(), {"error": expected_message})
+        mock_missing.assert_called_once()
+
+    @patch("welds.views._missing_weld_tables", return_value=["NDE rigs"])
+    def test_option_endpoints_missing_tables_return_503(self, mock_missing):
+        response = self.client.get(self._weld_log_url("weld_material_heat_options"))
+        self.assertEqual(response.status_code, 503)
+        expected_message = _migrations_required_message(["NDE rigs"])
+        self.assertEqual(response.json(), {"error": expected_message})
+
+        response = self.client.get(self._weld_log_url("weld_nde_rig_options"))
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json(), {"error": expected_message})
+        self.assertEqual(mock_missing.call_count, 2)
 

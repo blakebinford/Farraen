@@ -26,11 +26,18 @@
       <h1 class="h3 mb-1">{{ project.name }} Weld Log</h1>
       <p class="text-muted mb-0">Inline register for capturing weld information with spreadsheet-style editing.</p>
     </div>
-    <button class="btn btn-primary" id="add-weld-btn">Add Weld</button>
+    {% if not setup_error %}
+      <button class="btn btn-primary" id="add-weld-btn">Add Weld</button>
+    {% endif %}
   </div>
 
-  <div id="weld-grid" class="ag-theme-alpine"></div>
-  <p class="small text-muted mt-2" id="grid-status" role="status"></p>
+  {% if setup_error %}
+    <div class="alert alert-warning" role="alert">
+      {{ setup_error }}
+    </div>
+  {% else %}
+    <div id="weld-grid" class="ag-theme-alpine"></div>
+    <p class="small text-muted mt-2" id="grid-status" role="status"></p>
 
   <script>
     const dataEndpoint = "{{ data_url }}";
@@ -119,9 +126,13 @@
       {
         headerName: 'Material 1 Heat #',
         field: 'material1_heat_number',
-        minWidth: 180,
-        cellEditor: 'agSelectCellEditor',
-        cellEditorParams: () => ({ values: heatNumberOptions }),
+        minWidth: 200,
+        cellEditor: 'agRichSelectCellEditor',
+        cellEditorParams: () => ({
+          values: heatNumberOptions,
+          filterList: true,
+          searchDebounceDelay: 120,
+        }),
         valueSetter: materialHeatValueSetter('material1'),
       },
       { headerName: 'Material 1 Description', field: 'material1_description', minWidth: 200, editable: false },
@@ -132,9 +143,13 @@
       {
         headerName: 'Material 2 Heat #',
         field: 'material2_heat_number',
-        minWidth: 180,
-        cellEditor: 'agSelectCellEditor',
-        cellEditorParams: () => ({ values: heatNumberOptions }),
+        minWidth: 200,
+        cellEditor: 'agRichSelectCellEditor',
+        cellEditorParams: () => ({
+          values: heatNumberOptions,
+          filterList: true,
+          searchDebounceDelay: 120,
+        }),
         valueSetter: materialHeatValueSetter('material2'),
       },
       { headerName: 'Material 2 Description', field: 'material2_description', minWidth: 200, editable: false },
@@ -337,4 +352,5 @@
       }
     });
   </script>
+  {% endif %}
 {% endblock %}

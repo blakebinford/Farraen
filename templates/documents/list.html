@@ -1,24 +1,470 @@
 {% extends "base.html" %}
+
+{% block extra_head %}
+  {{ block.super }}
+  <style>
+    .document-grid-container {
+      background: #ffffff;
+      border: 1px solid #dee2e6;
+      border-radius: 0.75rem;
+      padding: 1.5rem;
+      box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+      transition: box-shadow 0.2s ease, border-color 0.2s ease;
+    }
+
+    .document-grid-container.is-editing {
+      border-color: rgba(13, 110, 253, 0.4);
+      box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.15);
+    }
+
+    .document-grid-header h1 {
+      font-weight: 600;
+    }
+
+    .document-grid-table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      font-size: 0.95rem;
+    }
+
+    .document-grid-table thead th {
+      text-transform: uppercase;
+      font-size: 0.75rem;
+      letter-spacing: 0.08em;
+      color: #6c757d;
+      background-color: #f8f9fa;
+      border-bottom: 1px solid #dee2e6;
+      padding: 0.75rem;
+      white-space: nowrap;
+    }
+
+    .document-grid-table tbody tr {
+      border-bottom: 1px solid #edf0f5;
+      transition: background-color 0.2s ease;
+    }
+
+    .document-grid-table tbody tr:last-child {
+      border-bottom: none;
+    }
+
+    .document-grid-table tbody tr:hover {
+      background-color: rgba(13, 110, 253, 0.08);
+    }
+
+    .document-grid-table td {
+      padding: 0.85rem 0.75rem;
+      vertical-align: middle;
+      position: relative;
+    }
+
+    .document-grid-table td .cell-display {
+      display: inline-flex;
+      align-items: center;
+      min-height: 1.6rem;
+    }
+
+    .document-grid-table td[data-editable="true"] {
+      cursor: text;
+    }
+
+    .document-grid-container.is-editing td[data-editable="true"] {
+      background-image: linear-gradient(135deg, rgba(13, 110, 253, 0.08) 0%, rgba(13, 110, 253, 0.02) 100%);
+    }
+
+    .document-grid-container.is-editing td[data-editable="true"]:hover {
+      background-color: rgba(13, 110, 253, 0.12);
+    }
+
+    .document-grid-table td.is-editing {
+      background-color: #fff9e6;
+      box-shadow: inset 0 0 0 1px #ffe08a;
+    }
+
+    .document-grid-table td .inline-editor {
+      width: 100%;
+      min-width: 8rem;
+      font-size: 0.9rem;
+    }
+
+    .document-grid-table td.has-error {
+      background-color: #fff5f5;
+    }
+
+    .document-grid-table td .cell-feedback {
+      font-size: 0.75rem;
+      color: #dc3545;
+      margin-top: 0.35rem;
+    }
+
+    .document-grid-table td.saving {
+      opacity: 0.65;
+    }
+
+    .document-grid-table td.saving::after {
+      content: "";
+      position: absolute;
+      right: 0.75rem;
+      top: 50%;
+      width: 1rem;
+      height: 1rem;
+      border-radius: 50%;
+      border: 2px solid rgba(13, 110, 253, 0.35);
+      border-top-color: #0d6efd;
+      animation: doc-grid-spin 0.8s linear infinite;
+      transform: translateY(-50%);
+    }
+
+    .document-grid-header .editing-indicator {
+      display: none;
+    }
+
+    @keyframes doc-grid-spin {
+      from {
+        transform: translateY(-50%) rotate(0deg);
+      }
+      to {
+        transform: translateY(-50%) rotate(360deg);
+      }
+    }
+
+    @media (max-width: 992px) {
+      .document-grid-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.75rem;
+      }
+
+      .document-grid-header-actions {
+        width: 100%;
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+      }
+
+      .document-grid-header-actions .btn,
+      .document-grid-header-actions .badge {
+        flex: 1 1 auto;
+      }
+    }
+  </style>
+{% endblock %}
+
 {% block content %}
-<h1 class="h4 mb-3">{{ org.name }} — Documents</h1>
-<div class="d-flex justify-content-between mb-2">
-  <div></div>
-  <a class="btn btn-primary" href="{% url 'doc_upload' org.slug %}">Upload Document</a>
-</div>
-<table class="table table-sm align-middle">
-  <thead><tr><th>Type</th><th>Number</th><th>Title</th><th>Version</th><th>Uploaded</th></tr></thead>
-  <tbody>
-    {% for d in docs %}
-    <tr>
-      <td>{{ d.doc_type }}</td>
-      <td><a href="{% url 'doc_detail' org.slug d.id %}">{{ d.number }}</a></td>
-      <td>{{ d.title }}</td>
-      <td>{{ d.version }}</td>
-      <td>{{ d.created_at|date:"Y-m-d H:i" }}</td>
-    </tr>
-    {% empty %}
-    <tr><td colspan="5" class="text-muted">No documents yet.</td></tr>
+  <div class="document-grid-header d-flex justify-content-between align-items-start mb-4">
+    <div>
+      <h1 class="h4 mb-1">{{ org.name }} — Documents</h1>
+      <p class="text-muted mb-0">Browse and quickly edit the metadata for your stored files.</p>
+    </div>
+    <div class="document-grid-header-actions d-flex align-items-center gap-2">
+      <span class="badge bg-warning-subtle text-warning-emphasis editing-indicator" id="documents-editing-indicator">Editing</span>
+      <button type="button" class="btn btn-outline-primary" id="documents-edit-toggle" aria-pressed="false">Edit</button>
+      <a class="btn btn-primary" href="{% url 'doc_upload' org.slug %}">Upload Document</a>
+    </div>
+  </div>
+
+  <div class="document-grid-container" id="documents-grid-container">
+    <div class="table-responsive">
+      <table class="table table-borderless align-middle document-grid-table mb-0" id="documents-grid">
+        <thead>
+          <tr>
+            <th scope="col">Doc Number</th>
+            <th scope="col">Name</th>
+            <th scope="col">Doc Type</th>
+            <th scope="col">Content Type</th>
+            <th scope="col">Size</th>
+            <th scope="col">Version</th>
+            <th scope="col">Is Checked Out</th>
+            <th scope="col">Checked Out By</th>
+            <th scope="col">Checked Out At</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for d in docs %}
+            <tr data-doc-id="{{ d.id }}" data-update-url="{% url 'doc_inline_update' org.slug d.id %}">
+              <td class="editable-cell" data-editable="true" data-field="number" data-value="{{ d.number|default_if_none:''|escape }}">
+                <span class="cell-display">{{ d.number|default:"—" }}</span>
+              </td>
+              <td class="editable-cell" data-editable="true" data-field="name" data-value="{{ d.name|default_if_none:''|escape }}">
+                <span class="cell-display">{{ d.name|default:"—" }}</span>
+              </td>
+              <td class="editable-cell" data-editable="true" data-field="doc_type" data-value="{{ d.doc_type|default_if_none:''|escape }}">
+                <span class="cell-display">{{ d.doc_type|default:"—" }}</span>
+              </td>
+              <td>
+                <span class="cell-display">{{ d.latest_version.content_type|default:d.content_type|default:"—" }}</span>
+              </td>
+              <td>
+                <span class="cell-display">{{ d.latest_version.size|default:d.size|filesizeformat }}</span>
+              </td>
+              <td>
+                <span class="cell-display">{{ d.version }}</span>
+              </td>
+              <td>
+                {% if d.checked_out_by %}
+                  <span class="badge bg-warning text-dark">Yes</span>
+                {% else %}
+                  <span class="text-muted">No</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if d.checked_out_by %}
+                  <span class="cell-display">{{ d.checked_out_by.get_full_name|default:d.checked_out_by.username }}</span>
+                {% else %}
+                  <span class="text-muted">—</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if d.checked_out_at %}
+                  <span class="cell-display">{{ d.checked_out_at|date:"Y-m-d H:i" }}</span>
+                {% else %}
+                  <span class="text-muted">—</span>
+                {% endif %}
+              </td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="9" class="text-center text-muted py-4">No documents yet.</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <form id="documents-inline-csrf" class="d-none">
+    {% csrf_token %}
+  </form>
+
+  <datalist id="doc-type-options">
+    {% for value, label in doc_type_choices %}
+      {% if value %}
+        <option value="{{ value }}">{{ label }}</option>
+      {% endif %}
     {% endfor %}
-  </tbody>
-</table>
+  </datalist>
+
+  <script>
+    // SharePoint-like inline editing behaviours for the documents grid.
+    document.addEventListener("DOMContentLoaded", () => {
+      const gridContainer = document.getElementById("documents-grid-container");
+      const grid = document.getElementById("documents-grid");
+      const toggleButton = document.getElementById("documents-edit-toggle");
+      const editingIndicator = document.getElementById("documents-editing-indicator");
+      const csrfInput = document.querySelector("#documents-inline-csrf input[name=csrfmiddlewaretoken]");
+      const csrfToken = csrfInput ? csrfInput.value : "";
+
+      if (!gridContainer || !grid || !toggleButton) {
+        return;
+      }
+
+      if (editingIndicator) {
+        editingIndicator.style.display = "none";
+      }
+
+      let activeCell = null;
+      let activeInput = null;
+      let originalValue = "";
+
+      function isEditing() {
+        return gridContainer.classList.contains("is-editing");
+      }
+
+      function closeActiveInput(options = {}) {
+        if (!activeCell || !activeInput) {
+          return;
+        }
+
+        const cell = activeCell;
+        const displayEl = cell.querySelector(".cell-display");
+        if (!displayEl) {
+          cell.classList.remove("is-editing", "has-error", "saving");
+          const orphanFeedback = cell.querySelector(".cell-feedback");
+          if (orphanFeedback) {
+            orphanFeedback.remove();
+          }
+          activeInput.remove();
+          activeCell = null;
+          activeInput = null;
+          originalValue = "";
+          return;
+        }
+
+        const { revert = false, value = null, display = null } = options;
+        const nextValue = revert
+          ? originalValue
+          : value !== null
+            ? value
+            : activeInput.value;
+        const nextDisplay = display !== null ? display : (nextValue || "—");
+
+        displayEl.textContent = nextDisplay;
+        cell.dataset.value = nextValue;
+
+        cell.classList.remove("is-editing", "has-error", "saving");
+        const feedback = cell.querySelector(".cell-feedback");
+        if (feedback) {
+          feedback.remove();
+        }
+        activeInput.remove();
+        activeCell = null;
+        activeInput = null;
+        originalValue = "";
+      }
+
+      function showError(cell, message) {
+        cell.classList.add("has-error");
+        let feedback = cell.querySelector(".cell-feedback");
+        if (!feedback) {
+          feedback = document.createElement("div");
+          feedback.className = "cell-feedback";
+          cell.appendChild(feedback);
+        }
+        feedback.textContent = message;
+      }
+
+      function clearError(cell) {
+        cell.classList.remove("has-error");
+        const feedback = cell.querySelector(".cell-feedback");
+        if (feedback) {
+          feedback.remove();
+        }
+      }
+
+      function activateCell(cell) {
+        if (activeCell === cell) {
+          return;
+        }
+
+        if (activeInput) {
+          activeInput.blur();
+        }
+
+        const currentValue = cell.dataset.value || "";
+        const input = document.createElement("input");
+        input.type = "text";
+        input.value = currentValue;
+        input.className = "form-control form-control-sm inline-editor";
+        input.setAttribute("aria-label", (cell.dataset.field || "") + " editor");
+        if (cell.dataset.field === "doc_type") {
+          input.setAttribute("list", "doc-type-options");
+          input.setAttribute("autocomplete", "off");
+        }
+
+        clearError(cell);
+        cell.classList.add("is-editing");
+        const display = cell.querySelector(".cell-display");
+        if (display) {
+          display.textContent = "";
+        }
+        cell.appendChild(input);
+        input.focus();
+        input.select();
+
+        originalValue = currentValue;
+        activeCell = cell;
+        activeInput = input;
+
+        input.addEventListener("keydown", (event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            input.blur();
+          } else if (event.key === "Escape") {
+            event.preventDefault();
+            closeActiveInput({ revert: true });
+          }
+        });
+
+        input.addEventListener("blur", () => {
+          commitChange(cell, input);
+        });
+      }
+
+      function validate(field, value) {
+        if ((field === "number" || field === "name") && !value.trim()) {
+          return "This value is required.";
+        }
+        return "";
+      }
+
+      async function commitChange(cell, input) {
+        const field = cell.dataset.field;
+        const row = cell.closest("tr");
+        const updateUrl = row ? row.dataset.updateUrl : null;
+        const newValue = input.value.trim();
+        const validationError = validate(field, newValue);
+
+        if (validationError) {
+          showError(cell, validationError);
+          input.focus();
+          return;
+        }
+
+        if (!updateUrl || newValue === originalValue) {
+          closeActiveInput();
+          return;
+        }
+
+        clearError(cell);
+        cell.classList.add("saving");
+
+        try {
+          const response = await fetch(updateUrl, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-CSRFToken": csrfToken,
+            },
+            body: JSON.stringify({ field, value: newValue }),
+          });
+          let data = {};
+          try {
+            data = await response.json();
+          } catch (jsonError) {
+            data = {};
+          }
+
+          if (!response.ok) {
+            throw new Error(data.error || "Unable to save change.");
+          }
+
+          const nextValue = data.value !== undefined ? data.value : newValue;
+          const displayValue = data.display !== undefined ? data.display : null;
+          closeActiveInput({ value: nextValue, display: displayValue });
+        } catch (error) {
+          showError(cell, error.message);
+          cell.classList.remove("saving");
+          input.focus();
+          input.select();
+        }
+      }
+
+      toggleButton.addEventListener("click", () => {
+        const editing = !isEditing();
+        gridContainer.classList.toggle("is-editing", editing);
+        toggleButton.textContent = editing ? "Stop Editing" : "Edit";
+        toggleButton.setAttribute("aria-pressed", editing ? "true" : "false");
+        if (editingIndicator) {
+          editingIndicator.style.display = editing ? "inline-flex" : "none";
+        }
+
+        if (!editing) {
+          closeActiveInput({ revert: true });
+        }
+      });
+
+      grid.addEventListener("click", (event) => {
+        if (!isEditing()) {
+          return;
+        }
+
+        const cell = event.target.closest("td[data-editable='true']");
+        if (!cell) {
+          return;
+        }
+
+        activateCell(cell);
+      });
+    });
+  </script>
 {% endblock %}

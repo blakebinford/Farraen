@@ -10,6 +10,90 @@ from documents.models import Document
 from organizations.models import Membership, Organization
 
 
+class DocumentUploadViewTests(TestCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls._media_root = tempfile.mkdtemp()
+        cls._override = override_settings(MEDIA_ROOT=cls._media_root)
+        cls._override.enable()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._override.disable()
+        shutil.rmtree(cls._media_root, ignore_errors=True)
+        super().tearDownClass()
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = get_user_model().objects.create_user(
+            email="uploader@example.com", password="password123"
+        )
+        cls.org = Organization.objects.create(name="Pipe Ledger", owner=cls.user)
+        Membership.objects.create(
+            org=cls.org, user=cls.user, role=Membership.Role.MEMBER
+        )
+
+    def setUp(self):
+        self.client.force_login(self.user)
+
+    def test_upload_form_includes_name_field(self):
+        url = reverse("doc_upload", kwargs={"org_slug": self.org.slug})
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'name="name"')
+        self.assertContains(response, 'name="doc_type"')
+        self.assertContains(response, 'name="number"')
+
+    def test_successful_upload_redirects_to_list_for_non_mtr(self):
+        url = reverse("doc_upload", kwargs={"org_slug": self.org.slug})
+        file_content = SimpleUploadedFile("drawing.pdf", b"PDF data")
+        response = self.client.post(
+            url,
+            data={
+                "name": "drawing.pdf",
+                "doc_type": Document.DocType.NDE,
+                "number": "DRAW-100",
+                "title": "",
+                "file": file_content,
+            },
+        )
+
+        self.assertRedirects(
+            response,
+            reverse("doc_list", kwargs={"org_slug": self.org.slug}),
+        )
+
+        doc = Document.objects.get(number="DRAW-100")
+        self.assertEqual(doc.name, "drawing.pdf")
+        self.assertEqual(doc.title, "drawing.pdf")
+
+    def test_successful_upload_redirects_to_detail_for_mtr(self):
+        url = reverse("doc_upload", kwargs={"org_slug": self.org.slug})
+        file_content = SimpleUploadedFile("mtr.pdf", b"PDF data")
+        response = self.client.post(
+            url,
+            data={
+                "name": "mtr.pdf",
+                "doc_type": Document.DocType.MTR,
+                "number": "MTR-100",
+                "title": "",
+                "file": file_content,
+            },
+        )
+
+        doc = Document.objects.get(number="MTR-100")
+
+        self.assertRedirects(
+            response,
+            reverse(
+                "doc_detail",
+                kwargs={"org_slug": self.org.slug, "doc_id": doc.id},
+            ),
+        )
+
+
 class DocumentDetailViewTests(TestCase):
     @classmethod
     def setUpClass(cls):

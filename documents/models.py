@@ -19,6 +19,7 @@ class DocumentManager(models.Manager.from_queryset(DocumentQuerySet)):
         doc_type,
         number,
         title="",
+        name=None,
         file,
         uploaded_by=None,
         project=None,
@@ -28,6 +29,10 @@ class DocumentManager(models.Manager.from_queryset(DocumentQuerySet)):
             raise ValueError("A file is required when creating a document.")
 
         folder = folder or Document.default_folder(org)
+
+        display_name = (name or getattr(file, "name", "")).strip()
+        if not display_name:
+            raise ValueError("A name is required when creating a document.")
 
         with transaction.atomic():
             node = (
@@ -43,8 +48,8 @@ class DocumentManager(models.Manager.from_queryset(DocumentQuerySet)):
                     folder=folder,
                     doc_type=doc_type,
                     number=number,
-                    title=title or "",
-                    name=file.name,
+                    title=title or display_name,
+                    name=display_name,
                     created_by=uploaded_by,
                 )
                 node.save(using=self._db)
@@ -56,8 +61,8 @@ class DocumentManager(models.Manager.from_queryset(DocumentQuerySet)):
                 if folder and node.folder_id != folder.id:
                     node.folder = folder
                     updates.append("folder")
-                if file.name and node.name != file.name:
-                    node.name = file.name
+                if display_name and node.name != display_name:
+                    node.name = display_name
                     updates.append("name")
                 if updates:
                     node.save(update_fields=updates)

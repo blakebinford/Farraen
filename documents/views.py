@@ -27,7 +27,9 @@ def doc_upload(request, org_slug):
     if request.method == "POST":
         form = DocumentForm(request.POST, request.FILES)
         if form.is_valid():
-            form.save(org=request.org, user=request.user)
+            doc = form.save(org=request.org, user=request.user)
+            if doc.doc_type == Document.DocType.MTR:
+                return redirect("doc_detail", org_slug=request.org.slug, doc_id=doc.id)
             return redirect("doc_list", org_slug=request.org.slug)
     else:
         form = DocumentForm()

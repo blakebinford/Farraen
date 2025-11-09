@@ -39,12 +39,24 @@ class Folder(models.Model):
 
 class FileNode(models.Model):
     """A logical file (name in a folder) pointing to its latest version."""
+
+    class DocType(models.TextChoices):
+        NDE = "NDE", "NDE Report"
+        INSPECTOR = "INSPECTOR", "Inspector Qualification"
+        WELDER = "WELDER", "Welder Qualification"
+        MTR = "MTR", "MTR"
+        WPS = "WPS", "WPS"
+        CALIBRATION = "CALIBRATION", "Calibration"
+
     org            = models.ForeignKey("organizations.Organization", on_delete=models.PROTECT, related_name="files")
     project        = models.ForeignKey("projects.Project", null=True, blank=True, on_delete=models.CASCADE,
                                 related_name="files")
     folder         = models.ForeignKey(Folder, on_delete=models.PROTECT, related_name="files")
     name           = models.CharField(max_length=255)                       # e.g. D-201.pdf
     slug           = models.SlugField(max_length=255)
+    doc_type       = models.CharField(max_length=16, choices=DocType.choices, blank=True, default="")
+    number         = models.CharField(max_length=128, blank=True, default="", db_index=True)
+    title          = models.CharField(max_length=256, blank=True, default="")
     content_type   = models.CharField(max_length=150, blank=True)
     size           = models.BigIntegerField(default=0)
     latest_version = models.ForeignKey("FileVersion", null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
@@ -73,7 +85,31 @@ class FileNode(models.Model):
         super().save(*args, **kwargs)
 
     def __str__(self):
+        if self.doc_type and self.number:
+            return f"{self.doc_type}:{self.number} v{self.version}"
         return f"{self.folder.path}/{self.name}"
+
+    @property
+    def version(self) -> int:
+        if self.latest_version_id:
+            return self.latest_version.version
+        return 0
+
+    @property
+    def file(self):
+        return self.latest_version.blob if self.latest_version_id else None
+
+    @property
+    def sha256(self) -> str:
+        if self.latest_version_id:
+            return self.latest_version.sha256
+        return ""
+
+    @property
+    def uploaded_by(self):
+        if self.latest_version_id and self.latest_version.uploaded_by_id:
+            return self.latest_version.uploaded_by
+        return self.created_by
 
 
 def upload_to(instance, filename):

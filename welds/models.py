@@ -19,7 +19,7 @@ class MaterialHeat(models.Model):
     )
     wps_number = models.CharField(max_length=128, blank=True)
     mtr_document = models.ForeignKey(
-        "documents.Document",
+        "drive.FileNode",
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
@@ -27,7 +27,7 @@ class MaterialHeat(models.Model):
         limit_choices_to={"doc_type": "MTR"},
     )
     wps_document = models.ForeignKey(
-        "documents.Document",
+        "drive.FileNode",
         on_delete=models.SET_NULL,
         null=True,
         blank=True,

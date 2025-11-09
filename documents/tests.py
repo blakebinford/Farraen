@@ -39,7 +39,7 @@ class DocumentDetailViewTests(TestCase):
 
     def _create_document(self, *, doc_type="MTR", number="DOC-001"):
         file_content = SimpleUploadedFile("test.pdf", b"%PDF-1.4 test file")
-        return Document.objects.create(
+        return Document.objects.create_document(
             org=self.org,
             doc_type=doc_type,
             number=number,

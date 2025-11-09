@@ -423,6 +423,26 @@
       });
     }
 
+    function setGridRowData(rows) {
+      if (!gridApi) {
+        return;
+      }
+
+      const nextRows = Array.isArray(rows) ? rows : [];
+
+      if (typeof gridApi.setGridOption === 'function') {
+        gridApi.setGridOption('rowData', nextRows);
+        return;
+      }
+
+      if (typeof gridApi.setRowData === 'function') {
+        gridApi.setRowData(nextRows);
+        return;
+      }
+
+      console.warn('Unable to set grid row data: grid API does not support setGridOption or setRowData.');
+    }
+
     function loadGrid() {
       if (!gridApi) {
         return;
@@ -453,7 +473,7 @@
             payload,
             summary: `Loaded ${rowCount} weld row${rowCount === 1 ? '' : 's'}`,
           });
-          gridApi.setRowData(payload.rows || []);
+          setGridRowData(payload.rows || []);
           gridApi.forEachNode(node => ensureRowFlags(node));
           setStatus(`Loaded ${rowCount} weld row${rowCount === 1 ? '' : 's'} at ${new Date().toLocaleTimeString()}.`);
         })

@@ -3,17 +3,23 @@
   {% include 'ui/tabs.html' with tabs=tabs active='overview' %}
   `tabs` should be a list of {'id': 'overview', 'label': 'Overview', 'content': '<p>…</p>'}
 #}
+{% with active_id=active|default:tabs.0.id %}
 <div class="tabs" role="tablist">
   {% for tab in tabs %}
-    <button class="tabs__trigger" role="tab" id="tab-{{ tab.id }}" aria-controls="panel-{{ tab.id }}" aria-selected="{{ tab.id == active|default:tabs.0.id }}">
-      {{ tab.label }}
-    </button>
+    {% with is_active=tab.id == active_id %}
+      <button class="tab{% if is_active %} tab--active{% endif %}" role="tab" id="tab-{{ tab.id }}" aria-controls="panel-{{ tab.id }}" aria-selected="{{ is_active|yesno:'true,false' }}">
+        {{ tab.label }}
+      </button>
+    {% endwith %}
   {% endfor %}
 </div>
-<div>
+<div class="tabs__panels">
   {% for tab in tabs %}
-    <section class="tabs__panel" id="panel-{{ tab.id }}" role="tabpanel" aria-labelledby="tab-{{ tab.id }}" {% if tab.id != active|default:tabs.0.id %}hidden{% endif %}>
-      {{ tab.content|safe }}
-    </section>
+    {% with is_active=tab.id == active_id %}
+      <section class="tabs__panel" id="panel-{{ tab.id }}" role="tabpanel" aria-labelledby="tab-{{ tab.id }}" {% if not is_active %}hidden{% endif %}>
+        {{ tab.content|safe }}
+      </section>
+    {% endwith %}
   {% endfor %}
 </div>
+{% endwith %}

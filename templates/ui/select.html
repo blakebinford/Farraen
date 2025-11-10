@@ -5,7 +5,7 @@
 #}
 <div class="form-field {{ class|default:'' }}">
   {% if label %}<label class="form-field__label" for="{{ id }}">{{ label }}</label>{% endif %}
-  <select id="{{ id }}" name="{{ name|default:id }}" class="input">
+  <select id="{{ id }}" name="{{ name|default:id }}" class="select">
     {% for option in options %}
       <option value="{{ option.value }}" {% if option.value == value %}selected{% endif %}>{{ option.label }}</option>
     {% endfor %}

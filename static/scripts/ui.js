@@ -26,6 +26,64 @@
         });
       });
 
+    document.querySelectorAll('.tabs')
+      .forEach(tabList => {
+        const tabs = () => tabList.querySelectorAll('.tab');
+        const activateTab = (trigger) => {
+          const panelId = trigger.getAttribute('aria-controls');
+          if (!panelId) return;
+
+          tabs().forEach(tab => {
+            const active = tab === trigger;
+            tab.classList.toggle('tab--active', active);
+            tab.setAttribute('aria-selected', active ? 'true' : 'false');
+            if (active) {
+              tab.focus();
+            }
+          });
+
+          const panelsWrapper = tabList.nextElementSibling;
+          if (!panelsWrapper) return;
+          panelsWrapper.querySelectorAll('.tabs__panel').forEach(panel => {
+            if (panel.id === panelId) {
+              panel.removeAttribute('hidden');
+            } else {
+              panel.setAttribute('hidden', '');
+            }
+          });
+        };
+
+        tabList.addEventListener('click', (event) => {
+          const trigger = event.target.closest('.tab');
+          if (!trigger) return;
+          activateTab(trigger);
+        });
+
+        tabList.addEventListener('keydown', (event) => {
+          const current = tabList.querySelector('.tab--active');
+          if (!current) return;
+          const tabArray = Array.from(tabs());
+          const index = tabArray.indexOf(current);
+          if (index === -1) return;
+
+          if (['ArrowRight', 'ArrowLeft', 'Home', 'End'].includes(event.key)) {
+            event.preventDefault();
+          }
+
+          if (event.key === 'ArrowRight') {
+            const next = tabArray[(index + 1) % tabArray.length];
+            activateTab(next);
+          } else if (event.key === 'ArrowLeft') {
+            const prev = tabArray[(index - 1 + tabArray.length) % tabArray.length];
+            activateTab(prev);
+          } else if (event.key === 'Home') {
+            activateTab(tabArray[0]);
+          } else if (event.key === 'End') {
+            activateTab(tabArray[tabArray.length - 1]);
+          }
+        });
+      });
+
     const toastRegion = document.querySelector('[data-toast-region]');
     document.querySelectorAll('[data-demo-toast]')
       .forEach(button => {

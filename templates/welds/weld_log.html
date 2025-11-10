@@ -4,122 +4,155 @@
   {{ block.super }}
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tabulator-tables@5.5.2/dist/css/tabulator_materialize.min.css">
   <style>
-    :root {
-      color-scheme: light;
-    }
+  :root {
+    color-scheme: light;
+  }
 
-    #weld-log-toolbar {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      gap: 0.75rem;
-      margin-bottom: 0.75rem;
-    }
+  #weld-log-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 0.75rem;
+  }
 
-    #weld-log-toolbar .btn {
-      min-width: 8rem;
-    }
+  #weld-log-toolbar .btn {
+    min-width: 8rem;
+  }
 
-    #weld-log-grid {
-      width: 100%;
-      height: 78vh;
-      min-height: 460px;
-      border: 1px solid rgba(15, 23, 42, 0.1);
-      border-radius: 0.5rem;
-      overflow: hidden;
-      background-color: #fff;
-    }
+  #weld-log-grid {
+    width: 100%;
+    height: 78vh;
+    min-height: 460px;
+    border: 1px solid rgba(15, 23, 42, 0.1);
+    border-radius: 0.5rem;
+    overflow: hidden;
+    background-color: #fff;
+  }
 
-    #weld-log-status {
-      min-height: 1.5rem;
-    }
+  #weld-log-status {
+    min-height: 1.5rem;
+  }
 
-    .tabulator-row.is-dirty {
-      --dirty-bg: rgba(37, 99, 235, 0.08);
-      background-color: var(--dirty-bg);
-    }
+  .tabulator-row.is-dirty {
+    --dirty-bg: rgba(37, 99, 235, 0.08);
+    background-color: var(--dirty-bg);
+  }
 
-    .tabulator-cell.tabulator-validation-fail {
-      box-shadow: inset 0 0 0 2px rgba(220, 38, 38, 0.6);
-      background-color: rgba(254, 226, 226, 0.6);
-    }
+  /* Cell-level validation error styling (keep) */
+  .tabulator-cell.tabulator-validation-fail {
+    box-shadow: inset 0 0 0 2px rgba(220, 38, 38, 0.6);
+    background-color: rgba(254, 226, 226, 0.6);
+  }
 
-    .tabulator-col.tabulator-frozen {
-      box-shadow: 2px 0 0 rgba(15, 23, 42, 0.08);
-      background-color: rgba(241, 245, 249, 0.85);
-    }
+  .tabulator-col.tabulator-frozen {
+    box-shadow: 2px 0 0 rgba(15, 23, 42, 0.08);
+    background-color: rgba(241, 245, 249, 0.85);
+  }
 
-    .lookup-editor {
-      position: relative;
-      width: 100%;
-      max-height: 18rem;
-    }
+  .lookup-editor {
+    position: relative;
+    width: 100%;
+    max-height: 18rem;
+  }
 
-    .lookup-editor input[type="text"] {
-      width: 100%;
-      padding: 0.35rem 0.5rem;
-      border: 1px solid rgba(148, 163, 184, 0.9);
-      border-radius: 0.35rem;
-      font-size: 0.9rem;
-    }
+  .lookup-editor input[type="text"] {
+    width: 100%;
+    padding: 0.35rem 0.5rem;
+    border: 1px solid rgba(148, 163, 184, 0.9);
+    border-radius: 0.35rem;
+    font-size: 0.9rem;
+  }
 
-    .lookup-editor-results {
-  position: absolute;
-  z-index: 1040;
-  display: none;
-  border: 1px solid rgba(15, 23, 42, 0.1);
-  border-radius: 0.35rem;
-  box-shadow: 0 10px 40px rgba(15, 23, 42, 0.12);
-  background-color: #fff;
-  max-height: 14rem;
-  overflow-y: auto;
-  padding-block: 0.25rem;
-  min-width: 12rem;
+  .lookup-editor-results {
+    position: absolute;
+    z-index: 1040;
+    display: none;
+    border: 1px solid rgba(15, 23, 42, 0.1);
+    border-radius: 0.35rem;
+    box-shadow: 0 10px 40px rgba(15, 23, 42, 0.12);
+    background-color: #fff;
+    max-height: 14rem;
+    overflow-y: auto;
+    padding-block: 0.25rem;
+    min-width: 12rem;
   }
 
   .lookup-editor-results.is-open {
     display: block;
   }
 
+  .lookup-editor-option {
+    padding: 0.35rem 0.75rem;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    font-size: 0.88rem;
+  }
 
-    .lookup-editor-option {
-      padding: 0.35rem 0.75rem;
-      cursor: pointer;
-      display: flex;
-      flex-direction: column;
-      gap: 0.25rem;
-      font-size: 0.88rem;
-    }
+  .lookup-editor-option strong {
+    font-weight: 600;
+    color: #1f2937;
+  }
 
-    .lookup-editor-option strong {
-      font-weight: 600;
-      color: #1f2937;
-    }
+  .lookup-editor-option span {
+    color: #475569;
+    font-size: 0.75rem;
+  }
 
-    .lookup-editor-option span {
-      color: #475569;
-      font-size: 0.75rem;
-    }
+  .lookup-editor-option.is-active,
+  .lookup-editor-option:hover {
+    background-color: rgba(59, 130, 246, 0.12);
+  }
 
-    .lookup-editor-option.is-active,
-    .lookup-editor-option:hover {
-      background-color: rgba(59, 130, 246, 0.12);
-    }
+  .heat-link {
+    color: #2563eb;
+    text-decoration: none;
+  }
 
-    .heat-link {
-      color: #2563eb;
-      text-decoration: none;
-    }
+  .heat-link:hover,
+  .heat-link:focus {
+    text-decoration: underline;
+  }
 
-    .heat-link:hover,
-    .heat-link:focus {
-      text-decoration: underline;
-    }
+  .tabulator .tabulator-tableholder {
+    font-size: 0.92rem;
+  }
 
-    .tabulator .tabulator-tableholder {
-      font-size: 0.92rem;
-    }
-  </style>
+  /* ------------------------------------------------------------------
+   * ROW COLOR OVERRIDES – kill the theme’s red hover/selection styles
+   * ------------------------------------------------------------------ */
+
+  /* Base row background */
+  #weld-log-grid .tabulator-row {
+    background-color: #ffffff;
+  }
+
+  /* Hover row background */
+  #weld-log-grid .tabulator-row:hover {
+    background-color: #ffffff; 
+  }
+
+  /* Selected row background */
+  #weld-log-grid .tabulator-row.tabulator-selected,
+  #weld-log-grid .tabulator-row.tabulator-selected:hover {
+    background-color: #ffffff; 
+  }
+
+  /* Active/editing row background */
+  #weld-log-grid .tabulator-row.tabulator-row-active,
+  #weld-log-grid .tabulator-row.tabulator-row-active:hover {
+    background-color: rgba(37, 99, 235, 0.08) !important;
+  }
+
+  /* Safety: avoid whole-row red from any .has-error global styles */
+  #weld-log-grid .tabulator-row.has-error,
+  #weld-log-grid .tabulator-row.has-error:hover {
+    background-color: inherit !important;
+  }
+</style>
+
 {% endblock %}
 
 {% block content %}
@@ -1322,7 +1355,6 @@
   clipboard: true,
   clipboardCopyStyled: false,
   clipboardCopyRowRangeSelection: "data", // or "range" depending on what you prefer
-  clipboardPasteParser: "range",
   clipboardPasteAction: "replace",
 
   history: true,
@@ -1334,6 +1366,41 @@
   index: "id",
 });
 
+// DEBUG: log which validations are failing
+table.on("rowValidationFailed", function (row, validations) {
+  console.group("Row validation failed");
+  console.log("Row data:", row.getData());
+  console.log("Validations:", validations);
+  console.groupEnd();
+});
+
+table.on("cellValidationFailed", function (cell, value, validations) {
+  console.group("Cell validation failed");
+  console.log("Field:", cell.getField());
+  console.log("Value:", value);
+  console.log("Row data:", cell.getRow().getData());
+  console.log("Validations:", validations);
+  console.groupEnd();
+});
+// DEBUG: log row classes + computed background on hover
+table.on("rowMouseOver", function (e, row) {
+  const el = row.getElement();
+  const bg = window.getComputedStyle(el).backgroundColor;
+  console.group("rowMouseOver");
+  console.log("Classes:", el.className);
+  console.log("Computed backgroundColor:", bg);
+  console.groupEnd();
+});
+
+// DEBUG: log row classes + computed background on click
+table.on("rowClick", function (e, row) {
+  const el = row.getElement();
+  const bg = window.getComputedStyle(el).backgroundColor;
+  console.group("rowClick");
+  console.log("Classes:", el.className);
+  console.log("Computed backgroundColor:", bg);
+  console.groupEnd();
+});
 
       table.on("selectionChanged", () => {
         updateStatusCounts();
@@ -1536,20 +1603,41 @@
           return null;
         }
 
+        // 🔹 Skip validation/autosave for empty rows
+        if (isRowEmpty(rowData)) {
+          return null;
+        }
+
         const validation = rowComponent.validate();
         if (validation !== true) {
+          console.group("saveWeldCellChange – validation failed");
+          console.log("Row data:", rowData);
+          console.log("Field:", fieldName);
+          console.log("New value:", newValue);
+          console.log("Validation result:", validation);
+          console.groupEnd();
+
           const message = formatValidationErrors(validation);
           const firstError = Array.isArray(validation) ? validation[0] : validation;
           const targetCell = firstError?.component || cellComponent;
-          const targetRow = targetCell?.getRow?.() || rowComponent;
-          targetRow?.getElement()?.classList.add("has-error");
-          targetCell?.getElement()?.classList.add("has-error");
+
+          // Make sure the row itself is NOT styled as error
+          rowComponent.getElement()?.classList.remove("has-error");
+
+          // Only mark the cell as error
+          const targetCellEl = targetCell?.getElement?.() || cellComponent?.getElement?.();
+          if (targetCellEl) {
+            targetCellEl.classList.add("has-error");
+          }
+
           setStatus(message || "Please fix validation errors before saving.", "warning");
           return null;
         }
 
         const rowEl = rowComponent.getElement?.();
         const cellEl = cellComponent?.getElement?.();
+
+        // Clear any previous error state
         rowEl?.classList.remove("has-error");
         cellEl?.classList.remove("has-error");
 
@@ -1559,15 +1647,23 @@
 
         try {
           const normalized = await saveRow(rowComponent, { skipValidation: true });
+
+          // Ensure both row and cell are clean after a successful save
           rowEl?.classList.remove("has-error");
           cellEl?.classList.remove("has-error");
+
           updateStatusCounts("Saved");
           scheduleStatusReset();
           return normalized;
         } catch (error) {
           const message = error?.message || "Failed to save change.";
-          rowEl?.classList.add("has-error");
-          cellEl?.classList.add("has-error");
+
+          // ❗ Only mark the cell as error, not the row
+          rowEl?.classList.remove("has-error");
+          if (cellEl) {
+            cellEl.classList.add("has-error");
+          }
+
           setStatus(message, "danger");
           throw error;
         } finally {
@@ -1575,6 +1671,8 @@
           cellEl?.classList.remove("is-saving");
         }
       }
+
+
 
       function queueAutosave(cellComponent) {
         if (!cellComponent) {

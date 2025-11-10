@@ -1,0 +1,19 @@
+{#
+  Usage:
+  {% include 'ui/tabs.html' with tabs=tabs active='overview' %}
+  `tabs` should be a list of {'id': 'overview', 'label': 'Overview', 'content': '<p>…</p>'}
+#}
+<div class="tabs" role="tablist">
+  {% for tab in tabs %}
+    <button class="tabs__trigger" role="tab" id="tab-{{ tab.id }}" aria-controls="panel-{{ tab.id }}" aria-selected="{{ tab.id == active|default:tabs.0.id }}">
+      {{ tab.label }}
+    </button>
+  {% endfor %}
+</div>
+<div>
+  {% for tab in tabs %}
+    <section class="tabs__panel" id="panel-{{ tab.id }}" role="tabpanel" aria-labelledby="tab-{{ tab.id }}" {% if tab.id != active|default:tabs.0.id %}hidden{% endif %}>
+      {{ tab.content|safe }}
+    </section>
+  {% endfor %}
+</div>

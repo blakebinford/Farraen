@@ -1,0 +1,15 @@
+{#
+  Usage:
+  {% include 'ui/kpi_card.html' with label='Active Workspaces' value='128' trend='+8.2%' trend_label='vs last week' %}
+#}
+<div class="card {{ class|default:'' }}" style="gap:var(--space-4);">
+  <div class="kpi-card__label">{{ label }}</div>
+  <div class="kpi-card__value">{{ value }}</div>
+  {% if trend %}
+    <div style="display:flex; align-items:center; gap:var(--space-3); color: var(--color-success); font-weight:600;">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px;"><path d="m3 17 6-6 4 4 8-8"/></svg>
+      <span>{{ trend }}</span>
+      {% if trend_label %}<span style="color:var(--color-text-secondary); font-weight:400;">{{ trend_label }}</span>{% endif %}
+    </div>
+  {% endif %}
+</div>

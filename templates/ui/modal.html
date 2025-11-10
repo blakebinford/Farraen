@@ -1,0 +1,29 @@
+{#
+  Usage:
+  <button data-modal-open="confirm-modal">Open</button>
+  {% include 'ui/modal.html' with modal_id='confirm-modal' title='Confirm action' body='Are you sure?' primary_label='Confirm' %}
+#}
+<div class="modal-backdrop" id="{{ modal_id }}" aria-hidden="true" role="dialog" aria-modal="true">
+  <div class="modal">
+    <header style="display:flex;justify-content:space-between;align-items:center;gap:var(--space-5);">
+      <div>
+        {% if eyebrow %}<div class="kpi-card__label">{{ eyebrow }}</div>{% endif %}
+        <h2 style="margin:0;font-size:1.3rem;font-family:var(--font-heading);">{{ title }}</h2>
+      </div>
+      <button class="btn btn--ghost btn--sm" type="button" data-modal-close aria-label="Close">
+        ✕
+      </button>
+    </header>
+    <div style="margin-top:var(--space-6); color:var(--color-text-secondary);">
+      {{ body|safe }}
+    </div>
+    <footer style="margin-top:var(--space-7); display:flex; gap:var(--space-4); justify-content:flex-end;">
+      {% if secondary_label %}
+        <button class="btn btn--ghost btn--sm" type="button" data-modal-close>{{ secondary_label }}</button>
+      {% endif %}
+      {% if primary_label %}
+        <button class="btn btn--primary btn--sm" type="button">{{ primary_label }}</button>
+      {% endif %}
+    </footer>
+  </div>
+</div>

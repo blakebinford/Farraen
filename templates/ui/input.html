@@ -1,0 +1,11 @@
+{#
+  Usage:
+  {% include 'ui/input.html' with id='workspace-name' label='Workspace name' name='workspace_name' placeholder='Acme Robotics' required=True %}
+  Optional params: hint, error
+#}
+<div class="form-field {{ class|default:'' }}">
+  {% if label %}<label class="form-field__label" for="{{ id }}">{{ label }}</label>{% endif %}
+  <input id="{{ id }}" name="{{ name|default:id }}" class="input" value="{{ value }}" placeholder="{{ placeholder }}" {% if type %}type="{{ type }}"{% else %}type="text"{% endif %} {% if required %}required{% endif %} {% if aria_describedby %}aria-describedby="{{ aria_describedby }}"{% endif %} />
+  {% if hint %}<span id="{{ id }}-hint" class="form-field__hint">{{ hint }}</span>{% endif %}
+  {% if error %}<span class="badge badge--danger" role="alert">{{ error }}</span>{% endif %}
+</div>

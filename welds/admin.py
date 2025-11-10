@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import MaterialHeat, NDERig, Weld
+from .models import MaterialHeat, NDERig, Welder, Weld
 
 
 @admin.register(MaterialHeat)
@@ -18,12 +18,22 @@ class MaterialHeatAdmin(admin.ModelAdmin):
     ordering = ("org", "heat_number")
 
 
+@admin.register(Welder)
+class WelderAdmin(admin.ModelAdmin):
+    list_display = ("name", "stencil", "org", "is_active")
+    list_filter = ("org", "is_active")
+    search_fields = ("name", "stencil", "employee_id")
+    ordering = ("org", "stencil")
+    filter_horizontal = ("approved_wps",)
+
+
 @admin.register(NDERig)
 class NDERigAdmin(admin.ModelAdmin):
-    list_display = ("name", "org", "is_active")
-    list_filter = ("org", "is_active")
+    list_display = ("name", "org", "project", "is_active", "qualification_folder")
+    list_filter = ("org", "project", "is_active")
     search_fields = ("name",)
     ordering = ("org", "name")
+    readonly_fields = ("qualification_folder",)
 
 
 @admin.register(Weld)

@@ -181,6 +181,120 @@
   #weld-log-grid .tabulator-row.has-error:hover {
     background-color: inherit !important;
   }
+  /* Pill-style welder selection */
+.welder-pill-list {
+  width: 100%;
+  min-height: 8rem;
+  max-height: 12rem;
+  padding: 0.35rem;
+  border: 1px solid rgba(148, 163, 184, 0.9);
+  border-radius: 0.35rem;
+  background-color: #fff;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  overflow-y: auto;
+  align-content: flex-start;
+}
+
+.welder-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.8);
+  background-color: #ffffff;
+  font-size: 0.85rem;
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.welder-pill-stencil {
+  font-weight: 600;
+}
+
+.welder-pill-name {
+  opacity: 0.8;
+}
+
+.welder-pill.is-selected {
+  background-color: rgba(37, 99, 235, 0.08);
+  border-color: rgba(37, 99, 235, 0.9);
+}
+
+.welder-pill:focus-visible {
+  outline: 2px solid rgba(37, 99, 235, 0.9);
+  outline-offset: 2px;
+}
+/* Floating overlay for welder multiselect */
+.welder-overlay {
+  position: absolute;
+  z-index: 2050;
+  background-color: #ffffff;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  border-radius: 0.5rem;
+  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.18);
+  padding: 0.5rem 0.6rem 0.55rem;
+  max-width: 22rem;
+  min-width: 14rem;
+}
+
+/* Pill-style welder selection (inside overlay) */
+.welder-pill-list {
+  width: 100%;
+  min-height: 6.5rem;
+  max-height: 12rem;
+  padding: 0.3rem;
+  border: 1px solid rgba(148, 163, 184, 0.9);
+  border-radius: 0.35rem;
+  background-color: #fff;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  overflow-y: auto;
+  align-content: flex-start;
+}
+
+.welder-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.8);
+  background-color: #ffffff;
+  font-size: 0.85rem;
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.welder-pill-stencil {
+  font-weight: 600;
+}
+
+.welder-pill-name {
+  opacity: 0.8;
+}
+
+.welder-pill.is-selected {
+  background-color: rgba(37, 99, 235, 0.08);
+  border-color: rgba(37, 99, 235, 0.9);
+}
+
+.welder-pill:focus-visible {
+  outline: 2px solid rgba(37, 99, 235, 0.9);
+  outline-offset: 2px;
+}
+
+/* Optional: small anchor element inside the cell */
+.welder-multiselect-anchor {
+  width: 100%;
+  height: 100%;
+}
+
 </style>
 
 {% endblock %}
@@ -1083,167 +1197,218 @@
   };
 }
 
-      function createWelderPassEditor(fieldName) {
-        return function (cell, onRendered, success, cancel) {
-          const container = document.createElement("div");
-          container.className = "welder-multiselect-editor";
+     function createWelderPassEditor(fieldName) {
+  return function (cell, onRendered, success, cancel) {
+    // Small element that lives INSIDE the cell (keeps Tabulator happy)
+    const anchor = document.createElement("div");
+    anchor.className = "welder-multiselect-anchor";
 
-          const selected = new Set(parseStencilList(cell.getValue()));
-          for (const stencil of selected) {
-            if (stencil && !welderCache.has(stencil)) {
-              welderCache.set(stencil, { stencil, name: "", label: stencil });
-            }
-          }
+    // Floating overlay attached to <body> to avoid clipping
+    const overlay = document.createElement("div");
+    overlay.className = "welder-overlay welder-multiselect-editor";
 
-          const filterInput = document.createElement("input");
-          filterInput.type = "search";
-          filterInput.placeholder = "Filter welders";
-          filterInput.className = "welder-multiselect-filter";
-          container.appendChild(filterInput);
+    // Current stencils from the cell
+    const selected = new Set(parseStencilList(cell.getValue()));
 
-          const select = document.createElement("select");
-          select.multiple = true;
-          select.size = 8;
-          select.className = "welder-multiselect-select";
-          container.appendChild(select);
-
-          const helper = document.createElement("div");
-          helper.className = "welder-multiselect-helper";
-          helper.textContent = "Use Ctrl/Cmd-click or Shift-click to select multiple welders.";
-          container.appendChild(helper);
-
-          let closed = false;
-
-          function finalize(callback) {
-            if (closed) {
-              return;
-            }
-            closed = true;
-            callback();
-          }
-
-          function commit() {
-            finalize(() => {
-              success(joinStencilList(Array.from(selected)));
-            });
-          }
-
-          function cancelEdit() {
-            finalize(cancel);
-          }
-
-          function getOptions() {
-            return Array.from(welderCache.values())
-              .filter(option => option && option.stencil)
-              .sort((a, b) => {
-                const stencilA = a.stencil.toUpperCase();
-                const stencilB = b.stencil.toUpperCase();
-                if (stencilA === stencilB) {
-                  return (a.name || "").localeCompare(b.name || "");
-                }
-                return stencilA.localeCompare(stencilB);
-              });
-          }
-
-          function renderOptions(term = "") {
-            const normalized = term.trim().toLowerCase();
-            const options = getOptions().filter(option => {
-              if (!normalized) {
-                return true;
-              }
-              const haystack = [option.stencil, option.name]
-                .filter(Boolean)
-                .join(" ")
-                .toLowerCase();
-              return haystack.includes(normalized);
-            });
-
-            const currentSelection = new Set(selected);
-            select.innerHTML = "";
-
-            if (!options.length) {
-              const empty = document.createElement("option");
-              empty.disabled = true;
-              empty.textContent = normalized
-                ? "No matching welders"
-                : "No welders available";
-              select.appendChild(empty);
-              return;
-            }
-
-            options.forEach(option => {
-              const opt = document.createElement("option");
-              opt.value = option.stencil;
-              const label = option.stencil && option.name
-                ? `${option.stencil} – ${option.name}`
-                : option.stencil || option.name || "";
-              opt.textContent = label;
-              opt.selected = currentSelection.has(option.stencil);
-              select.appendChild(opt);
-            });
-          }
-
-          function syncSelection() {
-            selected.clear();
-            Array.from(select.selectedOptions).forEach(option => {
-              if (option.value) {
-                selected.add(option.value);
-              }
-            });
-          }
-
-          filterInput.addEventListener("input", () => {
-            renderOptions(filterInput.value);
-            syncSelection();
-          });
-
-          const handleKeydown = event => {
-            if (event.key === "Enter") {
-              event.preventDefault();
-              commit();
-            } else if (event.key === "Escape") {
-              event.preventDefault();
-              cancelEdit();
-            } else if (event.key === "Tab") {
-              event.preventDefault();
-              commit();
-            }
-          };
-
-          filterInput.addEventListener("keydown", handleKeydown);
-          select.addEventListener("keydown", handleKeydown);
-
-          select.addEventListener("change", () => {
-            syncSelection();
-          });
-
-          select.addEventListener("dblclick", () => {
-            syncSelection();
-            commit();
-          });
-
-          container.addEventListener("focusout", event => {
-            if (!container.contains(event.relatedTarget)) {
-              syncSelection();
-              commit();
-            }
-          });
-
-          onRendered(async () => {
-            try {
-              await preloadWelders();
-            } catch (error) {
-              console.error("Failed to refresh welder list", error);
-            }
-            renderOptions(filterInput.value);
-            syncSelection();
-            filterInput.focus();
-            filterInput.select();
-          });
-
-          return container;
-        };
+    // Make sure any existing unknown stencils are in cache so pills can render
+    for (const stencil of selected) {
+      if (stencil && !welderCache.has(stencil)) {
+        welderCache.set(stencil, { stencil, name: "", label: stencil });
       }
+    }
+
+    // Filter input
+    const filterInput = document.createElement("input");
+    filterInput.type = "search";
+    filterInput.placeholder = "Filter welders";
+    filterInput.className = "welder-multiselect-filter";
+    overlay.appendChild(filterInput);
+
+    // Pill list container
+    const pillList = document.createElement("div");
+    pillList.className = "welder-pill-list";
+    overlay.appendChild(pillList);
+
+    // Helper text
+    const helper = document.createElement("div");
+    helper.className = "welder-multiselect-helper";
+    helper.textContent = "Click pills to toggle. Enter/Tab = save, Esc = cancel.";
+    overlay.appendChild(helper);
+
+    document.body.appendChild(overlay);
+
+    let destroyed = false;
+
+    function destroyOverlay() {
+      if (destroyed) return;
+      destroyed = true;
+      window.removeEventListener("resize", reposition);
+      document.removeEventListener("scroll", reposition, true);
+      if (overlay.parentNode) {
+        overlay.parentNode.removeChild(overlay);
+      }
+    }
+
+    function finalize(cb) {
+      if (destroyed) return;
+      destroyOverlay();
+      cb();
+    }
+
+    function commit() {
+      finalize(() => {
+        success(joinStencilList(Array.from(selected)));
+      });
+    }
+
+    function cancelEdit() {
+      finalize(cancel);
+    }
+
+    function getOptions() {
+      return Array.from(welderCache.values())
+        .filter(option => option && option.stencil)
+        .sort((a, b) => {
+          const stencilA = (a.stencil || "").toUpperCase();
+          const stencilB = (b.stencil || "").toUpperCase();
+          if (stencilA === stencilB) {
+            return (a.name || "").localeCompare(b.name || "");
+          }
+          return stencilA.localeCompare(stencilB);
+        });
+    }
+
+    function toggleStencil(stencil) {
+      if (!stencil) return;
+      if (selected.has(stencil)) {
+        selected.delete(stencil);
+      } else {
+        selected.add(stencil);
+      }
+      renderOptions(filterInput.value);
+    }
+
+    function renderOptions(term = "") {
+      const normalized = term.trim().toLowerCase();
+      const options = getOptions().filter(option => {
+        if (!normalized) return true;
+        const haystack = [option.stencil, option.name]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        return haystack.includes(normalized);
+      });
+
+      pillList.innerHTML = "";
+
+      if (!options.length) {
+        const empty = document.createElement("div");
+        empty.className = "text-muted";
+        empty.style.fontSize = "0.85rem";
+        empty.textContent = normalized ? "No matching welders" : "No welders available";
+        pillList.appendChild(empty);
+        return;
+      }
+
+      options.forEach(option => {
+        const pill = document.createElement("button");
+        pill.type = "button";
+        pill.className = "welder-pill";
+        pill.setAttribute("data-stencil", option.stencil);
+        pill.tabIndex = 0;
+
+        if (selected.has(option.stencil)) {
+          pill.classList.add("is-selected");
+        }
+
+        const stencilSpan = document.createElement("span");
+        stencilSpan.className = "welder-pill-stencil";
+        stencilSpan.textContent = option.stencil;
+        pill.appendChild(stencilSpan);
+
+        if (option.name) {
+          const nameSpan = document.createElement("span");
+          nameSpan.className = "welder-pill-name";
+          nameSpan.textContent = `– ${option.name}`;
+          pill.appendChild(nameSpan);
+        }
+
+        pill.addEventListener("click", () => {
+          toggleStencil(option.stencil);
+        });
+
+        pill.addEventListener("keydown", (event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            toggleStencil(option.stencil);
+          }
+        });
+
+        pillList.appendChild(pill);
+      });
+    }
+
+    function reposition() {
+      const cellEl = cell.getElement();
+      if (!cellEl || destroyed) return;
+      const rect = cellEl.getBoundingClientRect();
+      const width = Math.max(rect.width, 220);
+
+      overlay.style.width = `${Math.round(width)}px`;
+      overlay.style.left = `${Math.round(window.scrollX + rect.left)}px`;
+      overlay.style.top = `${Math.round(window.scrollY + rect.bottom + 4)}px`;
+    }
+
+    function handleKeydown(event) {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        commit();
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        cancelEdit();
+      } else if (event.key === "Tab") {
+        event.preventDefault();
+        commit();
+      }
+    }
+
+    // Keyboard handling for overlay
+    overlay.addEventListener("keydown", handleKeydown);
+    filterInput.addEventListener("keydown", handleKeydown);
+
+    filterInput.addEventListener("input", () => {
+      renderOptions(filterInput.value);
+    });
+
+    // Commit when focus leaves the overlay entirely
+    overlay.addEventListener("focusout", () => {
+      setTimeout(() => {
+        if (!overlay.contains(document.activeElement)) {
+          commit();
+        }
+      }, 0);
+    });
+
+    window.addEventListener("resize", reposition);
+    document.addEventListener("scroll", reposition, true);
+
+    onRendered(async () => {
+      try {
+        await preloadWelders();
+      } catch (error) {
+        console.error("Failed to refresh welder list", error);
+      }
+      renderOptions(filterInput.value);
+      reposition();
+      filterInput.focus();
+      filterInput.select();
+    });
+
+    // Tabulator expects us to return *something* that lives in the cell
+    return anchor;
+  };
+}
+
 
 
       function createHeatEditor(prefix) {

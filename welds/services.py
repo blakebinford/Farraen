@@ -180,24 +180,32 @@ def get_project_weld_kpis(project) -> dict:
                 {
                     "welder_stencil": stencil,
                     "weld_count": 0,
-                    "repair_count": 0,
-                    "repair_repair_pass_count": 0,
+                    "repair_pass_count": 0,
                     "total_weld_inches": Decimal("0"),
                 },
             )
             stats["weld_count"] += 1
             stats["total_weld_inches"] += weld_inches
-            if is_repair:
-                stats["repair_count"] += 1
-                if stencil in stencils["repair"]:
-                    stats["repair_repair_pass_count"] += 1
+
+        if is_repair:
+            for stencil in stencils["repair"]:
+                stats = welder_stats_map.setdefault(
+                    stencil,
+                    {
+                        "welder_stencil": stencil,
+                        "weld_count": 0,
+                        "repair_pass_count": 0,
+                        "total_weld_inches": Decimal("0"),
+                    },
+                )
+                stats["repair_pass_count"] += 1
 
     welder_stats = []
     for stencil, stats in welder_stats_map.items():
         welder = welder_lookup.get(stencil)
         stats["welder_name"] = welder.name if welder else ""
         stats["repair_rate_percent"] = _percentage(
-            stats["repair_count"], stats["weld_count"]
+            stats["repair_pass_count"], stats["weld_count"]
         )
         welder_stats.append(stats)
 
@@ -209,15 +217,17 @@ def get_project_weld_kpis(project) -> dict:
     )
 
     wps_stats = []
+    total_repairs_for_share = repair_count
     for label, stats in sorted(wps_map.items()):
-        inspected = stats["repairs"] + stats["accepted"]
         wps_stats.append(
             {
                 "wps_label": label,
                 "total_welds": stats["total_welds"],
                 "repairs": stats["repairs"],
                 "accepted": stats["accepted"],
-                "repair_rate_percent": _percentage(stats["repairs"], inspected),
+                "repair_share_percent": _percentage(
+                    stats["repairs"], total_repairs_for_share
+                ),
             }
         )
 
@@ -316,18 +326,24 @@ def build_weld_dashboard_chart_payload(kpis: dict) -> dict:
     production = kpis.get("production", {})
     time_series = production.get("time_series", [])
 
+    total_repairs = kpis.get("overall", {}).get("repairs", 0)
+
     return {
         "repair_rate_by_wps": {
             "labels": [item["wps_label"] for item in wps_stats],
-            "repair_rates": [_to_float(item["repair_rate_percent"]) for item in wps_stats],
+            "repair_rates": [
+                _to_float(item["repair_share_percent"]) for item in wps_stats
+            ],
             "repairs": [item["repairs"] for item in wps_stats],
-            "totals": [item["total_welds"] for item in wps_stats],
+            "total_repairs": total_repairs,
         },
         "repair_rate_by_welder": {
             "labels": [item["welder_stencil"] for item in welder_stats],
-            "repair_rates": [_to_float(item["repair_rate_percent"]) for item in welder_stats],
+            "repair_rates": [
+                _to_float(item["repair_rate_percent"]) for item in welder_stats
+            ],
             "weld_counts": [item["weld_count"] for item in welder_stats],
-            "repair_counts": [item["repair_count"] for item in welder_stats],
+            "repair_counts": [item["repair_pass_count"] for item in welder_stats],
         },
         "weld_inches_by_day": {
             "labels": [entry["date"].isoformat() for entry in time_series],

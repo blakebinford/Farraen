@@ -106,6 +106,36 @@
     background-color: rgba(59, 130, 246, 0.12);
   }
 
+  .welder-multiselect-editor {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    width: 18rem;
+    max-width: 100%;
+  }
+
+  .welder-multiselect-filter {
+    padding: 0.35rem 0.5rem;
+    border: 1px solid rgba(148, 163, 184, 0.9);
+    border-radius: 0.35rem;
+    font-size: 0.9rem;
+  }
+
+  .welder-multiselect-select {
+    width: 100%;
+    min-height: 8rem;
+    padding: 0.35rem;
+    border: 1px solid rgba(148, 163, 184, 0.9);
+    border-radius: 0.35rem;
+    font-size: 0.9rem;
+    background-color: #fff;
+  }
+
+  .welder-multiselect-helper {
+    font-size: 0.75rem;
+    color: #475569;
+  }
+
   .heat-link {
     color: #2563eb;
     text-decoration: none;
@@ -454,7 +484,7 @@
       }
 
       function rememberWelder(option) {
-        if (!option || !option.id) {
+        if (!option) {
           return option;
         }
         const normalized = {
@@ -465,8 +495,38 @@
           description: option.description || option.name || "",
           label: option.label || option.stencil || option.name || "",
         };
-        welderCache.set(normalized.id, normalized);
+        if (normalized.stencil) {
+          welderCache.set(normalized.stencil, normalized);
+        }
         return normalized;
+      }
+
+      function parseStencilList(value) {
+        if (!value) {
+          return [];
+        }
+        return String(value)
+          .split(",")
+          .map(part => part.trim())
+          .filter(Boolean);
+      }
+
+      function joinStencilList(values) {
+        const seen = new Set();
+        const ordered = [];
+        for (const raw of values || []) {
+          const text = String(raw || "").trim();
+          if (!text || seen.has(text)) {
+            continue;
+          }
+          seen.add(text);
+          ordered.push(text);
+        }
+        return ordered.join(", ");
+      }
+
+      function formatStencilList(value) {
+        return joinStencilList(parseStencilList(value));
       }
 
       function formatValidationErrors(result) {
@@ -519,13 +579,10 @@
           nde_type: null,
           nde_type_label: row.nde_type_label ?? "",
           date_welded: row.date_welded || "",
-          welder: row.welder_id ?? null,
-          welder_name: row.welder_name ?? "",
-          welder_stencil: row.welder_stencil ?? row.welder_stencil_root_hotpass ?? "",
-          welder_stencil_root_hotpass: row.welder_stencil_root_hotpass ?? "",
-          welder_stencil_fill: row.welder_stencil_fill ?? "",
-          welder_stencil_fill_additional: row.welder_stencil_fill_additional ?? "",
-          welder_stencil_cap: row.welder_stencil_cap ?? "",
+          welder_stencil_root_hotpass: formatStencilList(row.welder_stencil_root_hotpass ?? ""),
+          welder_stencil_fill: formatStencilList(row.welder_stencil_fill ?? ""),
+          welder_stencil_cap: formatStencilList(row.welder_stencil_cap ?? ""),
+          welder_stencil_repair: formatStencilList(row.welder_stencil_repair ?? ""),
           nde_date: row.nde_date || "",
           disposition: row.disposition || dispositionDefault,
           disposition_label: row.disposition_label ?? "",
@@ -597,14 +654,6 @@
           });
         }
 
-        if (normalized.welder && (row.welder_stencil || row.welder_name)) {
-          rememberWelder({
-            id: normalized.welder,
-            stencil: row.welder_stencil || row.welder_stencil_root_hotpass || "",
-            name: row.welder_name || "",
-          });
-        }
-
         normalized.weld_type = normalizeChoiceValue(row.weld_type);
         if (!normalized.weld_type_label) {
           normalized.weld_type_label = findOptionLabel(weldTypeOptions, normalized.weld_type);
@@ -639,11 +688,10 @@
           drawing_number: row.drawing_number ?? "",
           weld_type: row.weld_type || null,
           date_welded: row.date_welded || "",
-          welder_id: row.welder ?? null,
-          welder_stencil_root_hotpass: row.welder_stencil_root_hotpass ?? "",
-          welder_stencil_fill: row.welder_stencil_fill ?? "",
-          welder_stencil_fill_additional: row.welder_stencil_fill_additional ?? "",
-          welder_stencil_cap: row.welder_stencil_cap ?? "",
+          welder_stencil_root_hotpass: formatStencilList(row.welder_stencil_root_hotpass ?? ""),
+          welder_stencil_fill: formatStencilList(row.welder_stencil_fill ?? ""),
+          welder_stencil_cap: formatStencilList(row.welder_stencil_cap ?? ""),
+          welder_stencil_repair: formatStencilList(row.welder_stencil_repair ?? ""),
           nde_date: row.nde_date || "",
           nde_type: row.nde_type || null,
           nde_rig_id: row.nde_rig ?? null,
@@ -836,19 +884,6 @@
           return link;
         }
         return name;
-      }
-
-      function formatWelderValue(value, data) {
-        if (!value) {
-          return "";
-        }
-        const cached = welderCache.get(value);
-        const stencil = cached ? cached.stencil : data?.welder_stencil || "";
-        const name = cached ? cached.name : data?.welder_name || "";
-        if (stencil && name) {
-          return `${stencil} – ${name}`;
-        }
-        return stencil || name || "";
       }
 
       function lookupEditorFactory({ search, getInitialLabel, onSelect, placeholder = "Type to search" }) {
@@ -1048,6 +1083,168 @@
   };
 }
 
+      function createWelderPassEditor(fieldName) {
+        return function (cell, onRendered, success, cancel) {
+          const container = document.createElement("div");
+          container.className = "welder-multiselect-editor";
+
+          const selected = new Set(parseStencilList(cell.getValue()));
+          for (const stencil of selected) {
+            if (stencil && !welderCache.has(stencil)) {
+              welderCache.set(stencil, { stencil, name: "", label: stencil });
+            }
+          }
+
+          const filterInput = document.createElement("input");
+          filterInput.type = "search";
+          filterInput.placeholder = "Filter welders";
+          filterInput.className = "welder-multiselect-filter";
+          container.appendChild(filterInput);
+
+          const select = document.createElement("select");
+          select.multiple = true;
+          select.size = 8;
+          select.className = "welder-multiselect-select";
+          container.appendChild(select);
+
+          const helper = document.createElement("div");
+          helper.className = "welder-multiselect-helper";
+          helper.textContent = "Use Ctrl/Cmd-click or Shift-click to select multiple welders.";
+          container.appendChild(helper);
+
+          let closed = false;
+
+          function finalize(callback) {
+            if (closed) {
+              return;
+            }
+            closed = true;
+            callback();
+          }
+
+          function commit() {
+            finalize(() => {
+              success(joinStencilList(Array.from(selected)));
+            });
+          }
+
+          function cancelEdit() {
+            finalize(cancel);
+          }
+
+          function getOptions() {
+            return Array.from(welderCache.values())
+              .filter(option => option && option.stencil)
+              .sort((a, b) => {
+                const stencilA = a.stencil.toUpperCase();
+                const stencilB = b.stencil.toUpperCase();
+                if (stencilA === stencilB) {
+                  return (a.name || "").localeCompare(b.name || "");
+                }
+                return stencilA.localeCompare(stencilB);
+              });
+          }
+
+          function renderOptions(term = "") {
+            const normalized = term.trim().toLowerCase();
+            const options = getOptions().filter(option => {
+              if (!normalized) {
+                return true;
+              }
+              const haystack = [option.stencil, option.name]
+                .filter(Boolean)
+                .join(" ")
+                .toLowerCase();
+              return haystack.includes(normalized);
+            });
+
+            const currentSelection = new Set(selected);
+            select.innerHTML = "";
+
+            if (!options.length) {
+              const empty = document.createElement("option");
+              empty.disabled = true;
+              empty.textContent = normalized
+                ? "No matching welders"
+                : "No welders available";
+              select.appendChild(empty);
+              return;
+            }
+
+            options.forEach(option => {
+              const opt = document.createElement("option");
+              opt.value = option.stencil;
+              const label = option.stencil && option.name
+                ? `${option.stencil} – ${option.name}`
+                : option.stencil || option.name || "";
+              opt.textContent = label;
+              opt.selected = currentSelection.has(option.stencil);
+              select.appendChild(opt);
+            });
+          }
+
+          function syncSelection() {
+            selected.clear();
+            Array.from(select.selectedOptions).forEach(option => {
+              if (option.value) {
+                selected.add(option.value);
+              }
+            });
+          }
+
+          filterInput.addEventListener("input", () => {
+            renderOptions(filterInput.value);
+            syncSelection();
+          });
+
+          const handleKeydown = event => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              commit();
+            } else if (event.key === "Escape") {
+              event.preventDefault();
+              cancelEdit();
+            } else if (event.key === "Tab") {
+              event.preventDefault();
+              commit();
+            }
+          };
+
+          filterInput.addEventListener("keydown", handleKeydown);
+          select.addEventListener("keydown", handleKeydown);
+
+          select.addEventListener("change", () => {
+            syncSelection();
+          });
+
+          select.addEventListener("dblclick", () => {
+            syncSelection();
+            commit();
+          });
+
+          container.addEventListener("focusout", event => {
+            if (!container.contains(event.relatedTarget)) {
+              syncSelection();
+              commit();
+            }
+          });
+
+          onRendered(async () => {
+            try {
+              await preloadWelders();
+            } catch (error) {
+              console.error("Failed to refresh welder list", error);
+            }
+            renderOptions(filterInput.value);
+            syncSelection();
+            filterInput.focus();
+            filterInput.select();
+          });
+
+          return container;
+        };
+      }
+
 
       function createHeatEditor(prefix) {
         return lookupEditorFactory({
@@ -1165,73 +1362,7 @@
         },
       });
 
-      const welderEditor = lookupEditorFactory({
-        placeholder: "Search welders",
-        getInitialLabel(value, data) {
-          return formatWelderValue(value, data);
-        },
-        async search(term) {
-          const normalized = (term || "").toLowerCase();
-          const matches = [];
-          for (const option of welderCache.values()) {
-            const haystack = [option.stencil, option.name]
-              .filter(Boolean)
-              .join(" ")
-              .toLowerCase();
-            if (!normalized || haystack.includes(normalized)) {
-              matches.push(option);
-            }
-          }
-          matches.sort((a, b) => {
-            const stencilA = a.stencil || "";
-            const stencilB = b.stencil || "";
-            if (stencilA && stencilB) {
-              return stencilA.localeCompare(stencilB);
-            }
-            return (a.name || "").localeCompare(b.name || "");
-          });
-          if (matches.length || !welderOptionsEndpoint) {
-            return matches;
-          }
-          try {
-            const response = await fetch(welderOptionsEndpoint, { credentials: "same-origin" });
-            if (response.ok) {
-              const payload = await response.json();
-              const welders = payload.welders || [];
-              welders.forEach(option => rememberWelder(option));
-              return welders
-                .map(option => rememberWelder(option))
-                .filter(option => {
-                  const haystack = [option.stencil, option.name]
-                    .filter(Boolean)
-                    .join(" ")
-                    .toLowerCase();
-                  return !normalized || haystack.includes(normalized);
-                });
-            }
-          } catch (error) {
-            console.error("Failed to refresh welder options", error);
-          }
-          return matches;
-        },
-        onSelect(option, cell) {
-          const row = cell.getRow();
-          if (!option) {
-            row.update({
-              welder_name: "",
-              welder_stencil: "",
-              welder_stencil_root_hotpass: "",
-            });
-            return;
-          }
-          const normalized = rememberWelder(option);
-          row.update({
-            welder_name: normalized.name || "",
-            welder_stencil: normalized.stencil || "",
-            welder_stencil_root_hotpass: normalized.stencil || "",
-          });
-        },
-      });
+
 
       function validateDispositionComment(cell, value) {
         const disposition = cell.getRow().getData().disposition;
@@ -1403,40 +1534,40 @@
 
           },
           {
-            title: "Welder",
-            field: "welder",
-            headerSort: true,
-            formatter(cell) {
-              const data = cell.getRow().getData();
-              return formatWelderValue(cell.getValue(), data);
-            },
-            editor(cell, onRendered, success, cancel) {
-              return welderEditor(cell, onRendered, success, cancel);
-            },
-          },
-          {
             title: "Welder Root/Hot Pass",
             field: "welder_stencil_root_hotpass",
-            editor: "input",
             headerSort: true,
+            formatter(cell) {
+              return formatStencilList(cell.getValue());
+            },
+            editor: createWelderPassEditor("welder_stencil_root_hotpass"),
           },
           {
             title: "Welder Fill",
             field: "welder_stencil_fill",
-            editor: "input",
             headerSort: true,
-          },
-          {
-            title: "Welder Fill (Addl)",
-            field: "welder_stencil_fill_additional",
-            editor: "input",
-            headerSort: true,
+            formatter(cell) {
+              return formatStencilList(cell.getValue());
+            },
+            editor: createWelderPassEditor("welder_stencil_fill"),
           },
           {
             title: "Welder Cap",
             field: "welder_stencil_cap",
-            editor: "input",
             headerSort: true,
+            formatter(cell) {
+              return formatStencilList(cell.getValue());
+            },
+            editor: createWelderPassEditor("welder_stencil_cap"),
+          },
+          {
+            title: "Welder Repair",
+            field: "welder_stencil_repair",
+            headerSort: true,
+            formatter(cell) {
+              return formatStencilList(cell.getValue());
+            },
+            editor: createWelderPassEditor("welder_stencil_repair"),
           },
           {
             title: "NDE Date",
@@ -1708,8 +1839,8 @@ table.on("rowClick", function (e, row) {
           "date_welded",
           "welder_stencil_root_hotpass",
           "welder_stencil_fill",
-          "welder_stencil_fill_additional",
           "welder_stencil_cap",
+          "welder_stencil_repair",
           "nde_date",
           "nde_type",
           "disposition_comment",

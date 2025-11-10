@@ -142,13 +142,10 @@ def _serialize_weld(
         "weld_type": weld.weld_type or None,
         "weld_type_label": weld.get_weld_type_display() if weld.weld_type else "",
         "date_welded": weld.date_welded.isoformat() if weld.date_welded else "",
-        "welder_id": weld.welder_id,
-        "welder_name": weld.welder.name if weld.welder else "",
-        "welder_stencil": weld.welder.stencil if weld.welder else "",
         "welder_stencil_root_hotpass": weld.welder_stencil_root_hotpass,
         "welder_stencil_fill": weld.welder_stencil_fill,
-        "welder_stencil_fill_additional": weld.welder_stencil_fill_additional,
         "welder_stencil_cap": weld.welder_stencil_cap,
+        "welder_stencil_repair": weld.welder_stencil_repair,
         "nde_date": weld.nde_date.isoformat() if weld.nde_date else "",
         "nde_rig_id": weld.nde_rig_id,
         "nde_rig_name": weld.nde_rig.name if weld.nde_rig else "",
@@ -358,7 +355,6 @@ def weld_log_data(request, org_slug, project_slug):
                 "material1_heat__mtr_document",
                 "material2_heat",
                 "material2_heat__mtr_document",
-                "welder",
                 "nde_rig",
                 "nde_rig__qualification_folder",
             )
@@ -540,27 +536,6 @@ def weld_log_data(request, org_slug, project_slug):
             )
             return JsonResponse({"error": "Invalid NDE rig for this project."}, status=400)
 
-    welder_id = payload.get("welder_id")
-    welder = None
-    if welder_id:
-        try:
-            welder = Welder.objects.get(
-                pk=welder_id,
-                org=request.org,
-                is_active=True,
-            )
-        except Welder.DoesNotExist:
-            logger.warning(
-                "Rejecting weld save with invalid welder",
-                extra={
-                    "user_id": getattr(request.user, "id", None),
-                    "org_slug": org_slug,
-                    "project_slug": project_slug,
-                    "welder_id": welder_id,
-                },
-            )
-            return JsonResponse({"error": "Invalid welder."}, status=400)
-
     raw_weld_type = payload.get("weld_type")
     if raw_weld_type in (None, ""):
         weld_type_value = ""
@@ -673,15 +648,10 @@ def weld_log_data(request, org_slug, project_slug):
         else material2_heat.wall_thickness_in if material2_heat else None,
         "weld_type": weld_type_value,
         "date_welded": date_welded,
-        "welder": welder,
-        "welder_stencil_root_hotpass": (
-            welder.stencil if welder else _clean_text("welder_stencil_root_hotpass")
-        ),
+        "welder_stencil_root_hotpass": _clean_text("welder_stencil_root_hotpass"),
         "welder_stencil_fill": _clean_text("welder_stencil_fill"),
-        "welder_stencil_fill_additional": _clean_text(
-            "welder_stencil_fill_additional"
-        ),
         "welder_stencil_cap": _clean_text("welder_stencil_cap"),
+        "welder_stencil_repair": _clean_text("welder_stencil_repair"),
         "nde_date": nde_date,
         "nde_rig": nde_rig,
         "nde_type": nde_type_value,

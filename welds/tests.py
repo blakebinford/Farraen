@@ -160,7 +160,8 @@ class WeldLogAPITests(TestCase):
             "material1_heat_id": self.heat.id,
             "material2_heat_id": self.heat.id,
             "nde_rig_id": self.rig.id,
-            "welder_id": self.welder.id,
+            "welder_stencil_root_hotpass": self.welder.stencil,
+            "welder_stencil_fill": f"{self.welder.stencil}, B456",
             "disposition": Weld.Disposition.ACCEPTED,
         }
         response = self.client.post(
@@ -174,12 +175,14 @@ class WeldLogAPITests(TestCase):
         self.assertEqual(data["material1_grade"], self.heat.material_grade)
         self.assertEqual(data["material1_outer_diameter_in"], "10.75")
         self.assertEqual(data["nde_rig_name"], self.rig.name)
-        self.assertEqual(data["welder_id"], self.welder.id)
-        self.assertEqual(data["welder_name"], self.welder.name)
-        self.assertEqual(data["welder_stencil"], self.welder.stencil)
         self.assertEqual(
             data["welder_stencil_root_hotpass"], self.welder.stencil
         )
+        self.assertEqual(
+            data["welder_stencil_fill"], f"{self.welder.stencil}, B456"
+        )
+        self.assertEqual(data["welder_stencil_cap"], "")
+        self.assertEqual(data["welder_stencil_repair"], "")
         self.assertTrue(data["nde_rig_folder_url"])
 
         weld = Weld.objects.get(pk=data["id"])
@@ -187,8 +190,10 @@ class WeldLogAPITests(TestCase):
         self.assertEqual(weld.material1_description, self.heat.description)
         self.assertEqual(weld.material2_heat, self.heat)
         self.assertEqual(weld.nde_rig, self.rig)
-        self.assertEqual(weld.welder, self.welder)
         self.assertEqual(weld.welder_stencil_root_hotpass, self.welder.stencil)
+        self.assertEqual(
+            weld.welder_stencil_fill, f"{self.welder.stencil}, B456"
+        )
 
     def test_repair_disposition_requires_comment(self):
         payload = {
@@ -273,7 +278,7 @@ class WeldLogAPITests(TestCase):
         Weld.objects.create(
             project=self.project,
             weld_id="W-ROW-1",
-            welder=self.welder,
+            welder_stencil_root_hotpass=self.welder.stencil,
             nde_rig=self.rig,
             created_by=self.user,
             updated_by=self.user,
@@ -285,8 +290,8 @@ class WeldLogAPITests(TestCase):
         self.assertEqual(payload["row_count"], 1)
         self.assertEqual(len(payload.get("rows", [])), 1)
         row = payload["rows"][0]
-        self.assertEqual(row["welder_id"], self.welder.id)
-        self.assertEqual(row["welder_stencil"], self.welder.stencil)
+        self.assertEqual(row["welder_stencil_root_hotpass"], self.welder.stencil)
+        self.assertEqual(row.get("welder_stencil_repair"), "")
         self.assertEqual(row["nde_rig_id"], self.rig.id)
         self.assertTrue(row["nde_rig_folder_url"])
 

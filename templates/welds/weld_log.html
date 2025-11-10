@@ -1192,32 +1192,40 @@
       }
 
       table = new Tabulator("#weld-log-grid", {
-        layout: "fitDataStretch",
-        height: "100%",
-        reactiveData: false,
-        data: [],
-        columns: buildColumns(),
-        movableColumns: true,
-        resizableColumns: true,
-        resizableRows: false,
-        autoResize: true,
-        selectableRange: true,
-        selectableRangeColumns: true,
-        selectableRangeRows: true,
-        selectableRollingSelection: true,
-        clipboard: true,
-        clipboardCopyRowRangeSelection: "data",
-        clipboardPasteParser: "range",
-        clipboardPasteAction: "replace",
-        clipboardCopyStyled: false,
-        history: true,
-        keybindings: {
-          navPrev: "shift+tab",
-          navNext: "tab",
-        },
-        persistenceMode: "local",
-        index: "id",
-      });
+  layout: "fitDataStretch",
+  height: "100%",
+  reactiveData: false,
+  data: [],
+  columns: buildColumns(),
+
+  movableColumns: true,
+  resizableColumns: true,
+  resizableRows: false,
+  autoResize: true,
+
+  // 👇 Add / ensure these are present
+  selectable: true,              // enable basic row selection
+  selectableRange: true,         // turn on range selection
+  selectableRangeMode: "cell",   // range selection is by cell, not row
+  selectableRangeColumns: true,
+  selectableRangeRows: true,
+  selectableRollingSelection: true,
+
+  clipboard: true,
+  clipboardCopyStyled: false,
+  clipboardCopyRowRangeSelection: "data", // or "range" depending on what you prefer
+  clipboardPasteParser: "range",
+  clipboardPasteAction: "replace",
+
+  history: true,
+  keybindings: {
+    navPrev: "shift+tab",
+    navNext: "tab",
+  },
+  persistenceMode: "local",
+  index: "id",
+});
+
 
       table.on("selectionChanged", () => {
         updateStatusCounts();

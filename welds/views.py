@@ -267,35 +267,35 @@ def weld_log(request, org_slug, project_slug):
         context.update(
             {
                 "data_url": reverse(
-                    "weld_log_data",
+                    "welds:weld_log_data",
                     kwargs={
                         "org_slug": request.org.slug,
                         "project_slug": project.slug,
                     },
                 ),
                 "heat_options_url": reverse(
-                    "weld_material_heat_options",
+                    "welds:weld_material_heat_options",
                     kwargs={
                         "org_slug": request.org.slug,
                         "project_slug": project.slug,
                     },
                 ),
                 "heat_search_url": reverse(
-                    "weld_material_heat_search",
+                    "welds:weld_material_heat_search",
                     kwargs={
                         "org_slug": request.org.slug,
                         "project_slug": project.slug,
                     },
                 ),
                 "nde_rigs_url": reverse(
-                    "weld_nde_rig_options",
+                    "welds:weld_nde_rig_options",
                     kwargs={
                         "org_slug": request.org.slug,
                         "project_slug": project.slug,
                     },
                 ),
                 "welder_options_url": reverse(
-                    "weld_welder_options",
+                    "welds:weld_welder_options",
                     kwargs={
                         "org_slug": request.org.slug,
                         "project_slug": project.slug,

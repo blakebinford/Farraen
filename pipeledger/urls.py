@@ -24,7 +24,7 @@ urlpatterns = [
     path("accounts/", include("allauth.urls")),  # login, signup, password reset, etc.
     path("o/<slug:org_slug>/", include("organizations.urls")),
     path("o/<slug:org_slug>/", include("documents.urls")),
-    path("o/<slug:org_slug>/", include("projects.urls")),
-    path("o/<slug:org_slug>/", include("welds.urls")),
+    path("o/<slug:org_slug>/", include(("projects.urls", "projects"), namespace="projects")),
+    path("o/<slug:org_slug>/", include(("welds.urls", "welds"), namespace="welds")),
     path("o/<slug:org_slug>/p/<slug:project_slug>/", include("drive.urls")),
     ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

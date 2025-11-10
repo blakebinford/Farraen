@@ -251,17 +251,10 @@ class Weld(models.Model):
         help_text="Primary weld type for this joint",
     )
     date_welded = models.DateField(null=True, blank=True)
-    welder = models.ForeignKey(
-        Welder,
-        on_delete=models.PROTECT,
-        null=True,
-        blank=True,
-        related_name="welds",
-    )
-    welder_stencil_root_hotpass = models.CharField(max_length=120, blank=True)
-    welder_stencil_fill = models.CharField(max_length=120, blank=True)
-    welder_stencil_fill_additional = models.CharField(max_length=120, blank=True)
-    welder_stencil_cap = models.CharField(max_length=120, blank=True)
+    welder_stencil_root_hotpass = models.CharField(max_length=255, blank=True)
+    welder_stencil_fill = models.CharField(max_length=255, blank=True)
+    welder_stencil_cap = models.CharField(max_length=255, blank=True)
+    welder_stencil_repair = models.CharField(max_length=255, blank=True)
     nde_date = models.DateField(null=True, blank=True)
     nde_rig = models.ForeignKey(
         NDERig,
@@ -307,8 +300,3 @@ class Weld(models.Model):
 
     def __str__(self) -> str:
         return f"{self.project}::{self.weld_id}"
-
-    def save(self, *args, **kwargs):
-        if self.welder and self.welder_stencil_root_hotpass != self.welder.stencil:
-            self.welder_stencil_root_hotpass = self.welder.stencil
-        super().save(*args, **kwargs)

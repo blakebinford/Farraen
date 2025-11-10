@@ -6,7 +6,7 @@ class Project(models.Model):
     org = models.ForeignKey("organizations.Organization", on_delete=models.PROTECT, related_name="projects")
     name = models.CharField(max_length=200)
     slug = models.SlugField(max_length=200, db_index=True)
-    is_archived = models.BooleanField(False)
+    is_archived = models.BooleanField(default=False)
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL)
     created_at = models.DateTimeField(auto_now_add=True)
 

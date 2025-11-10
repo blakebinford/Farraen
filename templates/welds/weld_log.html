@@ -2,94 +2,123 @@
 
 {% block extra_head %}
   {{ block.super }}
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@32.3.3/styles/ag-grid.css">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@32.3.3/styles/ag-theme-alpine.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tabulator-tables@5.5.2/dist/css/tabulator.min.css">
   <style>
-    .ag-theme-alpine {
-      --ag-foreground-color: #1f2937;
-      --ag-data-color: #1f2937;
-      --ag-header-foreground-color: #0f172a;
-      --ag-border-color: #d1d5db;
-      --ag-font-size: 0.95rem;
+    :root {
+      color-scheme: light;
     }
-    #weld-grid {
-      height: 65vh;
+
+    #weld-log-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 0.75rem;
+    }
+
+    #weld-log-toolbar .btn {
+      min-width: 8rem;
+    }
+
+    #weld-log-grid {
+      width: 100%;
+      height: 78vh;
       min-height: 460px;
+      border: 1px solid rgba(15, 23, 42, 0.1);
+      border-radius: 0.5rem;
+      overflow: hidden;
+      background-color: #fff;
     }
-    .ag-theme-alpine .ag-cell-edit-wrapper {
-      overflow: visible;
+
+    #weld-log-status {
+      min-height: 1.5rem;
     }
-    .heat-cell-editor {
+
+    .tabulator-row.is-dirty {
+      --dirty-bg: rgba(37, 99, 235, 0.08);
+      background-color: var(--dirty-bg);
+    }
+
+    .tabulator-cell.tabulator-validation-fail {
+      box-shadow: inset 0 0 0 2px rgba(220, 38, 38, 0.6);
+      background-color: rgba(254, 226, 226, 0.6);
+    }
+
+    .tabulator-col.tabulator-frozen {
+      box-shadow: 2px 0 0 rgba(15, 23, 42, 0.08);
+      background-color: rgba(241, 245, 249, 0.85);
+    }
+
+    .lookup-editor {
       position: relative;
       width: 100%;
+      max-height: 18rem;
     }
-    .heat-cell-editor input {
+
+    .lookup-editor input[type="text"] {
       width: 100%;
+      padding: 0.35rem 0.5rem;
+      border: 1px solid rgba(148, 163, 184, 0.9);
+      border-radius: 0.35rem;
+      font-size: 0.9rem;
     }
-    .heat-autocomplete {
-      position: relative;
-    }
-    .heat-autocomplete-results {
+
+    .lookup-editor-results {
       position: absolute;
-      top: calc(100% + 2px);
+      top: calc(100% + 4px);
       left: 0;
       right: 0;
-      z-index: 20;
-      max-height: 16rem;
-      overflow-y: auto;
-      background-color: var(--bs-body-bg, #fff);
-      border: 1px solid var(--bs-border-color-translucent, rgba(15, 23, 42, 0.16));
-      border-radius: 0.375rem;
-      box-shadow: 0 0.5rem 1rem rgba(15, 23, 42, 0.1);
-    }
-    .heat-autocomplete-results.hidden {
+      z-index: 30;
       display: none;
+      border: 1px solid rgba(15, 23, 42, 0.1);
+      border-radius: 0.35rem;
+      box-shadow: 0 10px 40px rgba(15, 23, 42, 0.12);
+      background-color: #fff;
+      max-height: 14rem;
+      overflow-y: auto;
+      padding-block: 0.25rem;
     }
-    .heat-autocomplete-option {
-      padding: 0.5rem 0.75rem;
-      border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+
+    .lookup-editor-results.is-open {
+      display: block;
+    }
+
+    .lookup-editor-option {
+      padding: 0.35rem 0.75rem;
       cursor: pointer;
       display: flex;
       flex-direction: column;
       gap: 0.25rem;
-      background-color: transparent;
+      font-size: 0.88rem;
     }
-    .heat-autocomplete-option:last-child {
-      border-bottom: none;
-    }
-    .heat-autocomplete-option strong {
+
+    .lookup-editor-option strong {
       font-weight: 600;
+      color: #1f2937;
     }
-    .heat-autocomplete-option .heat-meta {
-      font-size: 0.8125rem;
+
+    .lookup-editor-option span {
       color: #475569;
-      display: flex;
-      gap: 0.75rem;
-      flex-wrap: wrap;
+      font-size: 0.75rem;
     }
-    .heat-autocomplete-option.active,
-    .heat-autocomplete-option:hover,
-    .heat-autocomplete-option:focus {
-      background-color: rgba(37, 99, 235, 0.08);
+
+    .lookup-editor-option.is-active,
+    .lookup-editor-option:hover {
+      background-color: rgba(59, 130, 246, 0.12);
     }
-    .heat-autocomplete-empty {
-      padding: 0.5rem 0.75rem;
-      color: #6b7280;
-      font-size: 0.875rem;
+
+    .tabulator .tabulator-tableholder {
+      font-size: 0.92rem;
     }
   </style>
-  <script src="https://cdn.jsdelivr.net/npm/ag-grid-community@32.3.3/dist/ag-grid-community.min.js"></script>
 {% endblock %}
 
 {% block content %}
   <div class="d-flex flex-wrap align-items-center justify-content-between mb-3 gap-2">
     <div>
       <h1 class="h3 mb-1">{{ project.name }} Weld Log</h1>
-      <p class="text-muted mb-0">Inline register for capturing weld information with spreadsheet-style editing.</p>
+      <p class="text-muted mb-0">Spreadsheet-style editor for capturing weld information.</p>
     </div>
-    {% if not setup_error %}
-      <button class="btn btn-primary" id="add-weld-btn">Add Weld</button>
-    {% endif %}
   </div>
 
   {% if setup_error %}
@@ -97,1054 +126,875 @@
       {{ setup_error }}
     </div>
   {% else %}
-    <div class="card mb-4" id="weld-entry-card">
-      <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
-        <div>
-          <h2 class="h5 mb-0">Weld log entry</h2>
-          <p class="text-muted small mb-0">Start typing a heat number to pull the latest MTR metadata.</p>
-        </div>
-        <span class="badge text-bg-light">Type at least two characters</span>
-      </div>
+    <div class="card">
       <div class="card-body">
-        <form id="weld-entry-form" class="row gy-4" autocomplete="off">
-          <div class="col-12">
-            <h3 class="h6 text-uppercase text-muted mb-3">Material 1</h3>
+        <div id="weld-log-toolbar" class="mb-2">
+          <button type="button" class="btn btn-outline-secondary" id="weld-log-export-csv">Export CSV</button>
+          <button type="button" class="btn btn-outline-secondary" id="weld-log-export-xlsx">Export Excel</button>
+          <div class="ms-auto d-flex gap-2 flex-wrap">
+            <button type="button" class="btn btn-outline-primary" id="weld-log-add-row">Add Row</button>
+            <button type="button" class="btn btn-primary" id="weld-log-save">Save Changes</button>
           </div>
-          <div class="col-md-4">
-            <label class="form-label" for="material1_heat_number">Heat number</label>
-            <div class="heat-autocomplete">
-              <input
-                type="text"
-                class="form-control"
-                id="material1_heat_number"
-                name="material1_heat_number"
-                placeholder="Search heat numbers"
-                data-heat-input
-                data-material="1"
-                data-field="heat_number"
-              >
-              <div class="heat-autocomplete-results hidden" role="listbox"></div>
-            </div>
-            <input type="hidden" id="material1_heat_id" name="material1_heat_id" data-material="1" data-field="heat_id">
-          </div>
-          <div class="col-md-4">
-            <label class="form-label" for="material1_description">Description</label>
-            <input type="text" class="form-control" id="material1_description" name="material1_description" data-material="1" data-field="description" placeholder="Auto-filled from MTR">
-          </div>
-          <div class="col-md-4">
-            <label class="form-label" for="material1_grade">Grade</label>
-            <input type="text" class="form-control" id="material1_grade" name="material1_grade" data-material="1" data-field="grade" placeholder="Auto-filled from MTR">
-          </div>
-          <div class="col-md-4">
-            <label class="form-label" for="material1_outer_diameter_in">O.D.</label>
-            <input type="text" class="form-control" id="material1_outer_diameter_in" name="material1_outer_diameter_in" data-material="1" data-field="outer_diameter_in" placeholder="Auto-filled from MTR">
-          </div>
-          <div class="col-md-4">
-            <label class="form-label" for="material1_wall_thickness_in">Wall thickness</label>
-            <input type="text" class="form-control" id="material1_wall_thickness_in" name="material1_wall_thickness_in" data-material="1" data-field="wall_thickness_in" placeholder="Auto-filled from MTR">
-          </div>
-
-          <div class="col-12 pt-2">
-            <h3 class="h6 text-uppercase text-muted mb-3">Material 2</h3>
-          </div>
-          <div class="col-md-4">
-            <label class="form-label" for="material2_heat_number">Heat number</label>
-            <div class="heat-autocomplete">
-              <input
-                type="text"
-                class="form-control"
-                id="material2_heat_number"
-                name="material2_heat_number"
-                placeholder="Search heat numbers"
-                data-heat-input
-                data-material="2"
-                data-field="heat_number"
-              >
-              <div class="heat-autocomplete-results hidden" role="listbox"></div>
-            </div>
-            <input type="hidden" id="material2_heat_id" name="material2_heat_id" data-material="2" data-field="heat_id">
-          </div>
-          <div class="col-md-4">
-            <label class="form-label" for="material2_description">Description</label>
-            <input type="text" class="form-control" id="material2_description" name="material2_description" data-material="2" data-field="description" placeholder="Auto-filled from MTR">
-          </div>
-          <div class="col-md-4">
-            <label class="form-label" for="material2_grade">Grade</label>
-            <input type="text" class="form-control" id="material2_grade" name="material2_grade" data-material="2" data-field="grade" placeholder="Auto-filled from MTR">
-          </div>
-          <div class="col-md-4">
-            <label class="form-label" for="material2_outer_diameter_in">O.D.</label>
-            <input type="text" class="form-control" id="material2_outer_diameter_in" name="material2_outer_diameter_in" data-material="2" data-field="outer_diameter_in" placeholder="Auto-filled from MTR">
-          </div>
-          <div class="col-md-4">
-            <label class="form-label" for="material2_wall_thickness_in">Wall thickness</label>
-            <input type="text" class="form-control" id="material2_wall_thickness_in" name="material2_wall_thickness_in" data-material="2" data-field="wall_thickness_in" placeholder="Auto-filled from MTR">
-          </div>
-          <div class="col-12 text-end">
-            <button type="submit" class="btn btn-outline-primary">Save weld</button>
-          </div>
-        </form>
+        </div>
+        <div id="weld-log-grid" aria-live="polite"></div>
+        <div id="weld-log-status" class="small text-muted mt-2" role="status"></div>
       </div>
     </div>
-    <div id="weld-grid" class="ag-theme-alpine"></div>
-    <p class="small text-muted mt-2" id="grid-status" role="status"></p>
-    <details id="grid-debug-panel" class="mt-3" hidden>
-      <summary class="small text-muted">Weld log request diagnostics</summary>
-      <div class="d-flex justify-content-end align-items-center gap-2 mb-2">
-        <span class="badge text-bg-light small" id="grid-debug-count">0 events</span>
-        <button type="button" class="btn btn-sm btn-outline-secondary" id="clear-grid-debug">Clear log</button>
-      </div>
-      <div id="grid-debug-list" class="small d-flex flex-column"></div>
-    </details>
+  {% endif %}
+{% endblock %}
 
+{% if not setup_error %}
+  <script src="https://cdn.jsdelivr.net/npm/tabulator-tables@5.5.2/dist/js/tabulator.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script>
-    const dataEndpoint = "{{ data_url }}";
-    const heatOptionsEndpoint = "{{ heat_options_url }}";
-    const heatSearchEndpoint = "{{ heat_search_url }}";
-    const ndeRigsEndpoint = "{{ nde_rigs_url }}";
+    (function () {
+      const dataEndpoint = "{{ data_url }}";
+      const heatOptionsEndpoint = "{{ heat_options_url }}";
+      const heatSearchEndpoint = "{{ heat_search_url }}";
+      const ndeRigsEndpoint = "{{ nde_rigs_url }}";
 
-    function getCsrfToken() {
-      const name = 'csrftoken=';
-      const cookies = document.cookie.split(';');
-      for (let cookie of cookies) {
-        cookie = cookie.trim();
-        if (cookie.startsWith(name)) {
-          return decodeURIComponent(cookie.substring(name.length));
-        }
-      }
-      return '';
-    }
+      const statusEl = document.getElementById("weld-log-status");
+      const saveBtn = document.getElementById("weld-log-save");
+      const exportCsvBtn = document.getElementById("weld-log-export-csv");
+      const exportExcelBtn = document.getElementById("weld-log-export-xlsx");
+      const addRowBtn = document.getElementById("weld-log-add-row");
 
-    function debounce(fn, wait = 300) {
-      let timeoutId = null;
-      return function debounced(...args) {
-        if (timeoutId) {
-          window.clearTimeout(timeoutId);
-        }
-        timeoutId = window.setTimeout(() => {
-          timeoutId = null;
-          fn.apply(this, args);
-        }, wait);
-      };
-    }
+      const heatCache = new Map();
+      const ndeRigCache = new Map();
+      const dirtyRows = new Set();
 
-    const heatLookupByNumber = new Map();
+      const dispositionOptions = [
+        { value: "accepted", label: "Accepted" },
+        { value: "repair", label: "Repair" },
+        { value: "cut_out", label: "Cut Out" },
+      ];
 
-    function normalizeHeatPayload(raw) {
-      if (!raw) {
-        return null;
-      }
-      const toStringOrEmpty = value => (value === null || value === undefined ? '' : String(value));
-      const heatNumber = toStringOrEmpty(raw.heat_number);
-      if (!heatNumber) {
-        return null;
-      }
-      const normalized = {
-        id: raw.id ?? null,
-        heat_number: heatNumber,
-        description: toStringOrEmpty(raw.description),
-        grade: toStringOrEmpty(raw.grade ?? raw.material_grade),
-        outer_diameter_in: toStringOrEmpty(raw.outer_diameter_in ?? raw.od),
-        wall_thickness_in: toStringOrEmpty(raw.wall_thickness_in ?? raw.wall_thickness),
-        wps_number: toStringOrEmpty(raw.wps_number),
-      };
-      normalized.material_grade = normalized.grade;
-      normalized.od = normalized.outer_diameter_in;
-      normalized.wall_thickness = normalized.wall_thickness_in;
-      return normalized;
-    }
-
-    function rememberHeatOption(raw) {
-      const normalized = normalizeHeatPayload(raw);
-      if (!normalized) {
-        return null;
-      }
-      heatLookupByNumber.set(normalized.heat_number, normalized);
-      return normalized;
-    }
-
-    class HeatAutocomplete {
-      constructor(input, { resultsContainer = null, onHeatSelected = null, minimumInputLength = 2 } = {}) {
-        this.input = input;
-        this.resultsEl = resultsContainer || input.closest('.heat-autocomplete')?.querySelector('.heat-autocomplete-results') || null;
-        this.onHeatSelected = typeof onHeatSelected === 'function' ? onHeatSelected : null;
-        this.minimumInputLength = minimumInputLength;
-        this.results = [];
-        this.activeIndex = -1;
-        this.abortController = null;
-        this.boundOnInput = this.onInput.bind(this);
-        this.boundOnKeyDown = this.onKeyDown.bind(this);
-        this.boundOnFocus = this.onFocus.bind(this);
-        this.boundOnBlur = this.onBlur.bind(this);
-        this.debouncedSearch = debounce(this.search.bind(this), 300);
-        input.setAttribute('autocomplete', 'off');
-        input.addEventListener('input', this.boundOnInput);
-        input.addEventListener('keydown', this.boundOnKeyDown);
-        input.addEventListener('focus', this.boundOnFocus);
-        input.addEventListener('blur', this.boundOnBlur);
-      }
-
-      destroy() {
-        if (this.abortController) {
-          this.abortController.abort();
-          this.abortController = null;
-        }
-        if (this.input) {
-          this.input.removeEventListener('input', this.boundOnInput);
-          this.input.removeEventListener('keydown', this.boundOnKeyDown);
-          this.input.removeEventListener('focus', this.boundOnFocus);
-          this.input.removeEventListener('blur', this.boundOnBlur);
-        }
-        this.hideResults();
-        this.results = [];
-      }
-
-      onFocus() {
-        if (this.results.length > 0) {
-          this.showResults();
-        }
-      }
-
-      onBlur() {
-        window.setTimeout(() => this.hideResults(), 150);
-      }
-
-      onInput(event) {
-        const query = (event.target.value || '').trim();
-        if (!query || query.length < this.minimumInputLength || !heatSearchEndpoint) {
-          this.results = [];
-          this.hideResults();
+      function setStatus(message, variant = "muted") {
+        if (!statusEl) {
           return;
         }
-        this.showLoading();
-        this.debouncedSearch(query);
+        const colors = {
+          muted: "text-muted",
+          success: "text-success",
+          danger: "text-danger",
+          warning: "text-warning",
+        };
+        statusEl.className = `small mt-2 ${colors[variant] || colors.muted}`;
+        statusEl.textContent = message || "";
       }
 
-      onKeyDown(event) {
-        if (!this.resultsEl || this.resultsEl.classList.contains('hidden')) {
+      function updateStatusCounts(extra = "") {
+        if (!statusEl || !table) {
           return;
         }
-        if (event.key === 'ArrowDown') {
-          event.preventDefault();
-          this.moveSelection(1);
-        } else if (event.key === 'ArrowUp') {
-          event.preventDefault();
-          this.moveSelection(-1);
-        } else if (event.key === 'Enter') {
-          if (this.activeIndex >= 0 && this.activeIndex < this.results.length) {
-            event.preventDefault();
-            this.applyHeat(this.results[this.activeIndex]);
+        const totalRows = table.getData().length;
+        const selected = table.getSelectedData().length;
+        const dirtyCount = dirtyRows.size;
+        const summary = [
+          `${totalRows} row${totalRows === 1 ? "" : "s"}`,
+          `${selected} selected`,
+          `${dirtyCount} modified`,
+        ].join(" • ");
+        const suffix = extra ? ` – ${extra}` : "";
+        statusEl.textContent = `${summary}${suffix}`;
+      }
+
+      function getCsrfToken() {
+        const name = "csrftoken=";
+        const cookies = document.cookie ? document.cookie.split(";") : [];
+        for (let cookie of cookies) {
+          cookie = cookie.trim();
+          if (cookie.startsWith(name)) {
+            return decodeURIComponent(cookie.substring(name.length));
           }
-        } else if (event.key === 'Escape') {
-          this.hideResults();
         }
+        return "";
       }
 
-      moveSelection(delta) {
-        if (!this.results.length || !this.resultsEl) {
-          return;
+      function rememberHeat(option) {
+        if (!option || !option.id) {
+          return option;
         }
-        this.activeIndex += delta;
-        if (this.activeIndex < 0) {
-          this.activeIndex = this.results.length - 1;
-        } else if (this.activeIndex >= this.results.length) {
-          this.activeIndex = 0;
+        heatCache.set(option.id, option);
+        return option;
+      }
+
+      function rememberNdeRig(option) {
+        if (!option || !option.id) {
+          return option;
         }
-        const options = Array.from(this.resultsEl.querySelectorAll('.heat-autocomplete-option'));
-        options.forEach((option, index) => {
-          if (index === this.activeIndex) {
-            option.classList.add('active');
-            option.setAttribute('aria-selected', 'true');
-            option.scrollIntoView({ block: 'nearest' });
-          } else {
-            option.classList.remove('active');
-            option.removeAttribute('aria-selected');
+        ndeRigCache.set(option.id, option);
+        return option;
+      }
+
+      function normalizeRow(row) {
+        if (!row) {
+          return {};
+        }
+        const normalized = {
+          id: row.id ?? null,
+          weld_id: row.weld_id ?? "",
+          nde_number: row.nde_number ?? "",
+          drawing_number: row.drawing_number ?? "",
+          weld_type: row.weld_type ?? "",
+          date_welded: row.date_welded || "",
+          welder_stencil_root_hotpass: row.welder_stencil_root_hotpass ?? "",
+          welder_stencil_fill: row.welder_stencil_fill ?? "",
+          welder_stencil_fill_additional: row.welder_stencil_fill_additional ?? "",
+          welder_stencil_cap: row.welder_stencil_cap ?? "",
+          nde_date: row.nde_date || "",
+          disposition: row.disposition || "accepted",
+          disposition_comment: row.disposition_comment ?? "",
+          material1_heat: row.material1_heat_id ?? null,
+          material1_heat_label: row.material1_heat_number ?? "",
+          material1_description: row.material1_description ?? "",
+          material1_grade: row.material1_grade ?? "",
+          material1_outer_diameter_in: row.material1_outer_diameter_in ?? "",
+          material1_wall_thickness_in: row.material1_wall_thickness_in ?? "",
+          material2_heat: row.material2_heat_id ?? null,
+          material2_heat_label: row.material2_heat_number ?? "",
+          material2_description: row.material2_description ?? "",
+          material2_grade: row.material2_grade ?? "",
+          material2_outer_diameter_in: row.material2_outer_diameter_in ?? "",
+          material2_wall_thickness_in: row.material2_wall_thickness_in ?? "",
+          nde_rig: row.nde_rig_id ?? null,
+          nde_rig_name: row.nde_rig_name ?? "",
+          created_at: row.created_at || "",
+          updated_at: row.updated_at || "",
+        };
+
+        if (normalized.material1_heat && row.material1_heat_number) {
+          rememberHeat({
+            id: normalized.material1_heat,
+            heat_number: row.material1_heat_number,
+            description: row.material1_description ?? "",
+            material_grade: row.material1_grade ?? "",
+            outer_diameter_in: row.material1_outer_diameter_in ?? "",
+            wall_thickness_in: row.material1_wall_thickness_in ?? "",
+          });
+        }
+
+        if (normalized.material2_heat && row.material2_heat_number) {
+          rememberHeat({
+            id: normalized.material2_heat,
+            heat_number: row.material2_heat_number,
+            description: row.material2_description ?? "",
+            material_grade: row.material2_grade ?? "",
+            outer_diameter_in: row.material2_outer_diameter_in ?? "",
+            wall_thickness_in: row.material2_wall_thickness_in ?? "",
+          });
+        }
+
+        if (normalized.nde_rig && row.nde_rig_name) {
+          rememberNdeRig({ id: normalized.nde_rig, name: row.nde_rig_name });
+        }
+
+        return normalized;
+      }
+
+      function denormalizeRow(row) {
+        return {
+          id: row.id ?? undefined,
+          weld_id: row.weld_id ?? "",
+          nde_number: row.nde_number ?? "",
+          drawing_number: row.drawing_number ?? "",
+          weld_type: row.weld_type ?? "",
+          date_welded: row.date_welded || "",
+          welder_stencil_root_hotpass: row.welder_stencil_root_hotpass ?? "",
+          welder_stencil_fill: row.welder_stencil_fill ?? "",
+          welder_stencil_fill_additional: row.welder_stencil_fill_additional ?? "",
+          welder_stencil_cap: row.welder_stencil_cap ?? "",
+          nde_date: row.nde_date || "",
+          nde_rig_id: row.nde_rig ?? null,
+          disposition: row.disposition || "accepted",
+          disposition_comment: row.disposition_comment ?? "",
+          material1_heat_id: row.material1_heat ?? null,
+          material1_description: row.material1_description ?? "",
+          material1_grade: row.material1_grade ?? "",
+          material1_outer_diameter_in: row.material1_outer_diameter_in ?? "",
+          material1_wall_thickness_in: row.material1_wall_thickness_in ?? "",
+          material2_heat_id: row.material2_heat ?? null,
+          material2_description: row.material2_description ?? "",
+          material2_grade: row.material2_grade ?? "",
+          material2_outer_diameter_in: row.material2_outer_diameter_in ?? "",
+          material2_wall_thickness_in: row.material2_wall_thickness_in ?? "",
+        };
+      }
+
+      async function preloadHeatOptions() {
+        if (!heatOptionsEndpoint) {
+          return [];
+        }
+        try {
+          const response = await fetch(heatOptionsEndpoint, { credentials: "same-origin" });
+          if (!response.ok) {
+            return [];
           }
-        });
-      }
-
-      showLoading() {
-        if (!this.resultsEl) {
-          return;
-        }
-        this.resultsEl.innerHTML = '<div class="heat-autocomplete-empty">Searching…</div>';
-        this.resultsEl.classList.remove('hidden');
-        this.activeIndex = -1;
-      }
-
-      showResults() {
-        if (this.resultsEl) {
-          this.resultsEl.classList.remove('hidden');
+          const payload = await response.json();
+          const heats = payload.heats || [];
+          heats.forEach(option => rememberHeat(option));
+          return heats;
+        } catch (error) {
+          console.error("Failed to load heat options", error);
+          return [];
         }
       }
 
-      hideResults() {
-        if (this.resultsEl) {
-          this.resultsEl.classList.add('hidden');
+      async function searchHeatOptions(term) {
+        const normalizedTerm = (term || "").toLowerCase();
+        const local = [];
+        for (const option of heatCache.values()) {
+          if (!normalizedTerm) {
+            local.push(option);
+            continue;
+          }
+          const haystack = [
+            option.heat_number,
+            option.description,
+            option.material_grade,
+          ]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase();
+          if (haystack.includes(normalizedTerm)) {
+            local.push(option);
+          }
+          if (local.length >= 20) {
+            break;
+          }
         }
-        this.activeIndex = -1;
-      }
 
-      search(query) {
-        if (!heatSearchEndpoint) {
-          return;
+        if (local.length >= 20 || !heatSearchEndpoint || normalizedTerm.length < 2) {
+          return local;
         }
-        if (this.abortController) {
-          this.abortController.abort();
-        }
-        this.abortController = new AbortController();
-        fetch(`${heatSearchEndpoint}?q=${encodeURIComponent(query)}`, {
-          credentials: 'same-origin',
-          signal: this.abortController.signal,
-        })
-          .then(response => {
-            if (!response.ok) {
-              const error = new Error('Heat search failed');
-              error.status = response.status;
-              throw error;
+
+        try {
+          const response = await fetch(`${heatSearchEndpoint}?q=${encodeURIComponent(term)}`, {
+            credentials: "same-origin",
+          });
+          if (response.ok) {
+            const payload = await response.json();
+            const results = payload.results || [];
+            results.forEach(option => rememberHeat(option));
+            const merged = [...local];
+            for (const option of results) {
+              if (!merged.some(existing => existing.id === option.id)) {
+                merged.push(option);
+              }
             }
-            return response.json();
-          })
-          .then(payload => {
-            const list = payload && Array.isArray(payload.results) ? payload.results : [];
-            this.results = list
-              .map(item => rememberHeatOption(item) || normalizeHeatPayload(item))
-              .filter(Boolean);
-            this.renderResults();
-          })
-          .catch(error => {
-            if (error.name === 'AbortError') {
+            return merged;
+          }
+        } catch (error) {
+          console.error("Heat search failed", error);
+        }
+        return local;
+      }
+
+      async function preloadNdeRigs() {
+        if (!ndeRigsEndpoint) {
+          return [];
+        }
+        try {
+          const response = await fetch(ndeRigsEndpoint, { credentials: "same-origin" });
+          if (!response.ok) {
+            return [];
+          }
+          const payload = await response.json();
+          const rigs = payload.nde_rigs || [];
+          rigs.forEach(option => rememberNdeRig(option));
+          return rigs;
+        } catch (error) {
+          console.error("Failed to load NDE rigs", error);
+          return [];
+        }
+      }
+
+      function formatHeatValue(value, dataLabel) {
+        if (!value) {
+          return "";
+        }
+        const fromCache = heatCache.get(value);
+        if (fromCache) {
+          return fromCache.heat_number;
+        }
+        return dataLabel || "";
+      }
+
+      function formatNdeRigValue(value, dataLabel) {
+        if (!value) {
+          return "";
+        }
+        const cached = ndeRigCache.get(value);
+        if (cached) {
+          return cached.name;
+        }
+        return dataLabel || "";
+      }
+
+      function lookupEditorFactory({ search, getInitialLabel, onSelect, placeholder = "Type to search" }) {
+        return function (cell, onRendered, success, cancel) {
+          const container = document.createElement("div");
+          container.className = "lookup-editor";
+          const input = document.createElement("input");
+          input.type = "text";
+          input.placeholder = placeholder;
+          input.value = getInitialLabel(cell.getValue(), cell.getData()) || "";
+          container.appendChild(input);
+
+          const resultsEl = document.createElement("div");
+          resultsEl.className = "lookup-editor-results";
+          container.appendChild(resultsEl);
+
+          let options = [];
+          let activeIndex = -1;
+          let searchToken = 0;
+
+          function closeResults() {
+            resultsEl.classList.remove("is-open");
+            resultsEl.innerHTML = "";
+            activeIndex = -1;
+          }
+
+          function highlightActive() {
+            const items = resultsEl.querySelectorAll(".lookup-editor-option");
+            items.forEach((item, index) => {
+              item.classList.toggle("is-active", index === activeIndex);
+            });
+          }
+
+          function renderOptions(list) {
+            resultsEl.innerHTML = "";
+            if (!list.length) {
+              closeResults();
               return;
             }
-            console.error('[heat search] request failed', error);
-            this.results = [];
-            this.renderResults({ error: 'Unable to load heat numbers.' });
-          });
-      }
-
-      renderResults({ error = null } = {}) {
-        if (!this.resultsEl) {
-          return;
-        }
-        this.resultsEl.innerHTML = '';
-        this.activeIndex = -1;
-        if (error) {
-          const item = document.createElement('div');
-          item.className = 'heat-autocomplete-empty';
-          item.textContent = error;
-          this.resultsEl.appendChild(item);
-          this.resultsEl.classList.remove('hidden');
-          return;
-        }
-        if (!this.results.length) {
-          const empty = document.createElement('div');
-          empty.className = 'heat-autocomplete-empty';
-          empty.textContent = 'No heat numbers found.';
-          this.resultsEl.appendChild(empty);
-          this.resultsEl.classList.remove('hidden');
-          return;
-        }
-        this.results.forEach((heat, index) => {
-          const option = document.createElement('button');
-          option.type = 'button';
-          option.className = 'heat-autocomplete-option';
-          option.setAttribute('role', 'option');
-          option.dataset.index = String(index);
-
-          const title = document.createElement('strong');
-          title.textContent = heat.heat_number || '';
-          option.appendChild(title);
-
-          const metaValues = [];
-          if (heat.grade) metaValues.push(`Grade ${heat.grade}`);
-          if (heat.description) metaValues.push(heat.description);
-          if (heat.outer_diameter_in) metaValues.push(`OD ${heat.outer_diameter_in}`);
-          if (heat.wall_thickness_in) metaValues.push(`WT ${heat.wall_thickness_in}`);
-          if (metaValues.length) {
-            const meta = document.createElement('span');
-            meta.className = 'heat-meta';
-            meta.textContent = metaValues.join(' • ');
-            option.appendChild(meta);
+            list.forEach((option, index) => {
+              const item = document.createElement("div");
+              item.className = "lookup-editor-option";
+              item.tabIndex = -1;
+              const title = document.createElement("strong");
+              title.textContent = option.heat_number || option.name || option.label || "";
+              item.appendChild(title);
+              const meta = document.createElement("span");
+              const secondary = [option.description, option.material_grade]
+                .filter(Boolean)
+                .join(" • ");
+              meta.textContent = secondary;
+              item.appendChild(meta);
+              item.addEventListener("mousedown", event => {
+                event.preventDefault();
+                applySelection(option);
+              });
+              resultsEl.appendChild(item);
+              if (index === activeIndex) {
+                item.classList.add("is-active");
+              }
+            });
+            resultsEl.classList.add("is-open");
           }
 
-          option.addEventListener('mousedown', event => {
-            event.preventDefault();
-            this.applyHeat(heat);
-          });
-          option.addEventListener('mouseenter', () => {
-            this.activeIndex = index;
-            this.moveSelection(0);
-          });
-
-          this.resultsEl.appendChild(option);
-        });
-        this.resultsEl.classList.remove('hidden');
-      }
-
-      applyHeat(heat) {
-        const normalized = rememberHeatOption(heat) || heat;
-        this.input.value = normalized.heat_number || '';
-        if (this.onHeatSelected) {
-          this.onHeatSelected(normalized);
-        }
-        this.hideResults();
-      }
-    }
-
-    class HeatCellEditor {
-      agInit(params) {
-        this.params = params;
-        this.input = document.createElement('input');
-        this.input.type = 'text';
-        this.input.className = 'form-control';
-
-        const initialValue = params.value != null ? String(params.value) : '';
-        const startedWithCharPress = params.charPress && params.charPress.length === 1;
-        this.input.value = startedWithCharPress ? params.charPress : initialValue;
-
-        this.wrapper = document.createElement('div');
-        this.wrapper.className = 'heat-cell-editor heat-autocomplete';
-        this.wrapper.appendChild(this.input);
-
-        this.resultsEl = document.createElement('div');
-        this.resultsEl.className = 'heat-autocomplete-results hidden';
-        this.resultsEl.setAttribute('role', 'listbox');
-        this.wrapper.appendChild(this.resultsEl);
-
-        this.autocomplete = new HeatAutocomplete(this.input, {
-          resultsContainer: this.resultsEl,
-          onHeatSelected: heat => {
-            const normalized = rememberHeatOption(heat) || heat;
-            this.input.value = normalized.heat_number || '';
-            if (this.params && typeof this.params.stopEditing === 'function') {
-              window.setTimeout(() => this.params.stopEditing(), 0);
+          async function performSearch(term) {
+            const token = ++searchToken;
+            try {
+              const list = await search(term, cell);
+              if (token !== searchToken) {
+                return;
+              }
+              options = list || [];
+              activeIndex = options.length ? 0 : -1;
+              renderOptions(options);
+              highlightActive();
+            } catch (error) {
+              console.error("Lookup search failed", error);
+              closeResults();
             }
+          }
+
+          function applySelection(option) {
+            closeResults();
+            if (!option) {
+              onSelect(null, cell);
+              success(null);
+              return;
+            }
+            input.value = option.heat_number || option.name || option.label || "";
+            onSelect(option, cell);
+            success(option.id ?? null);
+          }
+
+          onRendered(() => {
+            input.focus();
+            input.select();
+            performSearch(input.value || "");
+          });
+
+          input.addEventListener("input", () => {
+            performSearch(input.value || "");
+          });
+
+          input.addEventListener("keydown", event => {
+            if (event.key === "ArrowDown" && options.length) {
+              event.preventDefault();
+              activeIndex = Math.min(options.length - 1, activeIndex + 1);
+              highlightActive();
+            } else if (event.key === "ArrowUp" && options.length) {
+              event.preventDefault();
+              activeIndex = Math.max(0, activeIndex - 1);
+              highlightActive();
+            } else if (event.key === "Enter") {
+              event.preventDefault();
+              if (options.length && activeIndex >= 0) {
+                applySelection(options[activeIndex]);
+              } else if (!input.value.trim()) {
+                applySelection(null);
+              }
+            } else if (event.key === "Escape") {
+              event.preventDefault();
+              cancel();
+            }
+          });
+
+          input.addEventListener("blur", () => {
+            window.setTimeout(() => {
+              if (!container.contains(document.activeElement)) {
+                if (!input.value.trim()) {
+                  applySelection(null);
+                } else {
+                  cancel();
+                }
+              }
+            }, 150);
+          });
+
+          return container;
+        };
+      }
+
+      function createHeatEditor(prefix) {
+        return lookupEditorFactory({
+          placeholder: "Search heat numbers",
+          getInitialLabel(value, data) {
+            const labelKey = `${prefix}_heat_label`;
+            return formatHeatValue(value, data ? data[labelKey] : "");
+          },
+          async search(term) {
+            return searchHeatOptions(term);
+          },
+          onSelect(option, cell) {
+            const row = cell.getRow();
+            if (!option) {
+              const patch = {};
+              patch[`${prefix}_heat_label`] = "";
+              row.update(patch);
+              return;
+            }
+            rememberHeat(option);
+            const patch = {
+              [`${prefix}_heat_label`]: option.heat_number || "",
+            };
+            if (!row.getData()[`${prefix}_description`]) {
+              patch[`${prefix}_description`] = option.description || "";
+            }
+            if (!row.getData()[`${prefix}_grade`]) {
+              patch[`${prefix}_grade`] = option.material_grade || option.grade || "";
+            }
+            if (!row.getData()[`${prefix}_outer_diameter_in`]) {
+              patch[`${prefix}_outer_diameter_in`] = option.outer_diameter_in || option.od || "";
+            }
+            if (!row.getData()[`${prefix}_wall_thickness_in`]) {
+              patch[`${prefix}_wall_thickness_in`] = option.wall_thickness_in || option.wall_thickness || "";
+            }
+            row.update(patch);
           },
         });
       }
 
-      getGui() {
-        return this.wrapper;
-      }
+      const heatEditorMaterial1 = createHeatEditor("material1");
+      const heatEditorMaterial2 = createHeatEditor("material2");
 
-      afterGuiAttached() {
-        window.setTimeout(() => {
-          if (this.input) {
-            this.input.focus();
-            if (typeof this.input.select === 'function') {
-              this.input.select();
+      const ndeRigEditor = lookupEditorFactory({
+        placeholder: "Search NDE rigs",
+        getInitialLabel(value, data) {
+          return formatNdeRigValue(value, data ? data.nde_rig_name : "");
+        },
+        async search(term) {
+          const normalized = (term || "").toLowerCase();
+          const matches = [];
+          for (const option of ndeRigCache.values()) {
+            if (!normalized || option.name.toLowerCase().includes(normalized)) {
+              matches.push(option);
             }
           }
-        }, 0);
-      }
-
-      getValue() {
-        if (!this.input) {
-          return '';
-        }
-        return this.input.value.trim();
-      }
-
-      destroy() {
-        if (this.autocomplete && typeof this.autocomplete.destroy === 'function') {
-          this.autocomplete.destroy();
-        }
-        this.input = null;
-        this.resultsEl = null;
-        this.wrapper = null;
-        this.params = null;
-      }
-    }
-
-    const statusEl = document.getElementById('grid-status');
-    let statusTimer = null;
-
-    function setStatus(message, kind = 'info') {
-      if (!statusEl) return;
-      statusEl.textContent = message;
-      statusEl.className = kind === 'error' ? 'text-danger small mt-2' : 'text-muted small mt-2';
-      if (statusTimer) {
-        window.clearTimeout(statusTimer);
-        statusTimer = null;
-      }
-      if (message && kind !== 'error') {
-        statusTimer = window.setTimeout(() => {
-          statusEl.textContent = '';
-        }, 4000);
-      }
-    }
-
-    const debugPanel = document.getElementById('grid-debug-panel');
-    const debugListEl = document.getElementById('grid-debug-list');
-    const debugCountEl = document.getElementById('grid-debug-count');
-    const clearDebugButton = document.getElementById('clear-grid-debug');
-    const debugEvents = [];
-
-    function clipText(value, maxLength = 600) {
-      if (value === null || value === undefined) {
-        return '';
-      }
-      const text = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
-      if (text.length <= maxLength) {
-        return text;
-      }
-      return `${text.slice(0, maxLength)}…`;
-    }
-
-    function ensureDebugPanelVisible() {
-      if (debugPanel && debugPanel.hasAttribute('hidden')) {
-        debugPanel.removeAttribute('hidden');
-      }
-    }
-
-    function renderDebugEvents() {
-      if (!debugListEl) {
-        return;
-      }
-      debugListEl.innerHTML = '';
-      debugEvents.forEach(event => {
-        const row = document.createElement('div');
-        row.className = 'border rounded p-2 mb-2 bg-body-tertiary';
-
-        const header = document.createElement('div');
-        header.className = 'd-flex justify-content-between align-items-start gap-2';
-
-        const title = document.createElement('div');
-        title.className = 'fw-semibold';
-        title.textContent = `[${event.level.toUpperCase()}] ${event.context}`;
-
-        const time = document.createElement('time');
-        time.className = 'text-muted small text-end flex-shrink-0';
-        time.dateTime = event.timestamp.toISOString();
-        time.textContent = event.timestamp.toLocaleTimeString();
-
-        header.appendChild(title);
-        header.appendChild(time);
-        row.appendChild(header);
-
-        const message = document.createElement('div');
-        message.className = 'small mt-2';
-        const statusSuffix = event.status ? ` (HTTP ${event.status})` : '';
-        message.textContent = `${event.message}${statusSuffix}`.trim();
-        row.appendChild(message);
-
-        if (event.body) {
-          const body = document.createElement('pre');
-          body.className = 'small bg-white border rounded p-2 mt-2 overflow-auto';
-          body.textContent = clipText(event.body);
-          row.appendChild(body);
-        }
-
-        debugListEl.appendChild(row);
-      });
-
-      if (debugCountEl) {
-        debugCountEl.textContent = `${debugEvents.length} event${debugEvents.length === 1 ? '' : 's'}`;
-      }
-    }
-
-    function recordDebugEvent({ context, level, message, status = null, body = null }) {
-      const event = {
-        context,
-        level,
-        message: message || '',
-        status,
-        body,
-        timestamp: new Date(),
-      };
-      debugEvents.unshift(event);
-      if (debugEvents.length > 25) {
-        debugEvents.pop();
-      }
-      ensureDebugPanelVisible();
-      renderDebugEvents();
-    }
-
-    function clearDebugEvents() {
-      debugEvents.length = 0;
-      if (debugPanel && !debugPanel.hasAttribute('hidden')) {
-        debugPanel.setAttribute('hidden', '');
-      }
-      renderDebugEvents();
-    }
-
-    if (clearDebugButton) {
-      clearDebugButton.addEventListener('click', () => {
-        clearDebugEvents();
-      });
-    }
-
-    function ensureRowFlags(node) {
-      if (!node) {
-        return;
-      }
-      if (typeof node.__saving !== 'boolean') {
-        node.__saving = false;
-      }
-      if (typeof node.__needsSaveAfterInFlight !== 'boolean') {
-        node.__needsSaveAfterInFlight = false;
-      }
-    }
-
-    const pendingSaveTimers = new Map();
-
-    function clearPendingSave(node) {
-      if (!node) return;
-      const timer = pendingSaveTimers.get(node.id);
-      if (timer) {
-        window.clearTimeout(timer);
-        pendingSaveTimers.delete(node.id);
-      }
-    }
-
-    function queuePersist(node, { immediate = false } = {}) {
-      if (!node || !node.data) {
-        return;
-      }
-
-      ensureRowFlags(node);
-
-      const weldId = String(node.data.weld_id || '').trim();
-      if (!weldId) {
-        setStatus('Enter a Weld ID to start saving this row.', 'error');
-        return;
-      }
-
-      if (node.__saving) {
-        node.__needsSaveAfterInFlight = true;
-        return;
-      }
-
-      const delay = immediate ? 0 : 400;
-      clearPendingSave(node);
-      const timer = window.setTimeout(() => {
-        pendingSaveTimers.delete(node.id);
-        persistRow(node);
-      }, delay);
-      pendingSaveTimers.set(node.id, timer);
-    }
-
-    const ndeRigNameOptions = [];
-    const ndeRigLookupByName = new Map();
-
-    function syncHeatOptions(options) {
-      heatLookupByNumber.clear();
-      for (const heat of options) {
-        rememberHeatOption(heat);
-      }
-    }
-
-    function syncNdeRigOptions(options) {
-      ndeRigNameOptions.length = 0;
-      ndeRigLookupByName.clear();
-      for (const rig of options) {
-        ndeRigNameOptions.push(rig.name);
-        ndeRigLookupByName.set(rig.name, rig);
-      }
-    }
-
-    function materialHeatValueSetter(prefix) {
-      return params => {
-        const newValue = (params.newValue || '').trim();
-        const heat = newValue ? heatLookupByNumber.get(newValue) || null : null;
-        params.data[`${prefix}_heat_number`] = newValue;
-        params.data[`${prefix}_heat_id`] = heat ? heat.id : null;
-        params.data[`${prefix}_description`] = heat ? heat.description : '';
-        params.data[`${prefix}_grade`] = heat ? heat.grade : '';
-        params.data[`${prefix}_outer_diameter_in`] = heat ? heat.outer_diameter_in : '';
-        params.data[`${prefix}_wall_thickness_in`] = heat ? heat.wall_thickness_in : '';
-        params.data[`${prefix}_wps_number`] = heat ? heat.wps_number : '';
-        return true;
-      };
-    }
-
-    function ndeRigValueSetter(params) {
-      const newValue = params.newValue || '';
-      const rig = ndeRigLookupByName.get(newValue) || null;
-      params.data.nde_rig_name = rig ? rig.name : '';
-      params.data.nde_rig_id = rig ? rig.id : null;
-      return true;
-    }
-
-    let gridApi = null;
-
-    const columnDefs = [
-      { headerName: 'Weld ID', field: 'weld_id', minWidth: 140 },
-      { headerName: 'NDE Number', field: 'nde_number', minWidth: 160 },
-      { headerName: 'Drawing Number', field: 'drawing_number', minWidth: 160 },
-      {
-        headerName: 'Material 1 Heat #',
-        field: 'material1_heat_number',
-        minWidth: 200,
-        cellEditor: HeatCellEditor,
-        valueSetter: materialHeatValueSetter('material1'),
-      },
-      { headerName: 'Material 1 Description', field: 'material1_description', minWidth: 200, editable: false },
-      { headerName: 'Material 1 Grade', field: 'material1_grade', minWidth: 180, editable: false },
-      { headerName: 'Material 1 O.D.', field: 'material1_outer_diameter_in', minWidth: 160, editable: false },
-      { headerName: 'Material 1 Wall thickness', field: 'material1_wall_thickness_in', minWidth: 200, editable: false },
-      { headerName: '', valueGetter: () => 'to', editable: false, width: 60, suppressSizeToFit: true },
-      {
-        headerName: 'Material 2 Heat #',
-        field: 'material2_heat_number',
-        minWidth: 200,
-        cellEditor: HeatCellEditor,
-        valueSetter: materialHeatValueSetter('material2'),
-      },
-      { headerName: 'Material 2 Description', field: 'material2_description', minWidth: 200, editable: false },
-      { headerName: 'Material 2 Grade', field: 'material2_grade', minWidth: 180, editable: false },
-      { headerName: 'Material 2 O.D.', field: 'material2_outer_diameter_in', minWidth: 160, editable: false },
-      { headerName: 'Material 2 Wall thickness', field: 'material2_wall_thickness_in', minWidth: 200, editable: false },
-      { headerName: 'Weld Type', field: 'weld_type', minWidth: 160 },
-      { headerName: 'Date Welded', field: 'date_welded', minWidth: 160 },
-      { headerName: 'Welder Stencil Root/Hotpass', field: 'welder_stencil_root_hotpass', minWidth: 220 },
-      { headerName: 'Welder Stencil Fill', field: 'welder_stencil_fill', minWidth: 200 },
-      { headerName: 'Welder Stencil Fill (2)', field: 'welder_stencil_fill_additional', minWidth: 200 },
-      { headerName: 'Welder Stencil Cap', field: 'welder_stencil_cap', minWidth: 200 },
-      { headerName: 'NDE Date', field: 'nde_date', minWidth: 160 },
-      {
-        headerName: 'NDE Rig',
-        field: 'nde_rig_name',
-        minWidth: 180,
-        cellEditor: 'agSelectCellEditor',
-        cellEditorParams: () => ({ values: ndeRigNameOptions }),
-        valueSetter: ndeRigValueSetter,
-      },
-      {
-        headerName: 'Weld Disposition',
-        field: 'disposition',
-        minWidth: 180,
-        cellEditor: 'agSelectCellEditor',
-        cellEditorParams: {
-          values: ['accepted', 'repair', 'cut_out']
+          matches.sort((a, b) => a.name.localeCompare(b.name));
+          if (matches.length || !normalized || normalized.length < 2 || !ndeRigsEndpoint) {
+            return matches;
+          }
+          try {
+            const response = await fetch(ndeRigsEndpoint, { credentials: "same-origin" });
+            if (response.ok) {
+              const payload = await response.json();
+              const rigs = payload.nde_rigs || [];
+              rigs.forEach(option => rememberNdeRig(option));
+              return rigs.filter(option => option.name.toLowerCase().includes(normalized));
+            }
+          } catch (error) {
+            console.error("Failed to refresh NDE rigs", error);
+          }
+          return matches;
         },
-        valueFormatter: params => {
-          const mapping = {
-            accepted: 'Accepted',
-            repair: 'Repair',
-            cut_out: 'Cut out',
-          };
-          return mapping[params.value] || params.value;
-        }
-      },
-      { headerName: 'Comments', field: 'disposition_comment', minWidth: 220 },
-    ];
+        onSelect(option, cell) {
+          const row = cell.getRow();
+          if (!option) {
+            row.update({ nde_rig_name: "" });
+            return;
+          }
+          rememberNdeRig(option);
+          row.update({ nde_rig_name: option.name || "" });
+        },
+      });
 
-    const gridOptions = {
-      columnDefs,
-      defaultColDef: {
-        flex: 1,
-        editable: true,
-        resizable: true,
-        sortable: true,
-        filter: true,
-      },
-      animateRows: true,
-      rowSelection: 'single',
-      stopEditingWhenCellsLoseFocus: true,
-      onGridReady: params => {
-        gridApi = params.api;
-        loadReferenceData().finally(() => loadGrid());
-      },
-      onCellValueChanged: event => {
-        if (!event.node) {
+      let table = null;
+
+      function buildColumns() {
+        return [
+          {
+            title: "Weld ID",
+            field: "weld_id",
+            width: 150,
+            frozen: true,
+            headerSort: true,
+            editor: "input",
+            validator: ["required"],
+          },
+          {
+            title: "NDE Number",
+            field: "nde_number",
+            editor: "input",
+            headerSort: true,
+          },
+          {
+            title: "Drawing Number",
+            field: "drawing_number",
+            editor: "input",
+            headerSort: true,
+          },
+          {
+            title: "Material 1 Heat",
+            field: "material1_heat",
+            headerSort: true,
+            formatter(cell) {
+              const data = cell.getRow().getData();
+              return formatHeatValue(cell.getValue(), data.material1_heat_label);
+            },
+            editor: function (cell, onRendered, success, cancel) {
+              return heatEditorMaterial1(cell, onRendered, success, cancel);
+            },
+          },
+          {
+            title: "Material 1 Description",
+            field: "material1_description",
+            editor: "input",
+            headerSort: true,
+          },
+          {
+            title: "Material 1 Grade",
+            field: "material1_grade",
+            editor: "input",
+            headerSort: true,
+          },
+          {
+            title: "Material 1 O.D.",
+            field: "material1_outer_diameter_in",
+            editor: "input",
+            headerSort: true,
+          },
+          {
+            title: "Material 1 Wall",
+            field: "material1_wall_thickness_in",
+            editor: "input",
+            headerSort: true,
+          },
+          {
+            title: "Material 2 Heat",
+            field: "material2_heat",
+            headerSort: true,
+            formatter(cell) {
+              const data = cell.getRow().getData();
+              return formatHeatValue(cell.getValue(), data.material2_heat_label);
+            },
+            editor: function (cell, onRendered, success, cancel) {
+              return heatEditorMaterial2(cell, onRendered, success, cancel);
+            },
+          },
+          {
+            title: "Material 2 Description",
+            field: "material2_description",
+            editor: "input",
+            headerSort: true,
+          },
+          {
+            title: "Material 2 Grade",
+            field: "material2_grade",
+            editor: "input",
+            headerSort: true,
+          },
+          {
+            title: "Material 2 O.D.",
+            field: "material2_outer_diameter_in",
+            editor: "input",
+            headerSort: true,
+          },
+          {
+            title: "Material 2 Wall",
+            field: "material2_wall_thickness_in",
+            editor: "input",
+            headerSort: true,
+          },
+          {
+            title: "Weld Type",
+            field: "weld_type",
+            editor: "input",
+            headerSort: true,
+          },
+          {
+            title: "Date Welded",
+            field: "date_welded",
+            headerSort: true,
+            editor: "date",
+            editorParams: { format: "YYYY-MM-DD" },
+          },
+          {
+            title: "Welder Root/Hot Pass",
+            field: "welder_stencil_root_hotpass",
+            editor: "input",
+            headerSort: true,
+          },
+          {
+            title: "Welder Fill",
+            field: "welder_stencil_fill",
+            editor: "input",
+            headerSort: true,
+          },
+          {
+            title: "Welder Fill (Addl)",
+            field: "welder_stencil_fill_additional",
+            editor: "input",
+            headerSort: true,
+          },
+          {
+            title: "Welder Cap",
+            field: "welder_stencil_cap",
+            editor: "input",
+            headerSort: true,
+          },
+          {
+            title: "NDE Date",
+            field: "nde_date",
+            headerSort: true,
+            editor: "date",
+            editorParams: { format: "YYYY-MM-DD" },
+          },
+          {
+            title: "NDE Rig",
+            field: "nde_rig",
+            headerSort: true,
+            formatter(cell) {
+              const data = cell.getRow().getData();
+              return formatNdeRigValue(cell.getValue(), data.nde_rig_name);
+            },
+            editor: function (cell, onRendered, success, cancel) {
+              return ndeRigEditor(cell, onRendered, success, cancel);
+            },
+          },
+          {
+            title: "Disposition",
+            field: "disposition",
+            headerSort: true,
+            editor: "list",
+            editorParams: {
+              values: dispositionOptions.reduce((acc, option) => {
+                acc[option.value] = option.label;
+                return acc;
+              }, {}),
+              autocomplete: true,
+              allowEmpty: false,
+            },
+            validator: ["required"],
+            formatter(cell) {
+              const value = cell.getValue();
+              const match = dispositionOptions.find(option => option.value === value);
+              return match ? match.label : "";
+            },
+          },
+          {
+            title: "Disposition Comment",
+            field: "disposition_comment",
+            editor: "input",
+            headerSort: true,
+          },
+          {
+            title: "Updated",
+            field: "updated_at",
+            headerSort: true,
+            mutator(value) {
+              return value ? value.replace("T", " ") : "";
+            },
+            editable: false,
+          },
+        ];
+      }
+
+      table = new Tabulator("#weld-log-grid", {
+        layout: "fitColumns",
+        height: "100%",
+        reactiveData: false,
+        data: [],
+        columns: buildColumns(),
+        movableColumns: true,
+        resizableColumns: true,
+        resizableRows: false,
+        autoResize: true,
+        selectableRange: true,
+        selectableRangeColumns: true,
+        selectableRangeRows: true,
+        selectableRollingSelection: true,
+        clipboard: true,
+        clipboardPasteAction: "replace",
+        clipboardCopyStyled: false,
+        keybindings: {
+          navPrev: "shift+tab",
+          navNext: "tab",
+        },
+        persistenceMode: "local",
+        index: "id",
+      });
+
+      table.on("selectionChanged", () => {
+        updateStatusCounts();
+      });
+
+      table.on("dataLoaded", () => {
+        updateStatusCounts();
+      });
+
+      table.on("cellEdited", cell => {
+        const row = cell.getRow();
+        dirtyRows.add(row);
+        row.getElement()?.classList.add("is-dirty");
+        updateStatusCounts();
+      });
+
+      table.on("cellEditCancelled", cell => {
+        updateStatusCounts();
+      });
+
+      function addNewRow() {
+        const blank = {
+          weld_id: "",
+          disposition: "accepted",
+        };
+        const row = table.addRow(blank, true);
+        Promise.resolve(row).then(rowComponent => {
+          dirtyRows.add(rowComponent);
+          rowComponent.getElement()?.classList.add("is-dirty");
+          updateStatusCounts("New row added");
+        });
+      }
+
+      async function saveRow(rowComponent) {
+        const data = rowComponent.getData();
+        const validation = rowComponent.validate();
+        if (validation !== true) {
+          throw new Error("Validation failed");
+        }
+        const payload = denormalizeRow(data);
+        const response = await fetch(dataEndpoint, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-CSRFToken": getCsrfToken(),
+          },
+          credentials: "same-origin",
+          body: JSON.stringify(payload),
+        });
+        if (!response.ok) {
+          const text = await response.text();
+          throw new Error(text || `Save failed (${response.status})`);
+        }
+        const result = await response.json();
+        const normalized = normalizeRow(result.weld);
+        rowComponent.update(normalized);
+        dirtyRows.delete(rowComponent);
+        rowComponent.getElement()?.classList.remove("is-dirty");
+        return normalized;
+      }
+
+      async function saveChanges() {
+        if (!dirtyRows.size) {
+          setStatus("No changes to save.");
           return;
         }
-        if (event.column && event.column.getColId() === 'weld_id') {
-          const nextValue = String(event.newValue || '').trim();
-          if (!nextValue) {
-            const previous = event.oldValue !== undefined ? event.oldValue : '';
-            event.node.setDataValue('weld_id', previous || '');
-            setStatus('Weld ID cannot be empty.', 'error');
+        setStatus("Saving changes…", "muted");
+        const rows = Array.from(dirtyRows);
+        let saved = 0;
+        for (const rowComponent of rows) {
+          try {
+            await saveRow(rowComponent);
+            saved += 1;
+          } catch (error) {
+            console.error("Failed to save row", error);
+            setStatus(error.message || "Failed to save some rows.", "danger");
+            updateStatusCounts();
             return;
           }
         }
-        queuePersist(event.node);
-      },
-    };
-
-    function logFetchError(context, error) {
-      const details = {
-        context,
-        message: error && error.message,
-        status: error && error.status,
-        body: error && error.body,
-        stack: error && error.stack,
-      };
-      console.error(`[${context}] request failed`, details);
-      recordDebugEvent({
-        context,
-        level: 'error',
-        message: details.message || 'Request failed',
-        status: details.status || null,
-        body: details.body || null,
-      });
-    }
-
-    function logFetchSuccess(context, { status, payload, summary = null }) {
-      console.info(`[${context}] request succeeded`, { status, payload });
-      recordDebugEvent({
-        context,
-        level: 'success',
-        message: summary || 'Request succeeded',
-        status: status || null,
-        body: payload ? JSON.stringify(payload, null, 2) : null,
-      });
-    }
-
-    function handleErrorResponse(response, context) {
-      return response.text().then(text => {
-        const error = new Error(`${context} failed with status ${response.status}`);
-        error.status = response.status;
-        error.body = text;
-        throw error;
-      });
-    }
-
-    function setGridRowData(rows) {
-      if (!gridApi) {
-        return;
+        setStatus(`${saved} row${saved === 1 ? "" : "s"} saved successfully.`, "success");
+        updateStatusCounts();
       }
 
-      const nextRows = Array.isArray(rows) ? rows : [];
-
-      if (typeof gridApi.setGridOption === 'function') {
-        gridApi.setGridOption('rowData', nextRows);
-        return;
-      }
-
-      if (typeof gridApi.setRowData === 'function') {
-        gridApi.setRowData(nextRows);
-        return;
-      }
-
-      console.warn('Unable to set grid row data: grid API does not support setGridOption or setRowData.');
-    }
-
-    function loadGrid() {
-      if (!gridApi) {
-        return;
-      }
-      setStatus('Loading weld log...');
-      recordDebugEvent({
-        context: 'Weld log load',
-        level: 'info',
-        message: 'Requesting weld log rows',
-      });
-      fetch(dataEndpoint, {
-        credentials: 'same-origin',
-      })
-        .then(response => {
+      async function loadData() {
+        setStatus("Loading weld log…");
+        await Promise.all([preloadHeatOptions(), preloadNdeRigs()]);
+        try {
+          const response = await fetch(dataEndpoint, { credentials: "same-origin" });
           if (!response.ok) {
-            return handleErrorResponse(response, 'Weld log load');
+            throw new Error(`Failed to load weld log (${response.status})`);
           }
-          return response.json().then(payload => ({ status: response.status, payload }));
-        })
-        .then(({ payload, status }) => {
-          const rowCount = typeof payload.row_count === 'number'
-            ? payload.row_count
-            : Array.isArray(payload.rows)
-              ? payload.rows.length
-              : 0;
-          logFetchSuccess('Weld log load', {
-            status,
-            payload,
-            summary: `Loaded ${rowCount} weld row${rowCount === 1 ? '' : 's'}`,
-          });
-          setGridRowData(payload.rows || []);
-          gridApi.forEachNode(node => ensureRowFlags(node));
-          setStatus(`Loaded ${rowCount} weld row${rowCount === 1 ? '' : 's'} at ${new Date().toLocaleTimeString()}.`);
-        })
-        .catch(error => {
-          logFetchError('Weld log load', error);
-          setStatus(error && error.message ? error.message : 'Failed to load weld log.', 'error');
-        });
-    }
-
-    function persistRow(node) {
-      if (!node || !node.data) {
-        return;
+          const payload = await response.json();
+          const rows = (payload.rows || []).map(normalizeRow);
+          table.setData(rows);
+          dirtyRows.clear();
+          table.getRows().forEach(row => row.getElement()?.classList.remove("is-dirty"));
+          updateStatusCounts();
+          setStatus(`Loaded ${rows.length} weld entr${rows.length === 1 ? "y" : "ies"}.`, "success");
+        } catch (error) {
+          console.error(error);
+          setStatus(error.message || "Unable to load weld log.", "danger");
+        }
       }
 
-      ensureRowFlags(node);
-
-      const payload = { ...node.data };
-      if (payload.material1_heat_id === '') payload.material1_heat_id = null;
-      if (payload.material2_heat_id === '') payload.material2_heat_id = null;
-      if (payload.nde_rig_id === '') payload.nde_rig_id = null;
-      delete payload.__client_id;
-
-      const weldId = String(payload.weld_id || '').trim();
-      if (!weldId) {
-        setStatus('Enter a Weld ID to start saving this row.', 'error');
-        return;
-      }
-
-      node.__saving = true;
-      setStatus('Saving changes...');
-      fetch(dataEndpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-CSRFToken': getCsrfToken(),
-        },
-        credentials: 'same-origin',
-        body: JSON.stringify(payload),
-      })
-        .then(response => {
-          return response.json()
-            .catch(() => ({ }))
-            .then(data => ({ response, data }));
-        })
-        .then(({ response, data }) => {
-          if (!response.ok || data.error) {
-            const message = data.error || 'Unable to save weld row.';
-            const error = new Error(message);
-            error.status = response.status;
-            error.body = JSON.stringify(data);
-            throw error;
-          }
-          logFetchSuccess('Weld row save', {
-            status: response.status,
-            payload: data,
-            summary: data && data.weld && data.weld.weld_id
-              ? `Saved weld ${data.weld.weld_id}`
-              : 'Saved weld row',
-          });
-          node.updateData(data.weld);
-          ensureRowFlags(node);
-          const weldLabel = data && data.weld && data.weld.weld_id ? `weld ${data.weld.weld_id}` : 'weld row';
-          setStatus(`Saved ${weldLabel} at ${new Date().toLocaleTimeString()}.`);
-        })
-        .catch(error => {
-          logFetchError('Weld row save', error);
-          setStatus(error.message, 'error');
-        })
-        .finally(() => {
-          node.__saving = false;
-          if (node.__needsSaveAfterInFlight) {
-            node.__needsSaveAfterInFlight = false;
-            queuePersist(node, { immediate: true });
-          }
-        });
-    }
-
-    function loadReferenceData() {
-      setStatus('Loading weld references...');
-      recordDebugEvent({
-        context: 'Reference data load',
-        level: 'info',
-        message: 'Fetching heat numbers and NDE rigs',
+      exportCsvBtn?.addEventListener("click", () => {
+        table.download("csv", "weld_log.csv");
       });
-      return Promise.all([
-        fetch(heatOptionsEndpoint, { credentials: 'same-origin' })
-          .then(response => {
-            if (!response.ok) {
-              return handleErrorResponse(response, 'Heat options load');
-            }
-            return response.json().then(payload => ({ status: response.status, payload }));
-          })
-          .then(({ payload, status }) => {
-            const heats = payload && Array.isArray(payload.heats) ? payload.heats : [];
-            logFetchSuccess('Heat options load', {
-              status,
-              payload,
-              summary: `Loaded ${heats.length} heat option${heats.length === 1 ? '' : 's'}`,
-            });
-            syncHeatOptions(heats);
-          }),
-        fetch(ndeRigsEndpoint, { credentials: 'same-origin' })
-          .then(response => {
-            if (!response.ok) {
-              return handleErrorResponse(response, 'NDE rigs load');
-            }
-            return response.json().then(payload => ({ status: response.status, payload }));
-          })
-          .then(({ payload, status }) => {
-            const rigs = payload && Array.isArray(payload.nde_rigs) ? payload.nde_rigs : [];
-            logFetchSuccess('NDE rigs load', {
-              status,
-              payload,
-              summary: `Loaded ${rigs.length} NDE rig${rigs.length === 1 ? '' : 's'}`,
-            });
-            syncNdeRigOptions(rigs);
-          })
-      ]).then(() => {
-        setStatus('Reference data loaded.');
-      }).catch(error => {
-        logFetchError('Reference data load', error);
-        setStatus('Failed to load reference data.', 'error');
+
+      exportExcelBtn?.addEventListener("click", () => {
+        try {
+          table.download("xlsx", "weld_log.xlsx", { sheetName: "Weld Log" });
+        } catch (error) {
+          console.error("Excel export failed", error);
+          setStatus("Excel export unavailable.", "danger");
+        }
       });
-    }
 
-    document.addEventListener('DOMContentLoaded', () => {
-      initHeatAutocompletes();
+      saveBtn?.addEventListener("click", () => {
+        saveChanges();
+      });
 
-      const weldEntryForm = document.getElementById('weld-entry-form');
-      if (weldEntryForm) {
-        weldEntryForm.addEventListener('submit', event => {
-          event.preventDefault();
-          setStatus('Form submission is handled by the weld log grid below.', 'info');
-        });
-      }
+      addRowBtn?.addEventListener("click", () => {
+        addNewRow();
+      });
 
-      const gridDiv = document.querySelector('#weld-grid');
-      new agGrid.Grid(gridDiv, gridOptions);
-
-      const addButton = document.getElementById('add-weld-btn');
-      if (addButton) {
-        addButton.addEventListener('click', () => {
-          if (!gridApi) {
-            return;
-          }
-          recordDebugEvent({
-            context: 'Grid interaction',
-            level: 'info',
-            message: 'Adding a new weld row from UI',
-          });
-          const newRow = {
-            weld_id: '',
-            nde_number: '',
-            drawing_number: '',
-            material1_heat_number: '',
-            material1_heat_id: null,
-            material1_description: '',
-            material1_grade: '',
-            material1_outer_diameter_in: '',
-            material1_wall_thickness_in: '',
-            material1_wps_number: '',
-            material2_heat_number: '',
-            material2_heat_id: null,
-            material2_description: '',
-            material2_grade: '',
-            material2_outer_diameter_in: '',
-            material2_wall_thickness_in: '',
-            material2_wps_number: '',
-            weld_type: '',
-            date_welded: '',
-            welder_stencil_root_hotpass: '',
-            welder_stencil_fill: '',
-            welder_stencil_fill_additional: '',
-            welder_stencil_cap: '',
-            nde_date: '',
-            nde_rig_name: '',
-            nde_rig_id: null,
-            disposition: 'accepted',
-            disposition_comment: '',
-          };
-          const result = gridApi.applyTransaction({ add: [newRow], addIndex: 0 });
-          if (result.add && result.add.length > 0) {
-            const node = result.add[0];
-            ensureRowFlags(node);
-            gridApi.setFocusedCell(node.rowIndex, 'weld_id');
-            gridApi.startEditingCell({
-              rowIndex: node.rowIndex,
-              colKey: 'weld_id',
-            });
-          }
-        });
-      }
-    });
+      loadData();
+    })();
   </script>
-  {% endif %}
-{% endblock %}
+{% endif %}

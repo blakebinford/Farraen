@@ -64,24 +64,23 @@
     }
 
     .lookup-editor-results {
-      position: fixed;
-      top: 0;
-      left: 0;
-      z-index: 1040;
-      display: none;
-      border: 1px solid rgba(15, 23, 42, 0.1);
-      border-radius: 0.35rem;
-      box-shadow: 0 10px 40px rgba(15, 23, 42, 0.12);
-      background-color: #fff;
-      max-height: 14rem;
-      overflow-y: auto;
-      padding-block: 0.25rem;
-      min-width: 12rem;
-    }
+  position: absolute;
+  z-index: 1040;
+  display: none;
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  border-radius: 0.35rem;
+  box-shadow: 0 10px 40px rgba(15, 23, 42, 0.12);
+  background-color: #fff;
+  max-height: 14rem;
+  overflow-y: auto;
+  padding-block: 0.25rem;
+  min-width: 12rem;
+  }
 
-    .lookup-editor-results.is-open {
-      display: block;
-    }
+  .lookup-editor-results.is-open {
+    display: block;
+  }
+
 
     .lookup-editor-option {
       padding: 0.35rem 0.75rem;
@@ -633,181 +632,200 @@
       }
 
       function lookupEditorFactory({ search, getInitialLabel, onSelect, placeholder = "Type to search" }) {
-        return function (cell, onRendered, success, cancel) {
-          const container = document.createElement("div");
-          container.className = "lookup-editor";
-          const input = document.createElement("input");
-          input.type = "text";
-          input.placeholder = placeholder;
-          input.value = getInitialLabel(cell.getValue(), cell.getData()) || "";
-          container.appendChild(input);
+  return function (cell, onRendered, success, cancel) {
+    const container = document.createElement("div");
+    container.className = "lookup-editor";
 
-          const resultsEl = document.createElement("div");
-          resultsEl.className = "lookup-editor-results";
-          container.appendChild(resultsEl);
+    const input = document.createElement("input");
+    input.type = "text";
+    input.placeholder = placeholder;
+    input.value = getInitialLabel(cell.getValue(), cell.getData()) || "";
+    container.appendChild(input);
 
-          let options = [];
-          let activeIndex = -1;
-          let searchToken = 0;
+    // Attach dropdown to BODY so transforms/scrolling on the table don't break positioning
+    const resultsEl = document.createElement("div");
+    resultsEl.className = "lookup-editor-results";
+    document.body.appendChild(resultsEl);
 
-          function repositionResults() {
-            if (!resultsEl.classList.contains("is-open")) {
-              return;
-            }
-            const rect = input.getBoundingClientRect();
-            const width = Math.max(rect.width, 220);
-            resultsEl.style.width = `${Math.round(width)}px`;
-            resultsEl.style.left = `${Math.round(rect.left)}px`;
-            resultsEl.style.top = `${Math.round(rect.bottom + 4)}px`;
-          }
+    let options = [];
+    let activeIndex = -1;
+    let searchToken = 0;
+    let destroyed = false;
 
-          function openResults() {
-            if (!resultsEl.classList.contains("is-open")) {
-              resultsEl.classList.add("is-open");
-              window.addEventListener("resize", repositionResults);
-              document.addEventListener("scroll", repositionResults, true);
-            }
-            repositionResults();
-          }
+    function repositionResults() {
+      if (!resultsEl.classList.contains("is-open")) return;
 
-          function closeResults() {
-            if (resultsEl.classList.contains("is-open")) {
-              window.removeEventListener("resize", repositionResults);
-              document.removeEventListener("scroll", repositionResults, true);
-              resultsEl.classList.remove("is-open");
-            }
-            resultsEl.innerHTML = "";
-            resultsEl.style.left = "";
-            resultsEl.style.top = "";
-            resultsEl.style.width = "";
-            activeIndex = -1;
-          }
+      const rect = input.getBoundingClientRect();
+      const width = Math.max(rect.width, 220);
 
-          const finalizeSuccess = value => {
-            closeResults();
-            success(value);
-          };
+      resultsEl.style.width = `${Math.round(width)}px`;
+      resultsEl.style.left = `${Math.round(window.scrollX + rect.left)}px`;
+      resultsEl.style.top = `${Math.round(window.scrollY + rect.bottom + 4)}px`;
+    }
 
-          const finalizeCancel = () => {
-            closeResults();
-            cancel();
-          };
-
-          function highlightActive() {
-            const items = resultsEl.querySelectorAll(".lookup-editor-option");
-            items.forEach((item, index) => {
-              item.classList.toggle("is-active", index === activeIndex);
-            });
-          }
-
-          function renderOptions(list) {
-            resultsEl.innerHTML = "";
-            if (!list.length) {
-              closeResults();
-              return;
-            }
-            list.forEach((option, index) => {
-              const item = document.createElement("div");
-              item.className = "lookup-editor-option";
-              item.tabIndex = -1;
-              const title = document.createElement("strong");
-              title.textContent = option.heat_number || option.name || option.label || "";
-              item.appendChild(title);
-              const meta = document.createElement("span");
-              const secondary = [option.description, option.material_grade]
-                .filter(Boolean)
-                .join(" • ");
-              meta.textContent = secondary;
-              item.appendChild(meta);
-              item.addEventListener("mousedown", event => {
-                event.preventDefault();
-                applySelection(option);
-              });
-              resultsEl.appendChild(item);
-              if (index === activeIndex) {
-                item.classList.add("is-active");
-              }
-            });
-            openResults();
-          }
-
-          async function performSearch(term) {
-            const token = ++searchToken;
-            try {
-              const list = await search(term, cell);
-              if (token !== searchToken) {
-                return;
-              }
-              options = list || [];
-              activeIndex = options.length ? 0 : -1;
-              renderOptions(options);
-              highlightActive();
-            } catch (error) {
-              console.error("Lookup search failed", error);
-              closeResults();
-            }
-          }
-
-          function applySelection(option) {
-            if (!option) {
-              onSelect(null, cell);
-              finalizeSuccess(null);
-              return;
-            }
-            input.value = option.heat_number || option.name || option.label || "";
-            onSelect(option, cell);
-            finalizeSuccess(option.id ?? null);
-          }
-
-          onRendered(() => {
-            input.focus();
-            input.select();
-            repositionResults();
-            performSearch(input.value || "");
-          });
-
-          input.addEventListener("input", () => {
-            repositionResults();
-            performSearch(input.value || "");
-          });
-
-          input.addEventListener("keydown", event => {
-            if (event.key === "ArrowDown" && options.length) {
-              event.preventDefault();
-              activeIndex = Math.min(options.length - 1, activeIndex + 1);
-              highlightActive();
-            } else if (event.key === "ArrowUp" && options.length) {
-              event.preventDefault();
-              activeIndex = Math.max(0, activeIndex - 1);
-              highlightActive();
-            } else if (event.key === "Enter") {
-              event.preventDefault();
-              if (options.length && activeIndex >= 0) {
-                applySelection(options[activeIndex]);
-              } else if (!input.value.trim()) {
-                applySelection(null);
-              }
-            } else if (event.key === "Escape") {
-              event.preventDefault();
-              finalizeCancel();
-            }
-          });
-
-          input.addEventListener("blur", () => {
-            window.setTimeout(() => {
-              if (!container.contains(document.activeElement)) {
-                if (!input.value.trim()) {
-                  applySelection(null);
-                } else {
-                  finalizeCancel();
-                }
-              }
-            }, 150);
-          });
-
-          return container;
-        };
+    function openResults() {
+      if (!resultsEl.classList.contains("is-open")) {
+        resultsEl.classList.add("is-open");
+        window.addEventListener("resize", repositionResults);
+        document.addEventListener("scroll", repositionResults, true);
       }
+      repositionResults();
+    }
+
+    function closeResults() {
+      if (resultsEl.classList.contains("is-open")) {
+        window.removeEventListener("resize", repositionResults);
+        document.removeEventListener("scroll", repositionResults, true);
+        resultsEl.classList.remove("is-open");
+      }
+      resultsEl.innerHTML = "";
+      resultsEl.style.left = "";
+      resultsEl.style.top = "";
+      resultsEl.style.width = "";
+      activeIndex = -1;
+    }
+
+    function destroyResults() {
+      if (destroyed) return;
+      destroyed = true;
+      closeResults();
+      if (resultsEl.parentNode) {
+        resultsEl.parentNode.removeChild(resultsEl);
+      }
+    }
+
+    const finalizeSuccess = (value) => {
+      destroyResults();
+      success(value);
+    };
+
+    const finalizeCancel = () => {
+      destroyResults();
+      cancel();
+    };
+
+    function highlightActive() {
+      const items = resultsEl.querySelectorAll(".lookup-editor-option");
+      items.forEach((item, index) => {
+        item.classList.toggle("is-active", index === activeIndex);
+      });
+    }
+
+    function renderOptions(list) {
+      resultsEl.innerHTML = "";
+      if (!list.length) {
+        closeResults();
+        return;
+      }
+
+      list.forEach((option, index) => {
+        const item = document.createElement("div");
+        item.className = "lookup-editor-option";
+        item.tabIndex = -1;
+
+        const title = document.createElement("strong");
+        title.textContent = option.heat_number || option.name || option.label || "";
+        item.appendChild(title);
+
+        const meta = document.createElement("span");
+        const secondary = [option.description, option.material_grade]
+          .filter(Boolean)
+          .join(" • ");
+        meta.textContent = secondary;
+        item.appendChild(meta);
+
+        item.addEventListener("mousedown", (event) => {
+          event.preventDefault();
+          applySelection(option);
+        });
+
+        resultsEl.appendChild(item);
+        if (index === activeIndex) {
+          item.classList.add("is-active");
+        }
+      });
+
+      openResults();
+    }
+
+    async function performSearch(term) {
+      const token = ++searchToken;
+      try {
+        const list = await search(term, cell);
+        if (token !== searchToken) return;
+        options = list || [];
+        activeIndex = options.length ? 0 : -1;
+        renderOptions(options);
+        highlightActive();
+      } catch (error) {
+        console.error("Lookup search failed", error);
+        closeResults();
+      }
+    }
+
+    function applySelection(option) {
+      if (!option) {
+        onSelect(null, cell);
+        finalizeSuccess(null);
+        return;
+      }
+      input.value = option.heat_number || option.name || option.label || "";
+      onSelect(option, cell);
+      finalizeSuccess(option.id ?? null);
+    }
+
+    onRendered(() => {
+      input.focus();
+      input.select();
+      repositionResults();
+      performSearch(input.value || "");
+    });
+
+    input.addEventListener("input", () => {
+      repositionResults();
+      performSearch(input.value || "");
+    });
+
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "ArrowDown" && options.length) {
+        event.preventDefault();
+        activeIndex = Math.min(options.length - 1, activeIndex + 1);
+        highlightActive();
+      } else if (event.key === "ArrowUp" && options.length) {
+        event.preventDefault();
+        activeIndex = Math.max(0, activeIndex - 1);
+        highlightActive();
+      } else if (event.key === "Enter") {
+        event.preventDefault();
+        if (options.length && activeIndex >= 0) {
+          applySelection(options[activeIndex]);
+        } else if (!input.value.trim()) {
+          applySelection(null);
+        }
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        finalizeCancel();
+      }
+    });
+
+    // Close when focus leaves both the input AND the dropdown
+    input.addEventListener("blur", () => {
+      window.setTimeout(() => {
+        const active = document.activeElement;
+        if (!container.contains(active) && !resultsEl.contains(active)) {
+          if (!input.value.trim()) {
+            applySelection(null);
+          } else {
+            finalizeCancel();
+          }
+        }
+      }, 150);
+    });
+
+    return container;
+  };
+}
+
 
       function createHeatEditor(prefix) {
         return lookupEditorFactory({
@@ -924,6 +942,51 @@
 
       let table = null;
 
+      function simpleDateEditor(cell, onRendered, success, cancel) {
+        const input = document.createElement("input");
+        input.type = "date";
+
+        const raw = cell.getValue();
+        if (raw) {
+          // Expecting YYYY-MM-DD or ISO; trim to date part
+          const value = String(raw).slice(0, 10);
+          input.value = value;
+        }
+
+        onRendered(() => {
+          input.focus();
+          // Try to auto-open the picker in browsers that support it
+          if (typeof input.showPicker === "function") {
+            input.showPicker();
+          }
+        });
+
+        function commit() {
+          const val = input.value || "";
+          success(val || null);
+        }
+
+        input.addEventListener("change", commit);
+
+        input.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            commit();
+          } else if (e.key === "Escape") {
+            e.preventDefault();
+            cancel();
+          }
+        });
+
+        input.addEventListener("blur", () => {
+          // Commit on blur so you don't lose edits
+          commit();
+        });
+
+        return input;
+      }
+
+
       function buildColumns() {
         return [
           {
@@ -1023,8 +1086,8 @@
             title: "Date Welded",
             field: "date_welded",
             headerSort: true,
-            editor: "date",
-            editorParams: { format: "YYYY-MM-DD" },
+            editor: simpleDateEditor,
+            
           },
           {
             title: "Welder Root/Hot Pass",
@@ -1054,8 +1117,7 @@
             title: "NDE Date",
             field: "nde_date",
             headerSort: true,
-            editor: "date",
-            editorParams: { format: "YYYY-MM-DD" },
+            editor: simpleDateEditor,
           },
           {
             title: "NDE Rig",

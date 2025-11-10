@@ -155,6 +155,10 @@
       </div>
     </div>
   {% if not setup_error %}
+    {{ disposition_options|json_script:"weld-disposition-options" }}
+    {{ weld_type_options|json_script:"weld-type-options" }}
+    {{ repair_type_options|json_script:"weld-repair-type-options" }}
+    {{ nde_type_options|json_script:"weld-nde-type-options" }}
     <script src="https://cdn.jsdelivr.net/npm/tabulator-tables@5.5.2/dist/js/tabulator.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <script>
@@ -179,6 +183,78 @@
       const pendingRowSaves = new WeakMap();
       let suppressRowAddedEvents = false;
       let statusResetTimer = null;
+
+      function loadOptions(elementId) {
+        const element = document.getElementById(elementId);
+        if (!element) {
+          return [];
+        }
+        try {
+          const parsed = JSON.parse(element.textContent || "[]");
+          if (Array.isArray(parsed)) {
+            return parsed;
+          }
+        } catch (error) {
+          console.error(`Failed to parse option list for ${elementId}`, error);
+        }
+        return [];
+      }
+
+      function buildChoiceMap(options) {
+        return options.reduce((acc, option) => {
+          if (option && option.value !== undefined) {
+            acc[option.value] = option.label ?? String(option.value);
+          }
+          return acc;
+        }, {});
+      }
+
+      function findOptionLabel(options, value) {
+        if (value === undefined || value === null || value === "") {
+          return "";
+        }
+        const match = options.find(option => option.value === value);
+        return match ? match.label || "" : "";
+      }
+
+      function normalizeChoiceValue(value) {
+        if (value === undefined || value === null) {
+          return null;
+        }
+        const text = String(value).trim();
+        return text === "" ? null : text;
+      }
+
+      function createListEditorParams(choiceMap, { allowEmpty = false } = {}) {
+        return {
+          values: choiceMap,
+          autocomplete: true,
+          allowEmpty,
+          listOnEmpty: true,
+        };
+      }
+
+      function createChoiceFormatter(options, labelField) {
+        return function (cell) {
+          const data = cell.getRow().getData();
+          if (data && data[labelField]) {
+            return data[labelField];
+          }
+          return findOptionLabel(options, cell.getValue());
+        };
+      }
+
+      const dispositionOptions = loadOptions("weld-disposition-options");
+      const weldTypeOptions = loadOptions("weld-type-options");
+      const repairTypeOptions = loadOptions("weld-repair-type-options");
+      const ndeTypeOptions = loadOptions("weld-nde-type-options");
+      const dispositionDefaultValue = "{{ disposition_default|escapejs }}";
+      const dispositionDefault =
+        dispositionDefaultValue || (dispositionOptions[0]?.value ?? null);
+      const dispositionChoiceMap = buildChoiceMap(dispositionOptions);
+      const weldTypeChoiceMap = buildChoiceMap(weldTypeOptions);
+      const repairTypeChoiceMap = buildChoiceMap(repairTypeOptions);
+      const ndeTypeChoiceMap = buildChoiceMap(ndeTypeOptions);
 
       function snapshotRow(rowComponent) {
         if (!rowComponent) {
@@ -219,12 +295,6 @@
           rowComponent.getElement()?.classList.remove("is-dirty");
         }
       }
-
-      const dispositionOptions = [
-        { value: "accepted", label: "Accepted" },
-        { value: "repair", label: "Repair" },
-        { value: "cut_out", label: "Cut Out" },
-      ];
 
       function clearStatusResetTimer() {
         if (statusResetTimer) {
@@ -384,14 +454,20 @@
           weld_id: row.weld_id ?? "",
           nde_number: row.nde_number ?? "",
           drawing_number: row.drawing_number ?? "",
-          weld_type: row.weld_type ?? "",
+          weld_type: null,
+          weld_type_label: row.weld_type_label ?? "",
+          repair_type: null,
+          repair_type_label: row.repair_type_label ?? "",
+          nde_type: null,
+          nde_type_label: row.nde_type_label ?? "",
           date_welded: row.date_welded || "",
           welder_stencil_root_hotpass: row.welder_stencil_root_hotpass ?? "",
           welder_stencil_fill: row.welder_stencil_fill ?? "",
           welder_stencil_fill_additional: row.welder_stencil_fill_additional ?? "",
           welder_stencil_cap: row.welder_stencil_cap ?? "",
           nde_date: row.nde_date || "",
-          disposition: row.disposition || "accepted",
+          disposition: row.disposition || dispositionDefault,
+          disposition_label: row.disposition_label ?? "",
           disposition_comment: row.disposition_comment ?? "",
           material1_heat: row.material1_heat_id ?? null,
           material1_heat_label: row.material1_heat_number ?? "",
@@ -453,6 +529,29 @@
           rememberNdeRig({ id: normalized.nde_rig, name: row.nde_rig_name });
         }
 
+        normalized.weld_type = normalizeChoiceValue(row.weld_type);
+        if (!normalized.weld_type_label) {
+          normalized.weld_type_label = findOptionLabel(weldTypeOptions, normalized.weld_type);
+        }
+
+        normalized.repair_type = normalizeChoiceValue(row.repair_type);
+        if (!normalized.repair_type_label) {
+          normalized.repair_type_label = findOptionLabel(repairTypeOptions, normalized.repair_type);
+        }
+
+        normalized.nde_type = normalizeChoiceValue(row.nde_type);
+        if (!normalized.nde_type_label) {
+          normalized.nde_type_label = findOptionLabel(ndeTypeOptions, normalized.nde_type);
+        }
+
+        normalized.disposition = normalizeChoiceValue(row.disposition) || dispositionDefault;
+        if (!normalized.disposition_label) {
+          normalized.disposition_label = findOptionLabel(
+            dispositionOptions,
+            normalized.disposition,
+          );
+        }
+
         return normalized;
       }
 
@@ -462,15 +561,17 @@
           weld_id: row.weld_id ?? "",
           nde_number: row.nde_number ?? "",
           drawing_number: row.drawing_number ?? "",
-          weld_type: row.weld_type ?? "",
+          weld_type: row.weld_type || null,
           date_welded: row.date_welded || "",
           welder_stencil_root_hotpass: row.welder_stencil_root_hotpass ?? "",
           welder_stencil_fill: row.welder_stencil_fill ?? "",
           welder_stencil_fill_additional: row.welder_stencil_fill_additional ?? "",
           welder_stencil_cap: row.welder_stencil_cap ?? "",
           nde_date: row.nde_date || "",
+          nde_type: row.nde_type || null,
           nde_rig_id: row.nde_rig ?? null,
-          disposition: row.disposition || "accepted",
+          repair_type: row.repair_type || null,
+          disposition: row.disposition || dispositionDefault,
           disposition_comment: row.disposition_comment ?? "",
           material1_heat_id: row.material1_heat ?? null,
           material1_description: row.material1_description ?? "",
@@ -932,7 +1033,7 @@
 
       function validateDispositionComment(cell, value) {
         const disposition = cell.getRow().getData().disposition;
-        if (disposition === "repair" || disposition === "cut_out") {
+        if (disposition === "REPAIR" || disposition === "CUT_OUT") {
           if (!value || !String(value).trim()) {
             return "Comment required when disposition is Repair or Cut Out.";
           }
@@ -1003,6 +1104,14 @@
             field: "nde_number",
             editor: "input",
             headerSort: true,
+          },
+          {
+            title: "NDE Type",
+            field: "nde_type",
+            headerSort: true,
+            editor: "list",
+            editorParams: createListEditorParams(ndeTypeChoiceMap, { allowEmpty: true }),
+            formatter: createChoiceFormatter(ndeTypeOptions, "nde_type_label"),
           },
           {
             title: "Drawing Number",
@@ -1079,8 +1188,10 @@
           {
             title: "Weld Type",
             field: "weld_type",
-            editor: "input",
             headerSort: true,
+            editor: "list",
+            editorParams: createListEditorParams(weldTypeChoiceMap, { allowEmpty: true }),
+            formatter: createChoiceFormatter(weldTypeOptions, "weld_type_label"),
           },
           {
             title: "Date Welded",
@@ -1132,24 +1243,21 @@
             },
           },
           {
+            title: "Repair Type",
+            field: "repair_type",
+            headerSort: true,
+            editor: "list",
+            editorParams: createListEditorParams(repairTypeChoiceMap, { allowEmpty: true }),
+            formatter: createChoiceFormatter(repairTypeOptions, "repair_type_label"),
+          },
+          {
             title: "Disposition",
             field: "disposition",
             headerSort: true,
             editor: "list",
-            editorParams: {
-              values: dispositionOptions.reduce((acc, option) => {
-                acc[option.value] = option.label;
-                return acc;
-              }, {}),
-              autocomplete: true,
-              allowEmpty: false,
-            },
+            editorParams: createListEditorParams(dispositionChoiceMap),
             validator: ["required"],
-            formatter(cell) {
-              const value = cell.getValue();
-              const match = dispositionOptions.find(option => option.value === value);
-              return match ? match.label : "";
-            },
+            formatter: createChoiceFormatter(dispositionOptions, "disposition_label"),
           },
           {
             title: "Disposition Comment",
@@ -1247,9 +1355,31 @@
         row?.getElement()?.classList.remove("has-error");
         cell?.getElement()?.classList.remove("has-error");
         markRowDirty(row);
-        if (cell.getField() === "disposition") {
+        const field = cell.getField();
+        const value = cell.getValue();
+        const rowData = row?.getData ? row.getData() : null;
+        if (field === "disposition") {
           const commentCell = row.getCell("disposition_comment");
           commentCell?.validate();
+          if (rowData) {
+            rowData.disposition_label = findOptionLabel(dispositionOptions, value);
+          }
+        } else if (field === "weld_type") {
+          if (rowData) {
+            rowData.weld_type_label = findOptionLabel(weldTypeOptions, value);
+          }
+        } else if (field === "repair_type") {
+          if (rowData) {
+            rowData.repair_type_label = findOptionLabel(repairTypeOptions, value);
+          }
+        } else if (field === "nde_type") {
+          if (rowData) {
+            rowData.nde_type_label = findOptionLabel(ndeTypeOptions, value);
+          }
+        }
+        if (field === "disposition" || field === "weld_type" || field === "repair_type" || field === "nde_type") {
+          const targetCell = row?.getCell(field);
+          targetCell?.render();
         }
         updateStatusCounts();
         refreshHistoryButtons();
@@ -1300,10 +1430,11 @@
       });
 
       function addNewRow() {
-        const blank = {
+        const blank = normalizeRow({
           weld_id: "",
-          disposition: "accepted",
-        };
+          disposition: dispositionDefault,
+          disposition_label: findOptionLabel(dispositionOptions, dispositionDefault),
+        });
         const row = table.addRow(blank, true);
         Promise.resolve(row).then(rowComponent => {
           rowComponent._originalData = null;
@@ -1328,6 +1459,7 @@
           "welder_stencil_fill_additional",
           "welder_stencil_cap",
           "nde_date",
+          "nde_type",
           "disposition_comment",
           "material1_heat",
           "material1_description",
@@ -1340,6 +1472,7 @@
           "material2_outer_diameter_in",
           "material2_wall_thickness_in",
           "nde_rig",
+          "repair_type",
         ];
 
         return !keysToInspect.some(key => {

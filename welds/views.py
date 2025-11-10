@@ -107,6 +107,10 @@ def _format_user_display(user) -> str:
     return str(user)
 
 
+def _choice_options(choices) -> list[dict]:
+    return [{"value": value, "label": label} for value, label in choices]
+
+
 def _serialize_weld(
     weld: Weld,
     *,
@@ -117,8 +121,11 @@ def _serialize_weld(
         "id": weld.id,
         "weld_id": weld.weld_id,
         "nde_number": weld.nde_number,
+        "nde_type": weld.nde_type,
+        "nde_type_label": weld.get_nde_type_display() if weld.nde_type else "",
         "drawing_number": weld.drawing_number,
-        "weld_type": weld.weld_type,
+        "weld_type": weld.weld_type or None,
+        "weld_type_label": weld.get_weld_type_display() if weld.weld_type else "",
         "date_welded": weld.date_welded.isoformat() if weld.date_welded else "",
         "welder_stencil_root_hotpass": weld.welder_stencil_root_hotpass,
         "welder_stencil_fill": weld.welder_stencil_fill,
@@ -127,7 +134,12 @@ def _serialize_weld(
         "nde_date": weld.nde_date.isoformat() if weld.nde_date else "",
         "nde_rig_id": weld.nde_rig_id,
         "nde_rig_name": weld.nde_rig.name if weld.nde_rig else "",
+        "repair_type": weld.repair_type,
+        "repair_type_label": weld.get_repair_type_display()
+        if weld.repair_type
+        else "",
         "disposition": weld.disposition,
+        "disposition_label": weld.get_disposition_display(),
         "disposition_comment": weld.disposition_comment,
         "created_at": weld.created_at.isoformat(),
         "updated_at": weld.updated_at.isoformat(),
@@ -257,6 +269,11 @@ def weld_log(request, org_slug, project_slug):
                         "project_slug": project.slug,
                     },
                 ),
+                "disposition_options": _choice_options(Weld.Disposition.choices),
+                "disposition_default": Weld.Disposition.PENDING,
+                "weld_type_options": _choice_options(Weld.WeldType.choices),
+                "repair_type_options": _choice_options(Weld.RepairType.choices),
+                "nde_type_options": _choice_options(Weld.NDEType.choices),
             }
         )
 
@@ -473,7 +490,63 @@ def weld_log_data(request, org_slug, project_slug):
             )
             return JsonResponse({"error": "Invalid NDE rig."}, status=400)
 
-    disposition = payload.get("disposition", Weld.Disposition.ACCEPTED)
+    raw_weld_type = payload.get("weld_type")
+    if raw_weld_type in (None, ""):
+        weld_type_value = ""
+    else:
+        weld_type_value = str(raw_weld_type).strip()
+        if weld_type_value not in Weld.WeldType.values:
+            logger.warning(
+                "Rejecting weld save with invalid weld type",
+                extra={
+                    "user_id": getattr(request.user, "id", None),
+                    "org_slug": org_slug,
+                    "project_slug": project_slug,
+                    "weld_type": weld_type_value,
+                },
+            )
+            return JsonResponse({"error": "Invalid weld type selection."}, status=400)
+
+    raw_repair_type = payload.get("repair_type")
+    if raw_repair_type in (None, ""):
+        repair_type_value = None
+    else:
+        repair_type_value = str(raw_repair_type).strip()
+        if repair_type_value not in Weld.RepairType.values:
+            logger.warning(
+                "Rejecting weld save with invalid repair type",
+                extra={
+                    "user_id": getattr(request.user, "id", None),
+                    "org_slug": org_slug,
+                    "project_slug": project_slug,
+                    "repair_type": repair_type_value,
+                },
+            )
+            return JsonResponse({"error": "Invalid repair type selection."}, status=400)
+
+    raw_nde_type = payload.get("nde_type")
+    if raw_nde_type in (None, ""):
+        nde_type_value = None
+    else:
+        nde_type_value = str(raw_nde_type).strip()
+        if nde_type_value not in Weld.NDEType.values:
+            logger.warning(
+                "Rejecting weld save with invalid NDE type",
+                extra={
+                    "user_id": getattr(request.user, "id", None),
+                    "org_slug": org_slug,
+                    "project_slug": project_slug,
+                    "nde_type": nde_type_value,
+                },
+            )
+            return JsonResponse({"error": "Invalid NDE type selection."}, status=400)
+
+    disposition_raw = payload.get("disposition")
+    disposition = (
+        str(disposition_raw).strip()
+        if disposition_raw not in (None, "")
+        else Weld.Disposition.PENDING
+    )
     if disposition not in Weld.Disposition.values:
         logger.warning(
             "Rejecting weld save with invalid disposition",
@@ -527,7 +600,7 @@ def weld_log_data(request, org_slug, project_slug):
         "material2_wall_thickness_in": material2_wall_thickness
         if material2_wall_thickness is not None
         else material2_heat.wall_thickness_in if material2_heat else None,
-        "weld_type": _clean_text("weld_type"),
+        "weld_type": weld_type_value,
         "date_welded": date_welded,
         "welder_stencil_root_hotpass": _clean_text("welder_stencil_root_hotpass"),
         "welder_stencil_fill": _clean_text("welder_stencil_fill"),
@@ -537,6 +610,8 @@ def weld_log_data(request, org_slug, project_slug):
         "welder_stencil_cap": _clean_text("welder_stencil_cap"),
         "nde_date": nde_date,
         "nde_rig": nde_rig,
+        "nde_type": nde_type_value,
+        "repair_type": repair_type_value,
         "disposition": disposition,
         "disposition_comment": disposition_comment,
     }

@@ -102,6 +102,20 @@ class WeldLogAPITests(TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn("error", response.json())
 
+    def test_create_weld_defaults_to_pending(self):
+        payload = {"weld_id": "W-003"}
+        response = self.client.post(
+            self._data_url(),
+            data=payload,
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 201)
+        result = response.json()["weld"]
+        self.assertEqual(result["disposition"], Weld.Disposition.PENDING)
+        self.assertEqual(result["disposition_label"], "Pending")
+        self.assertIsNone(result["repair_type"])
+        self.assertIsNone(result["weld_type"])
+
     def test_material_heat_options_endpoint(self):
         url = self._data_url("weld_material_heat_options")
         response = self.client.get(url)

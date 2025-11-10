@@ -67,10 +67,38 @@ class NDERig(models.Model):
 
 
 class Weld(models.Model):
+    class WeldType(models.TextChoices):
+        GENERIC = "GENERIC", "Basic / Generic"
+        BUTT = "BUTT", "Butt weld"
+        FILLET = "FILLET", "Fillet weld"
+        SOCKET = "SOCKET", "Socket weld"
+        BRANCH = "BRANCH", "Branch / Tie-In"
+        OVERLAY = "OVERLAY", "Overlay / Build-Up"
+        OTHER = "OTHER", "Other"
+
+    class RepairType(models.TextChoices):
+        CRACK = "CRACK", "Crack"
+        POROSITY = "POROSITY", "Porosity"
+        SLAG = "SLAG", "Slag"
+        LACK_OF_FUSION = "LOF", "Lack of fusion"
+        UNDERCUT = "UNDERCUT", "Undercut"
+        INCOMPLETE_PENETRATION = "INCOMPLETE_PEN", "Incomplete penetration"
+        ARC_STRIKES_OTHER = "OTHER", "Arc strikes / Other"
+
+    class NDEType(models.TextChoices):
+        RADIOGRAPHIC = "RT", "RT (Radiographic Testing)"
+        MAGNETIC_PARTICLE = "MT", "MT (Magnetic Particle Testing)"
+        PENETRANT = "PT", "PT (Penetrant Testing)"
+        ULTRASONIC = "UT", "UT (Ultrasonic Testing)"
+        PHASED_ARRAY = "PA", "PA (Phased Array UT)"
+        VISUAL = "VT", "VT (Visual Testing)"
+        OTHER = "OTHER", "Other"
+
     class Disposition(models.TextChoices):
-        ACCEPTED = "accepted", "Accepted"
-        REPAIR = "repair", "Repair"
-        CUT_OUT = "cut_out", "Cut Out"
+        PENDING = "PENDING", "Pending"
+        ACCEPTED = "ACCEPTED", "Accepted"
+        REPAIR = "REPAIR", "Repair"
+        CUT_OUT = "CUT_OUT", "Cut Out"
 
     project = models.ForeignKey(
         "projects.Project",
@@ -79,6 +107,14 @@ class Weld(models.Model):
     )
     weld_id = models.CharField(max_length=100)
     nde_number = models.CharField(max_length=120, blank=True)
+    nde_type = models.CharField(
+        max_length=16,
+        choices=NDEType.choices,
+        blank=True,
+        null=True,
+        verbose_name="NDE type",
+        help_text="NDE method used for this weld",
+    )
     drawing_number = models.CharField(max_length=120, blank=True)
     material1_heat = models.ForeignKey(
         MaterialHeat,
@@ -110,7 +146,13 @@ class Weld(models.Model):
     material2_wall_thickness_in = models.DecimalField(
         max_digits=8, decimal_places=3, null=True, blank=True
     )
-    weld_type = models.CharField(max_length=120, blank=True)
+    weld_type = models.CharField(
+        max_length=16,
+        choices=WeldType.choices,
+        blank=True,
+        verbose_name="weld type",
+        help_text="Primary weld type for this joint",
+    )
     date_welded = models.DateField(null=True, blank=True)
     welder_stencil_root_hotpass = models.CharField(max_length=120, blank=True)
     welder_stencil_fill = models.CharField(max_length=120, blank=True)
@@ -124,10 +166,18 @@ class Weld(models.Model):
         blank=True,
         related_name="welds",
     )
+    repair_type = models.CharField(
+        max_length=32,
+        choices=RepairType.choices,
+        blank=True,
+        null=True,
+        verbose_name="repair type",
+        help_text="Type of discontinuity being repaired",
+    )
     disposition = models.CharField(
         max_length=20,
         choices=Disposition.choices,
-        default=Disposition.ACCEPTED,
+        default=Disposition.PENDING,
     )
     disposition_comment = models.TextField(blank=True)
 

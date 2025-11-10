@@ -1461,14 +1461,6 @@
             },
           },
           {
-            title: "Repair Type",
-            field: "repair_type",
-            headerSort: true,
-            editor: "list",
-            editorParams: createListEditorParams(repairTypeChoiceMap, { allowEmpty: true }),
-            formatter: createChoiceFormatter(repairTypeOptions, "repair_type_label"),
-          },
-          {
             title: "Disposition",
             field: "disposition",
             headerSort: true,
@@ -1477,6 +1469,14 @@
             validator: ["required"],
             formatter: createChoiceFormatter(dispositionOptions, "disposition_label"),
           },
+          {
+            title: "Repair Type",
+            field: "repair_type",
+            headerSort: true,
+            editor: "list",
+            editorParams: createListEditorParams(repairTypeChoiceMap, { allowEmpty: true }),
+            formatter: createChoiceFormatter(repairTypeOptions, "repair_type_label"),
+          },          
           {
             title: "Disposition Comment",
             field: "disposition_comment",

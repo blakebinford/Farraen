@@ -1,0 +1,438 @@
+{% extends "base.html" %}
+{% load humanize %}
+
+{% block extra_head %}
+  {{ block.super }}
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-4">
+  <div class="mb-3 mb-md-0">
+    <h1 class="h3 mb-1">Weld KPI Dashboard</h1>
+    <p class="text-muted mb-0">
+      {{ project.name }}
+      {% if project.slug %}
+        <span class="mx-1">·</span><span class="fw-medium">{{ project.slug }}</span>
+      {% endif %}
+    </p>
+  </div>
+  <div class="d-flex gap-2">
+    <a class="btn btn-outline-secondary btn-sm" href="{% url 'projects:project_list' org.slug %}">Back to Projects</a>
+    <a class="btn btn-primary btn-sm" href="{% url 'welds:weld_log' org.slug project.slug %}">Open Weld Log</a>
+  </div>
+</div>
+
+{% if weld_kpis.overall.total_welds %}
+  <div class="row row-cols-1 row-cols-sm-2 row-cols-xl-5 g-3 mb-4">
+    <div class="col">
+      <div class="card h-100">
+        <div class="card-body">
+          <p class="text-uppercase text-muted small mb-1">Total Welds</p>
+          <p class="display-6 mb-0">{{ weld_kpis.overall.total_welds|intcomma }}</p>
+        </div>
+      </div>
+    </div>
+    <div class="col">
+      <div class="card h-100">
+        <div class="card-body">
+          <p class="text-uppercase text-muted small mb-1">Project Repair Rate</p>
+          <p class="display-6 mb-0">{{ weld_kpis.overall.project_repair_rate|floatformat:1 }}<span class="fs-5">%</span></p>
+          <p class="text-muted small mb-0">Repairs: {{ weld_kpis.overall.repairs|intcomma }} · Accepted: {{ weld_kpis.overall.accepted|intcomma }}</p>
+        </div>
+      </div>
+    </div>
+    <div class="col">
+      <div class="card h-100">
+        <div class="card-body">
+          <p class="text-uppercase text-muted small mb-1">Total Weld Inches</p>
+          <p class="display-6 mb-0">{{ weld_kpis.overall.total_weld_inches|floatformat:1 }}</p>
+        </div>
+      </div>
+    </div>
+    <div class="col">
+      <div class="card h-100">
+        <div class="card-body">
+          <p class="text-uppercase text-muted small mb-1">Avg. Weld Inches / Weld</p>
+          <p class="display-6 mb-0">{{ weld_kpis.overall.average_weld_inches_per_weld|floatformat:1 }}</p>
+        </div>
+      </div>
+    </div>
+    <div class="col">
+      <div class="card h-100">
+        <div class="card-body">
+          <p class="text-uppercase text-muted small mb-1">Avg. Weld Inches / Day</p>
+          <p class="display-6 mb-0">{{ weld_kpis.overall.average_weld_inches_per_day|floatformat:1 }}</p>
+          {% if weld_kpis.production.days_with_welds %}
+            <p class="text-muted small mb-0">Across {{ weld_kpis.production.days_with_welds }} day{{ weld_kpis.production.days_with_welds|pluralize }}</p>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row g-4 mb-4">
+    <div class="col-lg-6">
+      <div class="card h-100">
+        <div class="card-header">Repair Rate by WPS</div>
+        <div class="card-body">
+          {% if chart_data.repair_rate_by_wps.labels %}
+            <canvas id="wpsRepairRateChart" height="220"></canvas>
+          {% else %}
+            <p class="text-muted text-center mb-0">No inspected welds by WPS yet.</p>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    <div class="col-lg-6">
+      <div class="card h-100">
+        <div class="card-header">Repair Rate by Welder</div>
+        <div class="card-body">
+          {% if chart_data.repair_rate_by_welder.labels %}
+            <canvas id="welderRepairRateChart" height="220"></canvas>
+          {% else %}
+            <p class="text-muted text-center mb-0">No welder assignments recorded yet.</p>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card mb-4">
+    <div class="card-header">Weld Inches per Day</div>
+    <div class="card-body">
+      {% if chart_data.weld_inches_by_day.labels %}
+        <canvas id="weldInchesPerDayChart" height="260"></canvas>
+        <div class="row mt-3 gy-2">
+          {% if weld_kpis.production.best_day %}
+            <div class="col-md-6">
+              <div class="border rounded p-3 h-100">
+                <h6 class="text-success mb-1">Best Day</h6>
+                <p class="mb-1">{{ weld_kpis.production.best_day.date|date:"M j, Y" }}</p>
+                <p class="mb-0 text-muted small">{{ weld_kpis.production.best_day.weld_inches|floatformat:1 }} weld inches across {{ weld_kpis.production.best_day.weld_count }} weld{{ weld_kpis.production.best_day.weld_count|pluralize }}</p>
+              </div>
+            </div>
+          {% endif %}
+          {% if weld_kpis.production.worst_day %}
+            <div class="col-md-6">
+              <div class="border rounded p-3 h-100">
+                <h6 class="text-warning mb-1">Lowest Productive Day</h6>
+                <p class="mb-1">{{ weld_kpis.production.worst_day.date|date:"M j, Y" }}</p>
+                <p class="mb-0 text-muted small">{{ weld_kpis.production.worst_day.weld_inches|floatformat:1 }} weld inches across {{ weld_kpis.production.worst_day.weld_count }} weld{{ weld_kpis.production.worst_day.weld_count|pluralize }}</p>
+              </div>
+            </div>
+          {% endif %}
+        </div>
+      {% else %}
+        <p class="text-muted text-center mb-0">No production dates recorded yet.</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="row g-4 mb-4">
+    <div class="col-lg-8">
+      <div class="card h-100">
+        <div class="card-header">Welder Performance</div>
+        <div class="card-body p-0">
+          {% if weld_kpis.welder_stats %}
+            <div class="table-responsive">
+              <table class="table table-striped table-hover align-middle mb-0">
+                <thead class="table-light">
+                  <tr>
+                    <th scope="col">Stencil</th>
+                    <th scope="col">Welder</th>
+                    <th scope="col" class="text-center">Welds</th>
+                    <th scope="col" class="text-center">Repairs</th>
+                    <th scope="col" class="text-center">Repair Pass</th>
+                    <th scope="col" class="text-center">Repair Rate</th>
+                    <th scope="col" class="text-center">Weld Inches</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for welder in weld_kpis.welder_stats %}
+                    <tr>
+                      <td><span class="fw-semibold">{{ welder.welder_stencil }}</span></td>
+                      <td>{{ welder.welder_name|default:"—" }}</td>
+                      <td class="text-center">{{ welder.weld_count|intcomma }}</td>
+                      <td class="text-center">{{ welder.repair_count|intcomma }}</td>
+                      <td class="text-center">{{ welder.repair_repair_pass_count|intcomma }}</td>
+                      <td class="text-center">{{ welder.repair_rate_percent|floatformat:1 }}%</td>
+                      <td class="text-center">{{ welder.total_weld_inches|floatformat:1 }}</td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          {% else %}
+            <p class="text-muted text-center m-4">No welder participation logged yet.</p>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    <div class="col-lg-4">
+      <div class="card h-100 mb-4 mb-lg-0">
+        <div class="card-header">Repair Rate by WPS</div>
+        <div class="card-body p-0">
+          {% if weld_kpis.wps_stats %}
+            <div class="table-responsive">
+              <table class="table table-sm align-middle mb-0">
+                <thead class="table-light">
+                  <tr>
+                    <th scope="col">WPS</th>
+                    <th scope="col" class="text-center">Welds</th>
+                    <th scope="col" class="text-center">Repairs</th>
+                    <th scope="col" class="text-center">Rate</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for wps in weld_kpis.wps_stats %}
+                    <tr>
+                      <td>{{ wps.wps_label }}</td>
+                      <td class="text-center">{{ wps.total_welds|intcomma }}</td>
+                      <td class="text-center">{{ wps.repairs|intcomma }}</td>
+                      <td class="text-center">{{ wps.repair_rate_percent|floatformat:1 }}%</td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          {% else %}
+            <p class="text-muted text-center m-4">No WPS information recorded yet.</p>
+          {% endif %}
+        </div>
+      </div>
+      {% if weld_kpis.nde_stats %}
+        <div class="card">
+          <div class="card-header">NDE Pass Rate</div>
+          <div class="card-body p-0">
+            <div class="table-responsive">
+              <table class="table table-sm align-middle mb-0">
+                <thead class="table-light">
+                  <tr>
+                    <th scope="col">NDE Type</th>
+                    <th scope="col" class="text-center">Inspected</th>
+                    <th scope="col" class="text-center">Repairs</th>
+                    <th scope="col" class="text-center">Pass Rate</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for nde in weld_kpis.nde_stats %}
+                    <tr>
+                      <td>{{ nde.nde_label }}</td>
+                      <td class="text-center">{{ nde.total_welds|intcomma }}</td>
+                      <td class="text-center">{{ nde.repairs|intcomma }}</td>
+                      <td class="text-center">{{ nde.pass_rate_percent|floatformat:1 }}%</td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="row g-4">
+    {% if weld_kpis.repair_type_stats %}
+      <div class="col-lg-6">
+        <div class="card h-100">
+          <div class="card-header">Repairs by Type</div>
+          <div class="card-body p-0">
+            <div class="list-group list-group-flush">
+              {% for repair in weld_kpis.repair_type_stats %}
+                <div class="list-group-item d-flex justify-content-between align-items-center">
+                  <span>{{ repair.label }}</span>
+                  <span class="badge bg-danger-subtle text-danger">{{ repair.repair_count|intcomma }}</span>
+                </div>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+      </div>
+    {% endif %}
+    {% if weld_kpis.repair_nde_rig_stats %}
+      <div class="col-lg-6">
+        <div class="card h-100">
+          <div class="card-header">Repairs by NDE Rig</div>
+          <div class="card-body p-0">
+            <div class="list-group list-group-flush">
+              {% for rig in weld_kpis.repair_nde_rig_stats %}
+                <div class="list-group-item d-flex justify-content-between align-items-center">
+                  <div>
+                    <div class="fw-semibold">{{ rig.nde_rig_name }}</div>
+                    <div class="text-muted small">{{ rig.weld_inches|floatformat:1 }} weld inches</div>
+                  </div>
+                  <span class="badge bg-secondary">{{ rig.repair_count|intcomma }}</span>
+                </div>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+      </div>
+    {% endif %}
+  </div>
+{% else %}
+  <div class="alert alert-info">No weld data has been logged for this project yet. Start entering welds to see KPIs.</div>
+{% endif %}
+
+{{ chart_data|json_script:"weld-dashboard-chart-data" }}
+
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    const dataElement = document.getElementById("weld-dashboard-chart-data");
+    if (!dataElement) {
+      return;
+    }
+    const chartData = JSON.parse(dataElement.textContent);
+
+    const wpsCanvas = document.getElementById("wpsRepairRateChart");
+    if (wpsCanvas && chartData.repair_rate_by_wps.labels.length) {
+      new Chart(wpsCanvas, {
+        type: "bar",
+        data: {
+          labels: chartData.repair_rate_by_wps.labels,
+          datasets: [
+            {
+              label: "Repair Rate (%)",
+              data: chartData.repair_rate_by_wps.repair_rates,
+              backgroundColor: "rgba(13,110,253,0.5)",
+              borderColor: "rgba(13,110,253,1)",
+              borderWidth: 1,
+            },
+          ],
+        },
+        options: {
+          responsive: true,
+          scales: {
+            y: {
+              beginAtZero: true,
+              max: 100,
+              ticks: {
+                callback: (value) => `${value}%`,
+              },
+              title: {
+                display: true,
+                text: "Repair Rate (%)",
+              },
+            },
+          },
+          plugins: {
+            tooltip: {
+              callbacks: {
+                label: function (context) {
+                  const index = context.dataIndex;
+                  const repairs = chartData.repair_rate_by_wps.repairs[index];
+                  const total = chartData.repair_rate_by_wps.totals[index];
+                  return `${context.parsed.y.toFixed(1)}% (${repairs} of ${total})`;
+                },
+              },
+            },
+          },
+        },
+      });
+    }
+
+    const welderCanvas = document.getElementById("welderRepairRateChart");
+    if (welderCanvas && chartData.repair_rate_by_welder.labels.length) {
+      new Chart(welderCanvas, {
+        type: "bar",
+        data: {
+          labels: chartData.repair_rate_by_welder.labels,
+          datasets: [
+            {
+              label: "Repair Rate (%)",
+              data: chartData.repair_rate_by_welder.repair_rates,
+              backgroundColor: "rgba(220,53,69,0.5)",
+              borderColor: "rgba(220,53,69,1)",
+              borderWidth: 1,
+            },
+          ],
+        },
+        options: {
+          responsive: true,
+          indexAxis: "x",
+          scales: {
+            y: {
+              beginAtZero: true,
+              max: 100,
+              ticks: {
+                callback: (value) => `${value}%`,
+              },
+              title: {
+                display: true,
+                text: "Repair Rate (%)",
+              },
+            },
+          },
+          plugins: {
+            tooltip: {
+              callbacks: {
+                label: function (context) {
+                  const index = context.dataIndex;
+                  const repairs = chartData.repair_rate_by_welder.repair_counts[index];
+                  const total = chartData.repair_rate_by_welder.weld_counts[index];
+                  return `${context.parsed.y.toFixed(1)}% (${repairs} of ${total})`;
+                },
+              },
+            },
+          },
+        },
+      });
+    }
+
+    const productionCanvas = document.getElementById("weldInchesPerDayChart");
+    if (productionCanvas && chartData.weld_inches_by_day.labels.length) {
+      new Chart(productionCanvas, {
+        type: "line",
+        data: {
+          labels: chartData.weld_inches_by_day.labels,
+          datasets: [
+            {
+              label: "Weld Inches",
+              data: chartData.weld_inches_by_day.weld_inches,
+              fill: false,
+              borderColor: "rgba(25,135,84,1)",
+              backgroundColor: "rgba(25,135,84,0.3)",
+              tension: 0.25,
+              pointRadius: 3,
+            },
+          ],
+        },
+        options: {
+          responsive: true,
+          scales: {
+            y: {
+              beginAtZero: true,
+              title: {
+                display: true,
+                text: "Weld Inches",
+              },
+            },
+            x: {
+              ticks: {
+                autoSkip: true,
+                maxTicksLimit: 10,
+              },
+            },
+          },
+          plugins: {
+            tooltip: {
+              callbacks: {
+                afterBody: function (items) {
+                  if (!items.length) {
+                    return '';
+                  }
+                  const index = items[0].dataIndex;
+                  const weldCount = chartData.weld_inches_by_day.weld_counts[index];
+                  return `Welds: ${weldCount}`;
+                },
+              },
+            },
+          },
+        },
+      });
+    }
+  });
+</script>
+{% endblock %}

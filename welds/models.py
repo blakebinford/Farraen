@@ -1,4 +1,5 @@
 import logging
+from decimal import Decimal
 
 from django.conf import settings
 from django.db import models
@@ -300,3 +301,26 @@ class Weld(models.Model):
 
     def __str__(self) -> str:
         return f"{self.project}::{self.weld_id}"
+
+    def _select_outer_diameter(self):
+        candidates = [
+            self.material1_outer_diameter_in,
+            getattr(self.material1_heat, "outer_diameter_in", None)
+            if self.material1_heat_id
+            else None,
+            self.material2_outer_diameter_in,
+            getattr(self.material2_heat, "outer_diameter_in", None)
+            if self.material2_heat_id
+            else None,
+        ]
+        for value in candidates:
+            if value is not None:
+                return value
+        return None
+
+    @property
+    def weld_inches(self) -> Decimal:
+        outer_diameter = self._select_outer_diameter()
+        if outer_diameter is None:
+            return Decimal("0")
+        return outer_diameter * Decimal("3.14")

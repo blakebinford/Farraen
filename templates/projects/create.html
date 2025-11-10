@@ -7,7 +7,7 @@
   <input class="form-control mb-2" type="text" name="name" placeholder="Project name" required>
   <div>
     <button class="btn btn-primary">Create</button>
-    <a class="btn btn-outline-secondary" href="{% url 'project_list' org.slug %}">Cancel</a>
+    <a class="btn btn-outline-secondary" href="{% url 'projects:project_list' org.slug %}">Cancel</a>
   </div>
 </form>
 {% endblock %}

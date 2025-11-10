@@ -1,3 +1,4 @@
+from datetime import date
 from decimal import Decimal
 from unittest.mock import patch
 
@@ -10,6 +11,7 @@ from organizations.models import Membership, Organization
 from projects.models import Project, ProjectMember
 
 from .models import MaterialHeat, NDERig, Welder, Weld
+from .services import build_weld_dashboard_chart_payload, get_project_weld_kpis
 from .views import _migrations_required_message
 
 
@@ -147,7 +149,7 @@ class WeldLogAPITests(TestCase):
 
     def _data_url(self, name="weld_log_data"):
         return reverse(
-            name,
+            f"welds:{name}",
             kwargs={
                 "org_slug": self.org.slug,
                 "project_slug": self.project.slug,
@@ -327,7 +329,7 @@ class WeldLogMissingTablesTests(TestCase):
 
     def _weld_log_url(self, name="weld_log"):
         return reverse(
-            name,
+            f"welds:{name}",
             kwargs={
                 "org_slug": self.org.slug,
                 "project_slug": self.project.slug,
@@ -371,4 +373,147 @@ class WeldLogMissingTablesTests(TestCase):
         self.assertEqual(response.json(), {"error": expected_message})
 
         self.assertEqual(mock_missing.call_count, 4)
+
+
+class WeldKPIDashboardServiceTests(TestCase):
+    def setUp(self):
+        User = get_user_model()
+        self.user = User.objects.create_user(
+            email="kpi@example.com",
+            password="pass1234",
+        )
+        self.org = Organization.objects.create(
+            name="MetricsCo",
+            slug="metricsco",
+            owner=self.user,
+        )
+        Membership.objects.create(
+            org=self.org,
+            user=self.user,
+            role=Membership.Role.ADMIN,
+        )
+        self.project = Project.objects.create(
+            org=self.org,
+            name="Pipeline B",
+            slug="pipeline-b",
+            created_by=self.user,
+            is_archived=False,
+        )
+        ProjectMember.objects.create(
+            project=self.project,
+            user=self.user,
+            role=ProjectMember.Role.MEMBER,
+        )
+        self.rig = NDERig.objects.create(
+            org=self.org,
+            project=self.project,
+            name="Gamma Rig",
+        )
+        self.heat_primary = MaterialHeat.objects.create(
+            org=self.org,
+            heat_number="H-PRIMARY",
+            description="12 in pipe",
+            material_grade="X60",
+            outer_diameter_in=Decimal("12.000"),
+            wps_number="WPS-100",
+        )
+        self.heat_secondary = MaterialHeat.objects.create(
+            org=self.org,
+            heat_number="H-SECONDARY",
+            description="8 in pipe",
+            material_grade="X52",
+            outer_diameter_in=Decimal("8.000"),
+            wps_number="WPS-200",
+        )
+        self.welder_a = Welder.objects.create(
+            org=self.org,
+            name="Alice Root",
+            stencil="A1",
+        )
+        self.welder_b = Welder.objects.create(
+            org=self.org,
+            name="Bob Fill",
+            stencil="B2",
+        )
+
+    def _create_sample_welds(self):
+        Weld.objects.create(
+            project=self.project,
+            weld_id="W-001",
+            material1_heat=self.heat_primary,
+            material1_outer_diameter_in=Decimal("12.000"),
+            date_welded=date(2024, 1, 2),
+            nde_type=Weld.NDEType.RADIOGRAPHIC,
+            nde_date=date(2024, 1, 5),
+            welder_stencil_root_hotpass=self.welder_a.stencil,
+            welder_stencil_fill=self.welder_b.stencil,
+            welder_stencil_cap=self.welder_a.stencil,
+            disposition=Weld.Disposition.ACCEPTED,
+        )
+        Weld.objects.create(
+            project=self.project,
+            weld_id="W-002",
+            material1_heat=self.heat_secondary,
+            date_welded=date(2024, 1, 3),
+            nde_type=Weld.NDEType.ULTRASONIC,
+            nde_date=date(2024, 1, 6),
+            nde_rig=self.rig,
+            welder_stencil_root_hotpass=self.welder_b.stencil,
+            welder_stencil_repair=self.welder_a.stencil,
+            disposition=Weld.Disposition.REPAIR,
+            repair_type=Weld.RepairType.POROSITY,
+        )
+
+    def test_get_project_weld_kpis_calculates_metrics(self):
+        self._create_sample_welds()
+
+        kpis = get_project_weld_kpis(self.project)
+
+        self.assertEqual(kpis["overall"]["total_welds"], 2)
+        self.assertEqual(kpis["overall"]["nde_completed"], 2)
+        self.assertEqual(kpis["overall"]["accepted"], 1)
+        self.assertEqual(kpis["overall"]["repairs"], 1)
+        self.assertAlmostEqual(
+            float(kpis["overall"]["total_weld_inches"]),
+            62.8,
+            places=2,
+        )
+        self.assertAlmostEqual(
+            float(kpis["overall"]["average_weld_inches_per_weld"]),
+            31.4,
+            places=2,
+        )
+        self.assertAlmostEqual(
+            float(kpis["overall"]["project_repair_rate"]),
+            50.0,
+            places=1,
+        )
+
+        self.assertEqual(len(kpis["wps_stats"]), 2)
+        wps_labels = {entry["wps_label"] for entry in kpis["wps_stats"]}
+        self.assertSetEqual(wps_labels, {"WPS-100", "WPS-200"})
+
+        welder_stats = {entry["welder_stencil"]: entry for entry in kpis["welder_stats"]}
+        self.assertEqual(welder_stats["A1"]["weld_count"], 2)
+        self.assertEqual(welder_stats["A1"]["repair_repair_pass_count"], 1)
+        self.assertEqual(welder_stats["B2"]["weld_count"], 2)
+
+        self.assertEqual(len(kpis["production"]["time_series"]), 2)
+        self.assertIsNotNone(kpis["production"]["best_day"])
+        self.assertIsNotNone(kpis["production"]["worst_day"])
+
+        self.assertEqual(len(kpis["repair_type_stats"]), 1)
+        self.assertEqual(kpis["repair_type_stats"][0]["repair_count"], 1)
+
+        self.assertEqual(len(kpis["repair_nde_rig_stats"]), 1)
+        self.assertEqual(kpis["repair_nde_rig_stats"][0]["repair_count"], 1)
+
+    def test_build_chart_payload_is_serializable(self):
+        self._create_sample_welds()
+        kpis = get_project_weld_kpis(self.project)
+        payload = build_weld_dashboard_chart_payload(kpis)
+
+        self.assertIsInstance(payload["repair_rate_by_wps"]["repair_rates"][0], float)
+        self.assertIsInstance(payload["repair_rate_by_welder"]["repair_rates"][0], float)
+        self.assertRegex(payload["weld_inches_by_day"]["labels"][0], r"\d{4}-\d{2}-\d{2}")
 

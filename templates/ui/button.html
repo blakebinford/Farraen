@@ -1,0 +1,14 @@
+{#
+  Usage:
+  {% include 'ui/button.html' with label='Create workspace' variant='primary' size='md' icon=icon_plus type='submit' %}
+  Available variants: primary, secondary, ghost
+  Available sizes: sm, md, lg
+#}
+{% with variant=variant|default:'primary' size=size|default:'md' type=type|default:'button' %}
+<button type="{{ type }}" class="btn btn--{{ variant }} btn--{{ size }} {{ class|default:'' }}" {% if aria_label %}aria-label="{{ aria_label }}"{% endif %}>
+  {% if icon %}
+    <span aria-hidden="true">{{ icon|safe }}</span>
+  {% endif %}
+  <span>{{ label }}</span>
+</button>
+{% endwith %}

@@ -1,0 +1,12 @@
+{#
+  Usage:
+  {% include 'ui/empty_state.html' with title='No workflows yet' body='Create your first workflow to automate QA.' %}
+#}
+<div class="empty-state {{ class|default:'' }}">
+  <div class="avatar" style="width:64px;height:64px;border-radius:var(--radius-lg);margin:0 auto;">✨</div>
+  <div>
+    <h3 style="margin:0;font-size:1.3rem;font-family:var(--font-heading);">{{ title }}</h3>
+    {% if body %}<p style="margin-top:var(--space-4); color:var(--color-text-secondary);">{{ body }}</p>{% endif %}
+  </div>
+  {% if actions %}<div style="display:flex; justify-content:center; gap:var(--space-4);">{{ actions|safe }}</div>{% endif %}
+</div>

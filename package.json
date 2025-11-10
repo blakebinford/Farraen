@@ -1,0 +1,16 @@
+{
+  "name": "ferraen-design-system",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "tailwindcss -i ./static/styles/global.css -o ./static/styles/app.css --watch",
+    "build": "tailwindcss -i ./static/styles/global.css -o ./static/styles/app.css --minify"
+  },
+  "devDependencies": {
+    "@tailwindcss/forms": "^0.5.7",
+    "@tailwindcss/typography": "^0.5.10",
+    "autoprefixer": "^10.4.16",
+    "postcss": "^8.4.31",
+    "tailwindcss": "^3.4.4"
+  }
+}

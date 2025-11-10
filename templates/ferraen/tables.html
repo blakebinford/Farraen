@@ -1,0 +1,95 @@
+{% extends 'base.html' %}
+{% block page_title %}Ferraen · Data Tables{% endblock %}
+{% block header_title %}Workflow ledger{% endblock %}
+{% block content %}
+<section class="card" style="gap:var(--space-6);">
+  <header style="display:flex; justify-content:space-between; align-items:center; gap:var(--space-6); flex-wrap:wrap;">
+    <div>
+      <div class="kpi-card__label">Table controls</div>
+      <h1 style="margin:0; font-size:1.35rem; font-family:var(--font-heading);">All automations</h1>
+    </div>
+    <div style="display:flex; gap:var(--space-4);">
+      <div class="chip-row">
+        <span class="chip">Status: Healthy</span>
+        <span class="chip">Owner: You</span>
+        <span class="chip">Latency &lt; 250ms</span>
+      </div>
+      <button class="btn btn--primary btn--sm" type="button">New workflow</button>
+    </div>
+  </header>
+  <div class="table-shell">
+    <table>
+      <thead>
+        <tr>
+          <th scope="col">Workflow</th>
+          <th scope="col">Status</th>
+          <th scope="col">Throughput</th>
+          <th scope="col">Updated</th>
+          <th scope="col">Owner</th>
+          <th scope="col">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Saturn pipeline</td>
+          <td><span class="badge badge--success">Healthy</span></td>
+          <td>412 / min</td>
+          <td>2m ago</td>
+          <td><div class="avatar">JS</div></td>
+          <td style="display:flex; gap:var(--space-3);">
+            <button class="btn btn--ghost btn--sm" type="button">Open</button>
+            <button class="btn btn--ghost btn--sm" type="button">History</button>
+          </td>
+        </tr>
+        <tr>
+          <td>Atlas ingest</td>
+          <td><span class="badge badge--warning">Degraded</span></td>
+          <td>280 / min</td>
+          <td>12m ago</td>
+          <td><div class="avatar">AR</div></td>
+          <td style="display:flex; gap:var(--space-3);">
+            <button class="btn btn--ghost btn--sm" type="button">Open</button>
+            <button class="btn btn--ghost btn--sm" type="button">History</button>
+          </td>
+        </tr>
+        <tr>
+          <td>Nova sync</td>
+          <td><span class="badge badge--success">Healthy</span></td>
+          <td>198 / min</td>
+          <td>34m ago</td>
+          <td><div class="avatar">LC</div></td>
+          <td style="display:flex; gap:var(--space-3);">
+            <button class="btn btn--ghost btn--sm" type="button">Open</button>
+            <button class="btn btn--ghost btn--sm" type="button">History</button>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="table-pagination">
+      <div style="display:flex; gap:var(--space-4); align-items:center;">
+        <span>Rows per page</span>
+        <select class="input" style="width:auto;">
+          <option>25</option>
+          <option>50</option>
+          <option>100</option>
+        </select>
+      </div>
+      <div style="display:flex; gap:var(--space-3); align-items:center;">
+        <button class="btn btn--ghost btn--sm" type="button">Prev</button>
+        <span>1 / 8</span>
+        <button class="btn btn--ghost btn--sm" type="button">Next</button>
+      </div>
+    </div>
+  </div>
+</section>
+<section class="card" style="gap:var(--space-6);">
+  <header style="display:flex; justify-content:space-between; align-items:center;">
+    <div>
+      <div class="kpi-card__label">Empty state</div>
+      <h2 style="margin:0; font-size:1.2rem; font-family:var(--font-heading);">No archived workflows</h2>
+    </div>
+    <button class="btn btn--ghost btn--sm" type="button">Manage columns</button>
+  </header>
+  {% include 'ui/empty_state.html' with title='Archive is spotless' body='Nothing has been shelved yet. Archive workflows when you are ready to pause them.' actions='<button class="btn btn--primary btn--sm" type="button">Create rule</button>' %}
+</section>
+{% endblock %}

@@ -1,5 +1,12 @@
+import logging
+
 from django.conf import settings
 from django.db import models
+
+from drive.models import FileNode, Folder
+
+
+logger = logging.getLogger(__name__)
 
 
 class MaterialHeat(models.Model):
@@ -46,10 +53,45 @@ class MaterialHeat(models.Model):
         return f"{self.heat_number} ({self.org.slug})"
 
 
+class Welder(models.Model):
+    org = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.CASCADE,
+        related_name="welders",
+    )
+    name = models.CharField(max_length=255)
+    stencil = models.CharField(max_length=50)
+    employee_id = models.CharField(max_length=120, blank=True)
+    is_active = models.BooleanField(default=True)
+    notes = models.TextField(blank=True)
+    approved_wps = models.ManyToManyField(
+        FileNode,
+        blank=True,
+        related_name="approved_welders",
+        limit_choices_to={"doc_type": FileNode.DocType.WPS},
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["stencil", "name"]
+        unique_together = [("org", "stencil")]
+
+    def __str__(self) -> str:
+        return f"{self.stencil} – {self.name}"
+
+
 class NDERig(models.Model):
     org = models.ForeignKey(
         "organizations.Organization",
         on_delete=models.CASCADE,
+        related_name="nde_rigs",
+    )
+    project = models.ForeignKey(
+        "projects.Project",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
         related_name="nde_rigs",
     )
     name = models.CharField(max_length=120)
@@ -57,13 +99,68 @@ class NDERig(models.Model):
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    qualification_folder = models.OneToOneField(
+        Folder,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="nde_rig",
+    )
 
     class Meta:
         ordering = ["name"]
-        unique_together = [("org", "name")]
+        unique_together = [("org", "project", "name")]
 
     def __str__(self) -> str:
         return f"{self.name} ({self.org.slug})"
+
+    def save(self, *args, **kwargs):
+        is_new = self.pk is None
+        super().save(*args, **kwargs)
+        if is_new and self.project_id and not self.qualification_folder_id:
+            folder = self._ensure_qualification_folder()
+            if folder:
+                type(self).objects.filter(pk=self.pk).update(
+                    qualification_folder=folder
+                )
+                self.qualification_folder = folder
+
+    def _ensure_qualification_folder(self):
+        if not self.project_id:
+            return None
+        inspector_root = (
+            Folder.objects.filter(
+                org=self.org,
+                project=self.project,
+                name="Inspector Qualification",
+            )
+            .order_by("depth")
+            .first()
+        )
+        if not inspector_root:
+            logger.warning(
+                "Inspector Qualification folder missing when creating NDE rig",
+                extra={
+                    "org_id": self.org_id,
+                    "project_id": self.project_id,
+                    "nde_rig_name": self.name,
+                },
+            )
+            return None
+        existing = Folder.objects.filter(
+            org=self.org,
+            project=self.project,
+            parent=inspector_root,
+            name=self.name,
+        ).first()
+        if existing:
+            return existing
+        return Folder.objects.create(
+            org=self.org,
+            project=self.project,
+            parent=inspector_root,
+            name=self.name,
+        )
 
 
 class Weld(models.Model):
@@ -154,6 +251,13 @@ class Weld(models.Model):
         help_text="Primary weld type for this joint",
     )
     date_welded = models.DateField(null=True, blank=True)
+    welder = models.ForeignKey(
+        Welder,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="welds",
+    )
     welder_stencil_root_hotpass = models.CharField(max_length=120, blank=True)
     welder_stencil_fill = models.CharField(max_length=120, blank=True)
     welder_stencil_fill_additional = models.CharField(max_length=120, blank=True)
@@ -203,3 +307,8 @@ class Weld(models.Model):
 
     def __str__(self) -> str:
         return f"{self.project}::{self.weld_id}"
+
+    def save(self, *args, **kwargs):
+        if self.welder and self.welder_stencil_root_hotpass != self.welder.stencil:
+            self.welder_stencil_root_hotpass = self.welder.stencil
+        super().save(*args, **kwargs)

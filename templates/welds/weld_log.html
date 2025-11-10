@@ -167,6 +167,7 @@
       const heatOptionsEndpoint = "{{ heat_options_url }}";
       const heatSearchEndpoint = "{{ heat_search_url }}";
       const ndeRigsEndpoint = "{{ nde_rigs_url }}";
+      const welderOptionsEndpoint = "{{ welder_options_url }}";
 
       const statusEl = document.getElementById("weld-log-status");
       const saveBtn = document.getElementById("weld-log-save");
@@ -179,6 +180,7 @@
 
       const heatCache = new Map();
       const ndeRigCache = new Map();
+      const welderCache = new Map();
       const dirtyRows = new Set();
       const pendingRowSaves = new WeakMap();
       let suppressRowAddedEvents = false;
@@ -407,8 +409,31 @@
         if (!option || !option.id) {
           return option;
         }
-        ndeRigCache.set(option.id, option);
-        return option;
+        const normalized = {
+          ...option,
+          id: option.id,
+          name: option.name || option.label || "",
+          qualification_folder_url: option.qualification_folder_url || "",
+          qualification_folder_name: option.qualification_folder_name || "",
+        };
+        ndeRigCache.set(normalized.id, normalized);
+        return normalized;
+      }
+
+      function rememberWelder(option) {
+        if (!option || !option.id) {
+          return option;
+        }
+        const normalized = {
+          ...option,
+          id: option.id,
+          stencil: option.stencil || option.label || "",
+          name: option.name || "",
+          description: option.description || option.name || "",
+          label: option.label || option.stencil || option.name || "",
+        };
+        welderCache.set(normalized.id, normalized);
+        return normalized;
       }
 
       function formatValidationErrors(result) {
@@ -461,6 +486,9 @@
           nde_type: null,
           nde_type_label: row.nde_type_label ?? "",
           date_welded: row.date_welded || "",
+          welder: row.welder_id ?? null,
+          welder_name: row.welder_name ?? "",
+          welder_stencil: row.welder_stencil ?? row.welder_stencil_root_hotpass ?? "",
           welder_stencil_root_hotpass: row.welder_stencil_root_hotpass ?? "",
           welder_stencil_fill: row.welder_stencil_fill ?? "",
           welder_stencil_fill_additional: row.welder_stencil_fill_additional ?? "",
@@ -489,6 +517,8 @@
           material2_wall_thickness_in: row.material2_wall_thickness_in ?? "",
           nde_rig: row.nde_rig_id ?? null,
           nde_rig_name: row.nde_rig_name ?? "",
+          nde_rig_folder_url: row.nde_rig_folder_url ?? "",
+          nde_rig_folder_name: row.nde_rig_folder_name ?? "",
           created_at: row.created_at || "",
           updated_at: row.updated_at || "",
           created_by_id: row.created_by_id ?? null,
@@ -526,7 +556,20 @@
         }
 
         if (normalized.nde_rig && row.nde_rig_name) {
-          rememberNdeRig({ id: normalized.nde_rig, name: row.nde_rig_name });
+          rememberNdeRig({
+            id: normalized.nde_rig,
+            name: row.nde_rig_name,
+            qualification_folder_url: row.nde_rig_folder_url || "",
+            qualification_folder_name: row.nde_rig_folder_name || "",
+          });
+        }
+
+        if (normalized.welder && (row.welder_stencil || row.welder_name)) {
+          rememberWelder({
+            id: normalized.welder,
+            stencil: row.welder_stencil || row.welder_stencil_root_hotpass || "",
+            name: row.welder_name || "",
+          });
         }
 
         normalized.weld_type = normalizeChoiceValue(row.weld_type);
@@ -563,6 +606,7 @@
           drawing_number: row.drawing_number ?? "",
           weld_type: row.weld_type || null,
           date_welded: row.date_welded || "",
+          welder_id: row.welder ?? null,
           welder_stencil_root_hotpass: row.welder_stencil_root_hotpass ?? "",
           welder_stencil_fill: row.welder_stencil_fill ?? "",
           welder_stencil_fill_additional: row.welder_stencil_fill_additional ?? "",
@@ -666,10 +710,27 @@
           }
           const payload = await response.json();
           const rigs = payload.nde_rigs || [];
-          rigs.forEach(option => rememberNdeRig(option));
-          return rigs;
+          return rigs.map(option => rememberNdeRig(option));
         } catch (error) {
           console.error("Failed to load NDE rigs", error);
+          return [];
+        }
+      }
+
+      async function preloadWelders() {
+        if (!welderOptionsEndpoint) {
+          return [];
+        }
+        try {
+          const response = await fetch(welderOptionsEndpoint, { credentials: "same-origin" });
+          if (!response.ok) {
+            return [];
+          }
+          const payload = await response.json();
+          const welders = payload.welders || [];
+          return welders.map(option => rememberWelder(option));
+        } catch (error) {
+          console.error("Failed to load welders", error);
           return [];
         }
       }
@@ -721,15 +782,40 @@
         };
       }
 
-      function formatNdeRigValue(value, dataLabel) {
+      function formatNdeRigValue(value, dataLabel, folderUrl) {
         if (!value) {
           return "";
         }
         const cached = ndeRigCache.get(value);
-        if (cached) {
-          return cached.name;
+        const name = cached ? cached.name : dataLabel || "";
+        const url = cached ? cached.qualification_folder_url : folderUrl || "";
+        if (url && name) {
+          const link = document.createElement("a");
+          link.href = url;
+          link.textContent = name;
+          link.target = "_blank";
+          link.rel = "noopener noreferrer";
+          link.className = "heat-link";
+          const title = cached?.qualification_folder_name || name;
+          if (title) {
+            link.title = title;
+          }
+          return link;
         }
-        return dataLabel || "";
+        return name;
+      }
+
+      function formatWelderValue(value, data) {
+        if (!value) {
+          return "";
+        }
+        const cached = welderCache.get(value);
+        const stencil = cached ? cached.stencil : data?.welder_stencil || "";
+        const name = cached ? cached.name : data?.welder_name || "";
+        if (stencil && name) {
+          return `${stencil} – ${name}`;
+        }
+        return stencil || name || "";
       }
 
       function lookupEditorFactory({ search, getInitialLabel, onSelect, placeholder = "Type to search" }) {
@@ -825,7 +911,7 @@
         item.tabIndex = -1;
 
         const title = document.createElement("strong");
-        title.textContent = option.heat_number || option.name || option.label || "";
+        title.textContent = option.label || option.heat_number || option.name || "";
         item.appendChild(title);
 
         const meta = document.createElement("span");
@@ -870,7 +956,9 @@
         finalizeSuccess(null);
         return;
       }
-      input.value = option.heat_number || option.name || option.label || "";
+      const displayValue =
+        option.label || option.heat_number || option.name || "";
+      input.value = displayValue;
       onSelect(option, cell);
       finalizeSuccess(option.id ?? null);
     }
@@ -993,7 +1081,14 @@
       const ndeRigEditor = lookupEditorFactory({
         placeholder: "Search NDE rigs",
         getInitialLabel(value, data) {
-          return formatNdeRigValue(value, data ? data.nde_rig_name : "");
+          if (!value) {
+            return "";
+          }
+          const cached = ndeRigCache.get(value);
+          if (cached) {
+            return cached.name;
+          }
+          return data ? data.nde_rig_name || "" : "";
         },
         async search(term) {
           const normalized = (term || "").toLowerCase();
@@ -1013,7 +1108,9 @@
               const payload = await response.json();
               const rigs = payload.nde_rigs || [];
               rigs.forEach(option => rememberNdeRig(option));
-              return rigs.filter(option => option.name.toLowerCase().includes(normalized));
+              return rigs
+                .map(option => rememberNdeRig(option))
+                .filter(option => option.name.toLowerCase().includes(normalized));
             }
           } catch (error) {
             console.error("Failed to refresh NDE rigs", error);
@@ -1023,11 +1120,83 @@
         onSelect(option, cell) {
           const row = cell.getRow();
           if (!option) {
-            row.update({ nde_rig_name: "" });
+            row.update({ nde_rig_name: "", nde_rig_folder_url: "" });
             return;
           }
-          rememberNdeRig(option);
-          row.update({ nde_rig_name: option.name || "" });
+          const normalized = rememberNdeRig(option);
+          row.update({
+            nde_rig_name: normalized.name || "",
+            nde_rig_folder_url: normalized.qualification_folder_url || "",
+            nde_rig_folder_name: normalized.qualification_folder_name || "",
+          });
+        },
+      });
+
+      const welderEditor = lookupEditorFactory({
+        placeholder: "Search welders",
+        getInitialLabel(value, data) {
+          return formatWelderValue(value, data);
+        },
+        async search(term) {
+          const normalized = (term || "").toLowerCase();
+          const matches = [];
+          for (const option of welderCache.values()) {
+            const haystack = [option.stencil, option.name]
+              .filter(Boolean)
+              .join(" ")
+              .toLowerCase();
+            if (!normalized || haystack.includes(normalized)) {
+              matches.push(option);
+            }
+          }
+          matches.sort((a, b) => {
+            const stencilA = a.stencil || "";
+            const stencilB = b.stencil || "";
+            if (stencilA && stencilB) {
+              return stencilA.localeCompare(stencilB);
+            }
+            return (a.name || "").localeCompare(b.name || "");
+          });
+          if (matches.length || !welderOptionsEndpoint) {
+            return matches;
+          }
+          try {
+            const response = await fetch(welderOptionsEndpoint, { credentials: "same-origin" });
+            if (response.ok) {
+              const payload = await response.json();
+              const welders = payload.welders || [];
+              welders.forEach(option => rememberWelder(option));
+              return welders
+                .map(option => rememberWelder(option))
+                .filter(option => {
+                  const haystack = [option.stencil, option.name]
+                    .filter(Boolean)
+                    .join(" ")
+                    .toLowerCase();
+                  return !normalized || haystack.includes(normalized);
+                });
+            }
+          } catch (error) {
+            console.error("Failed to refresh welder options", error);
+          }
+          return matches;
+        },
+        onSelect(option, cell) {
+          const row = cell.getRow();
+          if (!option) {
+            row.update({
+              welder_name: "",
+              welder_stencil: "",
+              welder_stencil_root_hotpass: "",
+            });
+            return;
+          }
+          const normalized = rememberWelder(option);
+          row.update({
+            welder_name: normalized.name || "",
+            welder_stencil: normalized.stencil || "",
+            welder_stencil_root_hotpass: normalized.stencil || "",
+          });
         },
       });
 
@@ -1198,7 +1367,19 @@
             field: "date_welded",
             headerSort: true,
             editor: simpleDateEditor,
-            
+
+          },
+          {
+            title: "Welder",
+            field: "welder",
+            headerSort: true,
+            formatter(cell) {
+              const data = cell.getRow().getData();
+              return formatWelderValue(cell.getValue(), data);
+            },
+            editor(cell, onRendered, success, cancel) {
+              return welderEditor(cell, onRendered, success, cancel);
+            },
           },
           {
             title: "Welder Root/Hot Pass",
@@ -1236,7 +1417,11 @@
             headerSort: true,
             formatter(cell) {
               const data = cell.getRow().getData();
-              return formatNdeRigValue(cell.getValue(), data.nde_rig_name);
+              return formatNdeRigValue(
+                cell.getValue(),
+                data.nde_rig_name,
+                data.nde_rig_folder_url,
+              );
             },
             editor: function (cell, onRendered, success, cancel) {
               return ndeRigEditor(cell, onRendered, success, cancel);
@@ -1625,7 +1810,7 @@
 
       async function loadData() {
         setStatus("Loading weld log…");
-        await Promise.all([preloadHeatOptions(), preloadNdeRigs()]);
+        await Promise.all([preloadHeatOptions(), preloadNdeRigs(), preloadWelders()]);
         try {
           const response = await fetch(dataEndpoint, { credentials: "same-origin" });
           if (!response.ok) {

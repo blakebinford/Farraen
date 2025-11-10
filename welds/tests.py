@@ -5,11 +5,95 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
 
+from drive.models import FileNode, Folder
 from organizations.models import Membership, Organization
 from projects.models import Project, ProjectMember
 
-from .models import MaterialHeat, NDERig, Weld
+from .models import MaterialHeat, NDERig, Welder, Weld
 from .views import _migrations_required_message
+
+
+class WelderModelTests(TestCase):
+    def setUp(self):
+        User = get_user_model()
+        self.user = User.objects.create_user(
+            email="welder@example.com",
+            password="pass1234",
+        )
+        self.org = Organization.objects.create(
+            name="Acme", slug="acme", owner=self.user
+        )
+        Membership.objects.create(
+            org=self.org,
+            user=self.user,
+            role=Membership.Role.ADMIN,
+        )
+        self.project = Project.objects.create(
+            org=self.org,
+            name="Pipeline A",
+            slug="pipeline-a",
+            created_by=self.user,
+            is_archived=False,
+        )
+
+    def test_welder_can_link_wps_documents(self):
+        welder = Welder.objects.create(
+            org=self.org,
+            name="Alice Welder",
+            stencil="A123",
+        )
+        wps_folder = Folder.objects.get(
+            org=self.org, project=self.project, name="WPS"
+        )
+        wps = FileNode.objects.create(
+            org=self.org,
+            project=self.project,
+            folder=wps_folder,
+            name="WPS-001.pdf",
+            doc_type=FileNode.DocType.WPS,
+        )
+
+        welder.approved_wps.add(wps)
+
+        self.assertIn(wps, welder.approved_wps.all())
+
+
+class NDERigModelTests(TestCase):
+    def setUp(self):
+        User = get_user_model()
+        self.user = User.objects.create_user(
+            email="nde@example.com",
+            password="pass1234",
+        )
+        self.org = Organization.objects.create(
+            name="Acme", slug="acme", owner=self.user
+        )
+        Membership.objects.create(
+            org=self.org,
+            user=self.user,
+            role=Membership.Role.ADMIN,
+        )
+        self.project = Project.objects.create(
+            org=self.org,
+            name="Pipeline A",
+            slug="pipeline-a",
+            created_by=self.user,
+            is_archived=False,
+        )
+
+    def test_qualification_folder_created(self):
+        rig = NDERig.objects.create(
+            org=self.org,
+            project=self.project,
+            name="Gamma Rig",
+        )
+        rig.refresh_from_db()
+        self.assertIsNotNone(rig.qualification_folder)
+        self.assertEqual(rig.qualification_folder.name, rig.name)
+        self.assertEqual(
+            rig.qualification_folder.parent.name,
+            "Inspector Qualification",
+        )
 
 
 class WeldLogAPITests(TestCase):
@@ -50,7 +134,14 @@ class WeldLogAPITests(TestCase):
         )
         self.rig = NDERig.objects.create(
             org=self.org,
+            project=self.project,
             name="Gamma Rig",
+        )
+        self.rig.refresh_from_db()
+        self.welder = Welder.objects.create(
+            org=self.org,
+            name="Alice Welder",
+            stencil="A123",
         )
         self.client.force_login(self.user)
 
@@ -69,6 +160,7 @@ class WeldLogAPITests(TestCase):
             "material1_heat_id": self.heat.id,
             "material2_heat_id": self.heat.id,
             "nde_rig_id": self.rig.id,
+            "welder_id": self.welder.id,
             "disposition": Weld.Disposition.ACCEPTED,
         }
         response = self.client.post(
@@ -82,12 +174,21 @@ class WeldLogAPITests(TestCase):
         self.assertEqual(data["material1_grade"], self.heat.material_grade)
         self.assertEqual(data["material1_outer_diameter_in"], "10.75")
         self.assertEqual(data["nde_rig_name"], self.rig.name)
+        self.assertEqual(data["welder_id"], self.welder.id)
+        self.assertEqual(data["welder_name"], self.welder.name)
+        self.assertEqual(data["welder_stencil"], self.welder.stencil)
+        self.assertEqual(
+            data["welder_stencil_root_hotpass"], self.welder.stencil
+        )
+        self.assertTrue(data["nde_rig_folder_url"])
 
         weld = Weld.objects.get(pk=data["id"])
         self.assertEqual(weld.material1_heat, self.heat)
         self.assertEqual(weld.material1_description, self.heat.description)
         self.assertEqual(weld.material2_heat, self.heat)
         self.assertEqual(weld.nde_rig, self.rig)
+        self.assertEqual(weld.welder, self.welder)
+        self.assertEqual(weld.welder_stencil_root_hotpass, self.welder.stencil)
 
     def test_repair_disposition_requires_comment(self):
         payload = {
@@ -124,6 +225,14 @@ class WeldLogAPITests(TestCase):
         self.assertEqual(len(heats), 1)
         self.assertEqual(heats[0]["heat_number"], self.heat.heat_number)
 
+    def test_welder_options_endpoint(self):
+        url = self._data_url("weld_welder_options")
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        welders = response.json().get("welders", [])
+        self.assertEqual(len(welders), 1)
+        self.assertEqual(welders[0]["stencil"], self.welder.stencil)
+
     def test_material_heat_search_endpoint(self):
         url = self._data_url("weld_material_heat_search")
         response = self.client.get(url, {"q": "H-1"})
@@ -137,6 +246,23 @@ class WeldLogAPITests(TestCase):
         self.assertEqual(match["grade"], self.heat.material_grade)
         self.assertEqual(match["od"], "10.75")
 
+    def test_nde_rig_options_include_folder_link(self):
+        url = self._data_url("weld_nde_rig_options")
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        rigs = response.json().get("nde_rigs", [])
+        self.assertEqual(len(rigs), 1)
+        rig = rigs[0]
+        expected_url = reverse(
+            "drive_folder",
+            kwargs={
+                "org_slug": self.org.slug,
+                "project_slug": self.project.slug,
+                "folder_id": self.rig.qualification_folder_id,
+            },
+        )
+        self.assertEqual(rig["qualification_folder_url"], expected_url)
+
     def test_material_heat_search_requires_two_characters(self):
         url = self._data_url("weld_material_heat_search")
         response = self.client.get(url, {"q": "H"})
@@ -147,6 +273,8 @@ class WeldLogAPITests(TestCase):
         Weld.objects.create(
             project=self.project,
             weld_id="W-ROW-1",
+            welder=self.welder,
+            nde_rig=self.rig,
             created_by=self.user,
             updated_by=self.user,
         )
@@ -156,6 +284,11 @@ class WeldLogAPITests(TestCase):
         self.assertIn("row_count", payload)
         self.assertEqual(payload["row_count"], 1)
         self.assertEqual(len(payload.get("rows", [])), 1)
+        row = payload["rows"][0]
+        self.assertEqual(row["welder_id"], self.welder.id)
+        self.assertEqual(row["welder_stencil"], self.welder.stencil)
+        self.assertEqual(row["nde_rig_id"], self.rig.id)
+        self.assertTrue(row["nde_rig_folder_url"])
 
 
 class WeldLogMissingTablesTests(TestCase):
@@ -227,5 +360,10 @@ class WeldLogMissingTablesTests(TestCase):
         response = self.client.get(self._weld_log_url("weld_nde_rig_options"))
         self.assertEqual(response.status_code, 503)
         self.assertEqual(response.json(), {"error": expected_message})
-        self.assertEqual(mock_missing.call_count, 3)
+
+        response = self.client.get(self._weld_log_url("weld_welder_options"))
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json(), {"error": expected_message})
+
+        self.assertEqual(mock_missing.call_count, 4)
 

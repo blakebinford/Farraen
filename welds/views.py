@@ -3,6 +3,7 @@ import logging
 from decimal import Decimal, InvalidOperation
 
 from django.db import connection
+from django.db.models import Q
 from django.http import JsonResponse, HttpResponseBadRequest, HttpResponseForbidden
 from django.shortcuts import render, get_object_or_404
 from django.urls import reverse
@@ -12,7 +13,7 @@ from django.views.decorators.http import require_http_methods
 from organizations.decorators import require_membership
 from projects.utils import get_project_for_request, user_has_project_access
 
-from .models import MaterialHeat, NDERig, Weld
+from .models import MaterialHeat, NDERig, Welder, Weld
 
 
 logger = logging.getLogger(__name__)
@@ -27,6 +28,7 @@ def _missing_weld_tables():
     required = {
         MaterialHeat._meta.db_table: "material heat records",
         NDERig._meta.db_table: "NDE rigs",
+        Welder._meta.db_table: "welders",
         Weld._meta.db_table: "weld log entries",
     }
     missing = [label for table, label in required.items() if table not in existing]
@@ -111,6 +113,19 @@ def _choice_options(choices) -> list[dict]:
     return [{"value": value, "label": label} for value, label in choices]
 
 
+def _folder_url(folder, *, org_slug: str | None = None, project_slug: str | None = None) -> str:
+    if not folder or not org_slug or not project_slug:
+        return ""
+    return reverse(
+        "drive_folder",
+        kwargs={
+            "org_slug": org_slug,
+            "project_slug": project_slug,
+            "folder_id": folder.id,
+        },
+    )
+
+
 def _serialize_weld(
     weld: Weld,
     *,
@@ -127,6 +142,9 @@ def _serialize_weld(
         "weld_type": weld.weld_type or None,
         "weld_type_label": weld.get_weld_type_display() if weld.weld_type else "",
         "date_welded": weld.date_welded.isoformat() if weld.date_welded else "",
+        "welder_id": weld.welder_id,
+        "welder_name": weld.welder.name if weld.welder else "",
+        "welder_stencil": weld.welder.stencil if weld.welder else "",
         "welder_stencil_root_hotpass": weld.welder_stencil_root_hotpass,
         "welder_stencil_fill": weld.welder_stencil_fill,
         "welder_stencil_fill_additional": weld.welder_stencil_fill_additional,
@@ -134,6 +152,16 @@ def _serialize_weld(
         "nde_date": weld.nde_date.isoformat() if weld.nde_date else "",
         "nde_rig_id": weld.nde_rig_id,
         "nde_rig_name": weld.nde_rig.name if weld.nde_rig else "",
+        "nde_rig_folder_url": _folder_url(
+            getattr(weld.nde_rig, "qualification_folder", None),
+            org_slug=org_slug,
+            project_slug=project_slug,
+        ),
+        "nde_rig_folder_name": (
+            weld.nde_rig.qualification_folder.name
+            if getattr(weld.nde_rig, "qualification_folder", None)
+            else ""
+        ),
         "repair_type": weld.repair_type,
         "repair_type_label": weld.get_repair_type_display()
         if weld.repair_type
@@ -269,6 +297,13 @@ def weld_log(request, org_slug, project_slug):
                         "project_slug": project.slug,
                     },
                 ),
+                "welder_options_url": reverse(
+                    "weld_welder_options",
+                    kwargs={
+                        "org_slug": request.org.slug,
+                        "project_slug": project.slug,
+                    },
+                ),
                 "disposition_options": _choice_options(Weld.Disposition.choices),
                 "disposition_default": Weld.Disposition.PENDING,
                 "weld_type_options": _choice_options(Weld.WeldType.choices),
@@ -323,7 +358,9 @@ def weld_log_data(request, org_slug, project_slug):
                 "material1_heat__mtr_document",
                 "material2_heat",
                 "material2_heat__mtr_document",
+                "welder",
                 "nde_rig",
+                "nde_rig__qualification_folder",
             )
         ]
         logger.info(
@@ -476,7 +513,9 @@ def weld_log_data(request, org_slug, project_slug):
     if nde_rig_id:
         try:
             nde_rig = NDERig.objects.get(
-                pk=nde_rig_id, org=request.org, is_active=True
+                pk=nde_rig_id,
+                org=request.org,
+                is_active=True,
             )
         except NDERig.DoesNotExist:
             logger.warning(
@@ -489,6 +528,38 @@ def weld_log_data(request, org_slug, project_slug):
                 },
             )
             return JsonResponse({"error": "Invalid NDE rig."}, status=400)
+        if nde_rig.project_id and nde_rig.project_id != project.id:
+            logger.warning(
+                "Rejecting weld save due to NDE rig project mismatch",
+                extra={
+                    "user_id": getattr(request.user, "id", None),
+                    "org_slug": org_slug,
+                    "project_slug": project_slug,
+                    "nde_rig_id": nde_rig_id,
+                },
+            )
+            return JsonResponse({"error": "Invalid NDE rig for this project."}, status=400)
+
+    welder_id = payload.get("welder_id")
+    welder = None
+    if welder_id:
+        try:
+            welder = Welder.objects.get(
+                pk=welder_id,
+                org=request.org,
+                is_active=True,
+            )
+        except Welder.DoesNotExist:
+            logger.warning(
+                "Rejecting weld save with invalid welder",
+                extra={
+                    "user_id": getattr(request.user, "id", None),
+                    "org_slug": org_slug,
+                    "project_slug": project_slug,
+                    "welder_id": welder_id,
+                },
+            )
+            return JsonResponse({"error": "Invalid welder."}, status=400)
 
     raw_weld_type = payload.get("weld_type")
     if raw_weld_type in (None, ""):
@@ -602,7 +673,10 @@ def weld_log_data(request, org_slug, project_slug):
         else material2_heat.wall_thickness_in if material2_heat else None,
         "weld_type": weld_type_value,
         "date_welded": date_welded,
-        "welder_stencil_root_hotpass": _clean_text("welder_stencil_root_hotpass"),
+        "welder": welder,
+        "welder_stencil_root_hotpass": (
+            welder.stencil if welder else _clean_text("welder_stencil_root_hotpass")
+        ),
         "welder_stencil_fill": _clean_text("welder_stencil_fill"),
         "welder_stencil_fill_additional": _clean_text(
             "welder_stencil_fill_additional"
@@ -816,6 +890,59 @@ def material_heat_search(request, org_slug, project_slug):
 
 
 @require_membership("GUEST")
+def welder_options(request, org_slug, project_slug):
+    project = get_project_for_request(request, request.org, project_slug)
+    forbidden = _require_project_membership(request, project)
+    if forbidden:
+        logger.warning(
+            "User without access attempted to query welder options",
+            extra={
+                "user_id": getattr(request.user, "id", None),
+                "org_slug": org_slug,
+                "project_slug": project_slug,
+            },
+        )
+        return forbidden
+
+    missing_tables = _missing_weld_tables()
+    if missing_tables:
+        message = _migrations_required_message(missing_tables)
+        logger.error(
+            "Welder options unavailable due to missing tables",
+            extra={
+                "user_id": getattr(request.user, "id", None),
+                "org_slug": org_slug,
+                "project_slug": project_slug,
+                "missing": missing_tables,
+            },
+        )
+        return JsonResponse({"error": message}, status=503)
+
+    welders = (
+        Welder.objects.filter(org=request.org, is_active=True)
+        .order_by("stencil", "name")
+    )
+    data = [
+        {
+            "id": welder.id,
+            "name": welder.name,
+            "stencil": welder.stencil,
+        }
+        for welder in welders
+    ]
+    logger.info(
+        "Loaded welder options",
+        extra={
+            "user_id": getattr(request.user, "id", None),
+            "org_slug": org_slug,
+            "project_slug": project_slug,
+            "welder_count": len(data),
+        },
+    )
+    return JsonResponse({"welders": data})
+
+
+@require_membership("GUEST")
 def nde_rig_options(request, org_slug, project_slug):
     project = get_project_for_request(request, request.org, project_slug)
     forbidden = _require_project_membership(request, project)
@@ -844,11 +971,24 @@ def nde_rig_options(request, org_slug, project_slug):
         )
         return JsonResponse({"error": message}, status=503)
 
-    rigs = NDERig.objects.filter(org=request.org, is_active=True).order_by("name")
+    rigs = (
+        NDERig.objects.filter(org=request.org, is_active=True)
+        .filter(Q(project=project) | Q(project__isnull=True))
+        .select_related("qualification_folder")
+        .order_by("name")
+    )
     data = [
         {
             "id": rig.id,
             "name": rig.name,
+            "qualification_folder_url": _folder_url(
+                rig.qualification_folder,
+                org_slug=request.org.slug,
+                project_slug=project.slug,
+            ),
+            "qualification_folder_name": rig.qualification_folder.name
+            if rig.qualification_folder
+            else "",
         }
         for rig in rigs
     ]

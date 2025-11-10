@@ -140,14 +140,11 @@
         <div id="weld-log-status" class="small text-muted mt-2" role="status"></div>
       </div>
     </div>
-  {% endif %}
-{% endblock %}
-
-{% if not setup_error %}
-  <script src="https://cdn.jsdelivr.net/npm/tabulator-tables@5.5.2/dist/js/tabulator.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <script>
-    (function () {
+  {% if not setup_error %}
+    <script src="https://cdn.jsdelivr.net/npm/tabulator-tables@5.5.2/dist/js/tabulator.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <script>
+      (function () {
       const dataEndpoint = "{{ data_url }}";
       const heatOptionsEndpoint = "{{ heat_options_url }}";
       const heatSearchEndpoint = "{{ heat_search_url }}";
@@ -187,7 +184,9 @@
         if (!statusEl || !table) {
           return;
         }
-        const totalRows = table.getData().length;
+        const totalRows = typeof table.getDataCount === "function"
+          ? table.getDataCount("active")
+          : table.getData().length;
         const selected = table.getSelectedData().length;
         const dirtyCount = dirtyRows.size;
         const summary = [
@@ -197,6 +196,17 @@
         ].join(" • ");
         const suffix = extra ? ` – ${extra}` : "";
         statusEl.textContent = `${summary}${suffix}`;
+      }
+
+      function formatIsoDateTime(value) {
+        if (!value) {
+          return "";
+        }
+        return String(value)
+          .replace("T", " ")
+          .replace(/Z$/, "")
+          .replace(/\+\d{2}:?\d{2}$/, "")
+          .replace(/\.\d+/, "");
       }
 
       function getCsrfToken() {
@@ -261,6 +271,10 @@
           nde_rig_name: row.nde_rig_name ?? "",
           created_at: row.created_at || "",
           updated_at: row.updated_at || "",
+          created_by_id: row.created_by_id ?? null,
+          created_by_name: row.created_by_name ?? "",
+          updated_by_id: row.updated_by_id ?? null,
+          updated_by_name: row.updated_by_name ?? "",
         };
 
         if (normalized.material1_heat && row.material1_heat_number) {
@@ -653,6 +667,16 @@
         },
       });
 
+      function validateDispositionComment(cell, value) {
+        const disposition = cell.getRow().getData().disposition;
+        if (disposition === "repair" || disposition === "cut_out") {
+          if (!value || !String(value).trim()) {
+            return "Comment required when disposition is Repair or Cut Out.";
+          }
+        }
+        return true;
+      }
+
       let table = null;
 
       function buildColumns() {
@@ -831,13 +855,35 @@
             field: "disposition_comment",
             editor: "input",
             headerSort: true,
+            validator: [validateDispositionComment],
+          },
+          {
+            title: "Created",
+            field: "created_at",
+            headerSort: true,
+            mutator(value) {
+              return formatIsoDateTime(value);
+            },
+            editable: false,
+          },
+          {
+            title: "Created By",
+            field: "created_by_name",
+            headerSort: true,
+            editable: false,
+          },
+          {
+            title: "Updated By",
+            field: "updated_by_name",
+            headerSort: true,
+            editable: false,
           },
           {
             title: "Updated",
             field: "updated_at",
             headerSort: true,
             mutator(value) {
-              return value ? value.replace("T", " ") : "";
+              return formatIsoDateTime(value);
             },
             editable: false,
           },
@@ -881,6 +927,10 @@
         const row = cell.getRow();
         dirtyRows.add(row);
         row.getElement()?.classList.add("is-dirty");
+        if (cell.getField() === "disposition") {
+          const commentCell = row.getCell("disposition_comment");
+          commentCell?.validate();
+        }
         updateStatusCounts();
       });
 
@@ -996,5 +1046,6 @@
 
       loadData();
     })();
-  </script>
-{% endif %}
+    </script>
+  {% endif %}
+{% endblock %}

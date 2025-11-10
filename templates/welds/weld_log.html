@@ -97,6 +97,95 @@
       {{ setup_error }}
     </div>
   {% else %}
+    <div class="card mb-4" id="weld-entry-card">
+      <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+        <div>
+          <h2 class="h5 mb-0">Weld log entry</h2>
+          <p class="text-muted small mb-0">Start typing a heat number to pull the latest MTR metadata.</p>
+        </div>
+        <span class="badge text-bg-light">Type at least two characters</span>
+      </div>
+      <div class="card-body">
+        <form id="weld-entry-form" class="row gy-4" autocomplete="off">
+          <div class="col-12">
+            <h3 class="h6 text-uppercase text-muted mb-3">Material 1</h3>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label" for="material1_heat_number">Heat number</label>
+            <div class="heat-autocomplete">
+              <input
+                type="text"
+                class="form-control"
+                id="material1_heat_number"
+                name="material1_heat_number"
+                placeholder="Search heat numbers"
+                data-heat-input
+                data-material="1"
+                data-field="heat_number"
+              >
+              <div class="heat-autocomplete-results hidden" role="listbox"></div>
+            </div>
+            <input type="hidden" id="material1_heat_id" name="material1_heat_id" data-material="1" data-field="heat_id">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label" for="material1_description">Description</label>
+            <input type="text" class="form-control" id="material1_description" name="material1_description" data-material="1" data-field="description" placeholder="Auto-filled from MTR">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label" for="material1_grade">Grade</label>
+            <input type="text" class="form-control" id="material1_grade" name="material1_grade" data-material="1" data-field="grade" placeholder="Auto-filled from MTR">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label" for="material1_outer_diameter_in">O.D.</label>
+            <input type="text" class="form-control" id="material1_outer_diameter_in" name="material1_outer_diameter_in" data-material="1" data-field="outer_diameter_in" placeholder="Auto-filled from MTR">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label" for="material1_wall_thickness_in">Wall thickness</label>
+            <input type="text" class="form-control" id="material1_wall_thickness_in" name="material1_wall_thickness_in" data-material="1" data-field="wall_thickness_in" placeholder="Auto-filled from MTR">
+          </div>
+
+          <div class="col-12 pt-2">
+            <h3 class="h6 text-uppercase text-muted mb-3">Material 2</h3>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label" for="material2_heat_number">Heat number</label>
+            <div class="heat-autocomplete">
+              <input
+                type="text"
+                class="form-control"
+                id="material2_heat_number"
+                name="material2_heat_number"
+                placeholder="Search heat numbers"
+                data-heat-input
+                data-material="2"
+                data-field="heat_number"
+              >
+              <div class="heat-autocomplete-results hidden" role="listbox"></div>
+            </div>
+            <input type="hidden" id="material2_heat_id" name="material2_heat_id" data-material="2" data-field="heat_id">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label" for="material2_description">Description</label>
+            <input type="text" class="form-control" id="material2_description" name="material2_description" data-material="2" data-field="description" placeholder="Auto-filled from MTR">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label" for="material2_grade">Grade</label>
+            <input type="text" class="form-control" id="material2_grade" name="material2_grade" data-material="2" data-field="grade" placeholder="Auto-filled from MTR">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label" for="material2_outer_diameter_in">O.D.</label>
+            <input type="text" class="form-control" id="material2_outer_diameter_in" name="material2_outer_diameter_in" data-material="2" data-field="outer_diameter_in" placeholder="Auto-filled from MTR">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label" for="material2_wall_thickness_in">Wall thickness</label>
+            <input type="text" class="form-control" id="material2_wall_thickness_in" name="material2_wall_thickness_in" data-material="2" data-field="wall_thickness_in" placeholder="Auto-filled from MTR">
+          </div>
+          <div class="col-12 text-end">
+            <button type="submit" class="btn btn-outline-primary">Save weld</button>
+          </div>
+        </form>
+      </div>
+    </div>
     <div id="weld-grid" class="ag-theme-alpine"></div>
     <p class="small text-muted mt-2" id="grid-status" role="status"></p>
     <details id="grid-debug-panel" class="mt-3" hidden>
@@ -989,6 +1078,16 @@
     }
 
     document.addEventListener('DOMContentLoaded', () => {
+      initHeatAutocompletes();
+
+      const weldEntryForm = document.getElementById('weld-entry-form');
+      if (weldEntryForm) {
+        weldEntryForm.addEventListener('submit', event => {
+          event.preventDefault();
+          setStatus('Form submission is handled by the weld log grid below.', 'info');
+        });
+      }
+
       const gridDiv = document.querySelector('#weld-grid');
       new agGrid.Grid(gridDiv, gridOptions);
 

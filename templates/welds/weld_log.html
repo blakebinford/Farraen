@@ -64,11 +64,10 @@
     }
 
     .lookup-editor-results {
-      position: absolute;
-      top: calc(100% + 4px);
+      position: fixed;
+      top: 0;
       left: 0;
-      right: 0;
-      z-index: 30;
+      z-index: 1040;
       display: none;
       border: 1px solid rgba(15, 23, 42, 0.1);
       border-radius: 0.35rem;
@@ -77,6 +76,7 @@
       max-height: 14rem;
       overflow-y: auto;
       padding-block: 0.25rem;
+      min-width: 12rem;
     }
 
     .lookup-editor-results.is-open {
@@ -105,6 +105,16 @@
     .lookup-editor-option.is-active,
     .lookup-editor-option:hover {
       background-color: rgba(59, 130, 246, 0.12);
+    }
+
+    .heat-link {
+      color: #2563eb;
+      text-decoration: none;
+    }
+
+    .heat-link:hover,
+    .heat-link:focus {
+      text-decoration: underline;
     }
 
     .tabulator .tabulator-tableholder {
@@ -306,8 +316,22 @@
         if (!option || !option.id) {
           return option;
         }
-        heatCache.set(option.id, option);
-        return option;
+        const normalized = {
+          ...option,
+          id: option.id,
+          heat_number: option.heat_number || option.label || "",
+          description: option.description || "",
+          material_grade: option.material_grade || option.grade || "",
+          outer_diameter_in: option.outer_diameter_in || option.od || "",
+          wall_thickness_in: option.wall_thickness_in || option.wall_thickness || "",
+          wps_number: option.wps_number || "",
+          mtr_document_id:
+            option.mtr_document_id !== undefined ? option.mtr_document_id : null,
+          mtr_document_name: option.mtr_document_name || "",
+          mtr_document_url: option.mtr_document_url || "",
+        };
+        heatCache.set(normalized.id, normalized);
+        return normalized;
       }
 
       function rememberNdeRig(option) {
@@ -372,12 +396,18 @@
           disposition_comment: row.disposition_comment ?? "",
           material1_heat: row.material1_heat_id ?? null,
           material1_heat_label: row.material1_heat_number ?? "",
+          material1_mtr_document_id: row.material1_mtr_document_id ?? null,
+          material1_mtr_document_url: row.material1_mtr_document_url ?? "",
+          material1_mtr_document_name: row.material1_mtr_document_name ?? "",
           material1_description: row.material1_description ?? "",
           material1_grade: row.material1_grade ?? "",
           material1_outer_diameter_in: row.material1_outer_diameter_in ?? "",
           material1_wall_thickness_in: row.material1_wall_thickness_in ?? "",
           material2_heat: row.material2_heat_id ?? null,
           material2_heat_label: row.material2_heat_number ?? "",
+          material2_mtr_document_id: row.material2_mtr_document_id ?? null,
+          material2_mtr_document_url: row.material2_mtr_document_url ?? "",
+          material2_mtr_document_name: row.material2_mtr_document_name ?? "",
           material2_description: row.material2_description ?? "",
           material2_grade: row.material2_grade ?? "",
           material2_outer_diameter_in: row.material2_outer_diameter_in ?? "",
@@ -400,6 +430,9 @@
             material_grade: row.material1_grade ?? "",
             outer_diameter_in: row.material1_outer_diameter_in ?? "",
             wall_thickness_in: row.material1_wall_thickness_in ?? "",
+            mtr_document_id: row.material1_mtr_document_id ?? null,
+            mtr_document_url: row.material1_mtr_document_url ?? "",
+            mtr_document_name: row.material1_mtr_document_name ?? "",
           });
         }
 
@@ -411,6 +444,9 @@
             material_grade: row.material2_grade ?? "",
             outer_diameter_in: row.material2_outer_diameter_in ?? "",
             wall_thickness_in: row.material2_wall_thickness_in ?? "",
+            mtr_document_id: row.material2_mtr_document_id ?? null,
+            mtr_document_url: row.material2_mtr_document_url ?? "",
+            mtr_document_name: row.material2_mtr_document_name ?? "",
           });
         }
 
@@ -549,6 +585,42 @@
         return dataLabel || "";
       }
 
+      function createHeatFormatter(prefix) {
+        return function (cell) {
+          const data = cell.getRow().getData();
+          const value = cell.getValue();
+          const labelKey = `${prefix}_heat_label`;
+          const label = formatHeatValue(value, data ? data[labelKey] : "");
+          if (!value || !label) {
+            return "";
+          }
+          const urlKey = `${prefix}_mtr_document_url`;
+          const nameKey = `${prefix}_mtr_document_name`;
+          let url = data ? data[urlKey] : "";
+          let name = data ? data[nameKey] : "";
+          if ((!url || !name) && value) {
+            const cached = heatCache.get(value);
+            if (cached) {
+              url = url || cached.mtr_document_url || "";
+              name = name || cached.mtr_document_name || "";
+            }
+          }
+          if (url) {
+            const link = document.createElement("a");
+            link.href = url;
+            link.target = "_blank";
+            link.rel = "noopener noreferrer";
+            link.className = "heat-link";
+            link.textContent = label;
+            if (name) {
+              link.title = name;
+            }
+            return link;
+          }
+          return label;
+        };
+      }
+
       function formatNdeRigValue(value, dataLabel) {
         if (!value) {
           return "";
@@ -578,11 +650,48 @@
           let activeIndex = -1;
           let searchToken = 0;
 
+          function repositionResults() {
+            if (!resultsEl.classList.contains("is-open")) {
+              return;
+            }
+            const rect = input.getBoundingClientRect();
+            const width = Math.max(rect.width, 220);
+            resultsEl.style.width = `${Math.round(width)}px`;
+            resultsEl.style.left = `${Math.round(rect.left)}px`;
+            resultsEl.style.top = `${Math.round(rect.bottom + 4)}px`;
+          }
+
+          function openResults() {
+            if (!resultsEl.classList.contains("is-open")) {
+              resultsEl.classList.add("is-open");
+              window.addEventListener("resize", repositionResults);
+              document.addEventListener("scroll", repositionResults, true);
+            }
+            repositionResults();
+          }
+
           function closeResults() {
-            resultsEl.classList.remove("is-open");
+            if (resultsEl.classList.contains("is-open")) {
+              window.removeEventListener("resize", repositionResults);
+              document.removeEventListener("scroll", repositionResults, true);
+              resultsEl.classList.remove("is-open");
+            }
             resultsEl.innerHTML = "";
+            resultsEl.style.left = "";
+            resultsEl.style.top = "";
+            resultsEl.style.width = "";
             activeIndex = -1;
           }
+
+          const finalizeSuccess = value => {
+            closeResults();
+            success(value);
+          };
+
+          const finalizeCancel = () => {
+            closeResults();
+            cancel();
+          };
 
           function highlightActive() {
             const items = resultsEl.querySelectorAll(".lookup-editor-option");
@@ -619,7 +728,7 @@
                 item.classList.add("is-active");
               }
             });
-            resultsEl.classList.add("is-open");
+            openResults();
           }
 
           async function performSearch(term) {
@@ -640,24 +749,25 @@
           }
 
           function applySelection(option) {
-            closeResults();
             if (!option) {
               onSelect(null, cell);
-              success(null);
+              finalizeSuccess(null);
               return;
             }
             input.value = option.heat_number || option.name || option.label || "";
             onSelect(option, cell);
-            success(option.id ?? null);
+            finalizeSuccess(option.id ?? null);
           }
 
           onRendered(() => {
             input.focus();
             input.select();
+            repositionResults();
             performSearch(input.value || "");
           });
 
           input.addEventListener("input", () => {
+            repositionResults();
             performSearch(input.value || "");
           });
 
@@ -679,7 +789,7 @@
               }
             } else if (event.key === "Escape") {
               event.preventDefault();
-              cancel();
+              finalizeCancel();
             }
           });
 
@@ -689,7 +799,7 @@
                 if (!input.value.trim()) {
                   applySelection(null);
                 } else {
-                  cancel();
+                  finalizeCancel();
                 }
               }
             }, 150);
@@ -714,24 +824,42 @@
             if (!option) {
               const patch = {};
               patch[`${prefix}_heat_label`] = "";
+              patch[`${prefix}_mtr_document_id`] = null;
+              patch[`${prefix}_mtr_document_url`] = "";
+              patch[`${prefix}_mtr_document_name`] = "";
               row.update(patch);
               return;
             }
-            rememberHeat(option);
+            const selected = rememberHeat(option) || option;
             const patch = {
-              [`${prefix}_heat_label`]: option.heat_number || "",
+              [`${prefix}_heat_label`]: selected.heat_number || "",
+              [`${prefix}_mtr_document_id`]:
+                selected.mtr_document_id !== undefined
+                  ? selected.mtr_document_id
+                  : option.mtr_document_id ?? null,
+              [`${prefix}_mtr_document_url`]:
+                selected.mtr_document_url || option.mtr_document_url || "",
+              [`${prefix}_mtr_document_name`]:
+                selected.mtr_document_name || option.mtr_document_name || "",
             };
             if (!row.getData()[`${prefix}_description`]) {
-              patch[`${prefix}_description`] = option.description || "";
+              patch[`${prefix}_description`] =
+                selected.description || option.description || "";
             }
             if (!row.getData()[`${prefix}_grade`]) {
-              patch[`${prefix}_grade`] = option.material_grade || option.grade || "";
+              patch[`${prefix}_grade`] =
+                selected.material_grade || option.material_grade || option.grade || "";
             }
             if (!row.getData()[`${prefix}_outer_diameter_in`]) {
-              patch[`${prefix}_outer_diameter_in`] = option.outer_diameter_in || option.od || "";
+              patch[`${prefix}_outer_diameter_in`] =
+                selected.outer_diameter_in || option.outer_diameter_in || option.od || "";
             }
             if (!row.getData()[`${prefix}_wall_thickness_in`]) {
-              patch[`${prefix}_wall_thickness_in`] = option.wall_thickness_in || option.wall_thickness || "";
+              patch[`${prefix}_wall_thickness_in`] =
+                selected.wall_thickness_in ||
+                option.wall_thickness_in ||
+                option.wall_thickness ||
+                "";
             }
             row.update(patch);
           },
@@ -740,6 +868,8 @@
 
       const heatEditorMaterial1 = createHeatEditor("material1");
       const heatEditorMaterial2 = createHeatEditor("material2");
+      const heatFormatterMaterial1 = createHeatFormatter("material1");
+      const heatFormatterMaterial2 = createHeatFormatter("material2");
 
       const ndeRigEditor = lookupEditorFactory({
         placeholder: "Search NDE rigs",
@@ -821,10 +951,7 @@
             title: "Material 1 Heat",
             field: "material1_heat",
             headerSort: true,
-            formatter(cell) {
-              const data = cell.getRow().getData();
-              return formatHeatValue(cell.getValue(), data.material1_heat_label);
-            },
+            formatter: heatFormatterMaterial1,
             editor: function (cell, onRendered, success, cancel) {
               return heatEditorMaterial1(cell, onRendered, success, cancel);
             },
@@ -857,10 +984,7 @@
             title: "Material 2 Heat",
             field: "material2_heat",
             headerSort: true,
-            formatter(cell) {
-              const data = cell.getRow().getData();
-              return formatHeatValue(cell.getValue(), data.material2_heat_label);
-            },
+            formatter: heatFormatterMaterial2,
             editor: function (cell, onRendered, success, cancel) {
               return heatEditorMaterial2(cell, onRendered, success, cancel);
             },

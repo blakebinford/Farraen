@@ -60,8 +60,20 @@ def _decimal_to_str(value):
     return text
 
 
-def _serialize_heat(prefix: str, weld: Weld) -> dict:
+def _serialize_heat(
+    prefix: str,
+    weld: Weld,
+    *,
+    org_slug: str | None = None,
+    project_slug: str | None = None,
+) -> dict:
     heat = getattr(weld, f"{prefix}_heat")
+    mtr = getattr(heat, "mtr_document", None)
+    heat_payload = {}
+    if heat:
+        heat_payload = _material_heat_payload(
+            heat, org_slug=org_slug, project_slug=project_slug
+        )
     return {
         f"{prefix}_heat_id": heat.id if heat else None,
         f"{prefix}_heat_number": heat.heat_number if heat else "",
@@ -74,6 +86,9 @@ def _serialize_heat(prefix: str, weld: Weld) -> dict:
             getattr(weld, f"{prefix}_wall_thickness_in")
         ),
         f"{prefix}_wps_number": heat.wps_number if heat else "",
+        f"{prefix}_mtr_document_id": heat_payload.get("mtr_document_id"),
+        f"{prefix}_mtr_document_name": heat_payload.get("mtr_document_name", ""),
+        f"{prefix}_mtr_document_url": heat_payload.get("mtr_document_url", ""),
     }
 
 
@@ -92,7 +107,12 @@ def _format_user_display(user) -> str:
     return str(user)
 
 
-def _serialize_weld(weld: Weld) -> dict:
+def _serialize_weld(
+    weld: Weld,
+    *,
+    org_slug: str | None = None,
+    project_slug: str | None = None,
+) -> dict:
     payload = {
         "id": weld.id,
         "weld_id": weld.weld_id,
@@ -116,9 +136,60 @@ def _serialize_weld(weld: Weld) -> dict:
         "updated_by_id": weld.updated_by_id,
         "updated_by_name": _format_user_display(weld.updated_by),
     }
-    payload.update(_serialize_heat("material1", weld))
-    payload.update(_serialize_heat("material2", weld))
+    payload.update(
+        _serialize_heat(
+            "material1",
+            weld,
+            org_slug=org_slug,
+            project_slug=project_slug,
+        )
+    )
+    payload.update(
+        _serialize_heat(
+            "material2",
+            weld,
+            org_slug=org_slug,
+            project_slug=project_slug,
+        )
+    )
     return payload
+
+
+def _material_heat_payload(
+    heat: MaterialHeat,
+    *,
+    org_slug: str | None = None,
+    project_slug: str | None = None,
+) -> dict:
+    mtr = heat.mtr_document
+    if mtr:
+        if org_slug and project_slug:
+            mtr_url = reverse(
+                "drive_file",
+                kwargs={
+                    "org_slug": org_slug,
+                    "project_slug": project_slug,
+                    "file_id": mtr.id,
+                },
+            )
+        else:
+            mtr_url = ""
+        mtr_name = mtr.name
+    else:
+        mtr_url = ""
+        mtr_name = ""
+    return {
+        "id": heat.id,
+        "heat_number": heat.heat_number,
+        "description": heat.description,
+        "material_grade": heat.material_grade,
+        "outer_diameter_in": _decimal_to_str(heat.outer_diameter_in),
+        "wall_thickness_in": _decimal_to_str(heat.wall_thickness_in),
+        "wps_number": heat.wps_number,
+        "mtr_document_id": mtr.id if mtr else None,
+        "mtr_document_name": mtr_name,
+        "mtr_document_url": mtr_url,
+    }
 
 
 @require_membership("GUEST")
@@ -225,9 +296,17 @@ def weld_log_data(request, org_slug, project_slug):
 
     if request.method == "GET":
         rows = [
-            _serialize_weld(w)
+            _serialize_weld(
+                w,
+                org_slug=request.org.slug,
+                project_slug=project.slug,
+            )
             for w in project.welds.select_related(
-                "material1_heat", "material2_heat", "nde_rig"
+                "material1_heat",
+                "material1_heat__mtr_document",
+                "material2_heat",
+                "material2_heat__mtr_document",
+                "nde_rig",
             )
         ]
         logger.info(
@@ -494,7 +573,15 @@ def weld_log_data(request, org_slug, project_slug):
                 "weld_pk": weld.pk,
             },
         )
-        return JsonResponse({"weld": _serialize_weld(weld)})
+        return JsonResponse(
+            {
+                "weld": _serialize_weld(
+                    weld,
+                    org_slug=request.org.slug,
+                    project_slug=project.slug,
+                )
+            }
+        )
 
     if existing_qs.exists():
         logger.warning(
@@ -525,7 +612,16 @@ def weld_log_data(request, org_slug, project_slug):
             "weld_pk": weld.pk,
         },
     )
-    return JsonResponse({"weld": _serialize_weld(weld)}, status=201)
+    return JsonResponse(
+        {
+            "weld": _serialize_weld(
+                weld,
+                org_slug=request.org.slug,
+                project_slug=project.slug,
+            )
+        },
+        status=201,
+    )
 
 
 @require_membership("GUEST")
@@ -557,22 +653,17 @@ def material_heat_options(request, org_slug, project_slug):
         )
         return JsonResponse({"error": message}, status=503)
 
-    heats = MaterialHeat.objects.filter(org=request.org, is_active=True).order_by(
-        "heat_number"
+    heats = (
+        MaterialHeat.objects.filter(org=request.org, is_active=True)
+        .select_related("mtr_document")
+        .order_by("heat_number")
     )
-    data = []
-    for heat in heats:
-        data.append(
-            {
-                "id": heat.id,
-                "heat_number": heat.heat_number,
-                "description": heat.description,
-                "material_grade": heat.material_grade,
-                "outer_diameter_in": _decimal_to_str(heat.outer_diameter_in),
-                "wall_thickness_in": _decimal_to_str(heat.wall_thickness_in),
-                "wps_number": heat.wps_number,
-            }
+    data = [
+        _material_heat_payload(
+            heat, org_slug=request.org.slug, project_slug=project.slug
         )
+        for heat in heats
+    ]
     logger.info(
         "Loaded heat options",
         extra={
@@ -622,24 +713,19 @@ def material_heat_search(request, org_slug, project_slug):
         MaterialHeat.objects.filter(
             org=request.org, is_active=True, heat_number__icontains=query
         )
+        .select_related("mtr_document")
         .order_by("heat_number")[:20]
     )
 
     results = []
     for heat in heats:
-        results.append(
-            {
-                "id": heat.id,
-                "heat_number": heat.heat_number,
-                "description": heat.description,
-                "grade": heat.material_grade,
-                "material_grade": heat.material_grade,
-                "od": _decimal_to_str(heat.outer_diameter_in),
-                "outer_diameter_in": _decimal_to_str(heat.outer_diameter_in),
-                "wall_thickness": _decimal_to_str(heat.wall_thickness_in),
-                "wall_thickness_in": _decimal_to_str(heat.wall_thickness_in),
-            }
+        payload = _material_heat_payload(
+            heat, org_slug=request.org.slug, project_slug=project.slug
         )
+        payload["grade"] = payload.get("material_grade", "")
+        payload["od"] = payload.get("outer_diameter_in", "")
+        payload["wall_thickness"] = payload.get("wall_thickness_in", "")
+        results.append(payload)
 
     logger.info(
         "Performed heat search",

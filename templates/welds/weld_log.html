@@ -167,7 +167,9 @@
       const heatCache = new Map();
       const ndeRigCache = new Map();
       const dirtyRows = new Set();
+      const pendingRowSaves = new WeakMap();
       let suppressRowAddedEvents = false;
+      let statusResetTimer = null;
 
       function snapshotRow(rowComponent) {
         if (!rowComponent) {
@@ -215,10 +217,26 @@
         { value: "cut_out", label: "Cut Out" },
       ];
 
+      function clearStatusResetTimer() {
+        if (statusResetTimer) {
+          window.clearTimeout(statusResetTimer);
+          statusResetTimer = null;
+        }
+      }
+
+      function scheduleStatusReset(delay = 2500) {
+        clearStatusResetTimer();
+        statusResetTimer = window.setTimeout(() => {
+          statusResetTimer = null;
+          updateStatusCounts();
+        }, delay);
+      }
+
       function setStatus(message, variant = "muted") {
         if (!statusEl) {
           return;
         }
+        clearStatusResetTimer();
         const colors = {
           muted: "text-muted",
           success: "text-success",
@@ -298,6 +316,40 @@
         }
         ndeRigCache.set(option.id, option);
         return option;
+      }
+
+      function formatValidationErrors(result) {
+        if (result === true) {
+          return "";
+        }
+        const details = Array.isArray(result) ? result[0] : result;
+        if (!details) {
+          return "Please fix validation errors before saving.";
+        }
+        if (details.message) {
+          return String(details.message);
+        }
+        let title = "Field";
+        const component = details.component || null;
+        const column = component?.getColumn?.() || details.column;
+        if (column && typeof column.getDefinition === "function") {
+          const definition = column.getDefinition();
+          if (definition?.title) {
+            title = definition.title;
+          } else if (definition?.field) {
+            title = definition.field;
+          }
+        } else if (details.field) {
+          title = details.field;
+        }
+        switch (details.type) {
+          case "required":
+            return `${title} is required.`;
+          case "unique":
+            return `${title} must be unique.`;
+          default:
+            return `${title} is invalid.`;
+        }
       }
 
       function normalizeRow(row) {
@@ -998,6 +1050,8 @@
 
       table.on("cellEdited", cell => {
         const row = cell.getRow();
+        row?.getElement()?.classList.remove("has-error");
+        cell?.getElement()?.classList.remove("has-error");
         markRowDirty(row);
         if (cell.getField() === "disposition") {
           const commentCell = row.getCell("disposition_comment");
@@ -1005,6 +1059,7 @@
         }
         updateStatusCounts();
         refreshHistoryButtons();
+        queueAutosave(cell);
       });
 
       table.on("cellEditCancelled", cell => {
@@ -1119,11 +1174,13 @@
         refreshHistoryButtons();
       }
 
-      async function saveRow(rowComponent) {
+      async function saveRow(rowComponent, { skipValidation = false } = {}) {
         const data = rowComponent.getData();
-        const validation = rowComponent.validate();
-        if (validation !== true) {
-          throw new Error("Validation failed");
+        if (!skipValidation) {
+          const validation = rowComponent.validate();
+          if (validation !== true) {
+            throw new Error(formatValidationErrors(validation));
+          }
         }
         const payload = denormalizeRow(data);
         const response = await fetch(dataEndpoint, {
@@ -1145,6 +1202,75 @@
         snapshotRow(rowComponent);
         markRowDirty(rowComponent);
         return normalized;
+      }
+
+      async function saveWeldCellChange(rowId, fieldName, newValue, rowData, rowComponent, cellComponent) {
+        if (!rowComponent) {
+          return null;
+        }
+
+        const validation = rowComponent.validate();
+        if (validation !== true) {
+          const message = formatValidationErrors(validation);
+          const firstError = Array.isArray(validation) ? validation[0] : validation;
+          const targetCell = firstError?.component || cellComponent;
+          const targetRow = targetCell?.getRow?.() || rowComponent;
+          targetRow?.getElement()?.classList.add("has-error");
+          targetCell?.getElement()?.classList.add("has-error");
+          setStatus(message || "Please fix validation errors before saving.", "warning");
+          return null;
+        }
+
+        const rowEl = rowComponent.getElement?.();
+        const cellEl = cellComponent?.getElement?.();
+        rowEl?.classList.remove("has-error");
+        cellEl?.classList.remove("has-error");
+
+        setStatus("Saving…", "muted");
+        rowEl?.classList.add("is-saving");
+        cellEl?.classList.add("is-saving");
+
+        try {
+          const normalized = await saveRow(rowComponent, { skipValidation: true });
+          rowEl?.classList.remove("has-error");
+          cellEl?.classList.remove("has-error");
+          updateStatusCounts("Saved");
+          scheduleStatusReset();
+          return normalized;
+        } catch (error) {
+          const message = error?.message || "Failed to save change.";
+          rowEl?.classList.add("has-error");
+          cellEl?.classList.add("has-error");
+          setStatus(message, "danger");
+          throw error;
+        } finally {
+          rowEl?.classList.remove("is-saving");
+          cellEl?.classList.remove("is-saving");
+        }
+      }
+
+      function queueAutosave(cellComponent) {
+        if (!cellComponent) {
+          return;
+        }
+        const rowComponent = cellComponent.getRow();
+        if (!rowComponent) {
+          return;
+        }
+        const rowData = rowComponent.getData();
+        const rowId = rowData?.id ?? null;
+        const fieldName = cellComponent.getField();
+        const newValue = cellComponent.getValue();
+        const previous = pendingRowSaves.get(rowComponent) || Promise.resolve();
+        const operation = () =>
+          saveWeldCellChange(rowId, fieldName, newValue, rowData, rowComponent, cellComponent);
+        const next = previous.catch(() => null).then(operation);
+        pendingRowSaves.set(rowComponent, next);
+        next.catch(() => null).finally(() => {
+          if (pendingRowSaves.get(rowComponent) === next) {
+            pendingRowSaves.delete(rowComponent);
+          }
+        });
       }
 
       async function saveChanges() {

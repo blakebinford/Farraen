@@ -3,14 +3,11 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "tailwindcss -i ./static/styles/global.css -o ./static/styles/app.css --watch",
-    "build": "tailwindcss -i ./static/styles/global.css -o ./static/styles/app.css --minify"
+    "dev": "sass --watch static/styles/scss/theme.scss static/styles/app.css",
+    "build": "sass static/styles/scss/theme.scss static/styles/app.css --style=compressed --no-source-map"
   },
   "devDependencies": {
-    "@tailwindcss/forms": "^0.5.7",
-    "@tailwindcss/typography": "^0.5.10",
-    "autoprefixer": "^10.4.16",
-    "postcss": "^8.4.31",
-    "tailwindcss": "^3.4.4"
+    "bootstrap": "^5.3.3",
+    "sass": "^1.72.0"
   }
 }

@@ -5,7 +5,7 @@
   rows: list of dictionaries with matching keys.
 #}
 <div class="table-shell {{ class|default:'' }}">
-  <table>
+  <table class="ferraen-table">
     <thead>
       <tr>
         {% for column in columns %}
@@ -48,10 +48,11 @@
       {% endif %}
     </tbody>
   </table>
-  <div class="table-pagination">
+  <div class="table-controls">
     <span>Page {{ page|default:1 }} of {{ page_count|default:1 }}</span>
-    <div style="display:flex; gap:var(--space-3);">
+    <div class="pagination">
       <button class="btn btn--ghost btn--sm" type="button">Previous</button>
+      <span class="pagination__page pagination__page--active" aria-current="page">{{ page|default:1 }}</span>
       <button class="btn btn--ghost btn--sm" type="button">Next</button>
     </div>
   </div>

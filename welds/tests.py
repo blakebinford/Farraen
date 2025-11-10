@@ -525,5 +525,7 @@ class WeldKPIDashboardServiceTests(TestCase):
         self.assertIsInstance(payload["repair_rate_by_welder"]["repair_rates"][0], float)
         self.assertEqual(payload["repair_rate_by_wps"]["total_repairs"], 1)
         self.assertIn(1, payload["repair_rate_by_welder"]["repair_counts"])
+        self.assertIn("POROSITY", payload["repairs_by_type"]["labels"][0].upper())
+        self.assertIn(1, payload["repairs_by_type"]["repair_counts"])
         self.assertRegex(payload["weld_inches_by_day"]["labels"][0], r"\d{4}-\d{2}-\d{2}")
 

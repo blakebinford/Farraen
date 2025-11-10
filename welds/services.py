@@ -345,6 +345,12 @@ def build_weld_dashboard_chart_payload(kpis: dict) -> dict:
             "weld_counts": [item["weld_count"] for item in welder_stats],
             "repair_counts": [item["repair_pass_count"] for item in welder_stats],
         },
+        "repairs_by_type": {
+            "labels": [item["label"] for item in kpis.get("repair_type_stats", [])],
+            "repair_counts": [
+                item["repair_count"] for item in kpis.get("repair_type_stats", [])
+            ],
+        },
         "weld_inches_by_day": {
             "labels": [entry["date"].isoformat() for entry in time_series],
             "weld_inches": [_to_float(entry["weld_inches"]) for entry in time_series],

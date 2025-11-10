@@ -241,16 +241,23 @@
     {% if weld_kpis.repair_type_stats %}
       <div class="col-lg-6">
         <div class="card h-100">
-          <div class="card-header">Repairs by Type</div>
-          <div class="card-body p-0">
-            <div class="list-group list-group-flush">
-              {% for repair in weld_kpis.repair_type_stats %}
-                <div class="list-group-item d-flex justify-content-between align-items-center">
-                  <span>{{ repair.label }}</span>
-                  <span class="badge bg-danger-subtle text-danger">{{ repair.repair_count|intcomma }}</span>
-                </div>
-              {% endfor %}
-            </div>
+          <div class="card-header py-2 px-3">Repairs by Type</div>
+          <div class="card-body p-3">
+            {% if chart_data.repairs_by_type.labels %}
+              <div class="ratio ratio-1x1 mb-3">
+                <canvas id="repairsByTypeChart"></canvas>
+              </div>
+              <ul class="list-unstyled small mb-0">
+                {% for repair in weld_kpis.repair_type_stats %}
+                  <li class="d-flex justify-content-between align-items-center py-1 border-top">
+                    <span class="me-2">{{ repair.label }}</span>
+                    <span class="badge bg-danger-subtle text-danger">{{ repair.repair_count|intcomma }}</span>
+                  </li>
+                {% endfor %}
+              </ul>
+            {% else %}
+              <p class="text-muted text-center mb-0">No repair types recorded yet.</p>
+            {% endif %}
           </div>
         </div>
       </div>
@@ -419,6 +426,79 @@
                   const repairs = chartData.repair_rate_by_welder.repair_counts[index];
                   const total = chartData.repair_rate_by_welder.weld_counts[index];
                   return `${context.parsed.y.toFixed(1)}% (${repairs} repairs · ${total} welds)`;
+                },
+              },
+            },
+          },
+        },
+      });
+    }
+
+    const repairTypeCanvas = document.getElementById("repairsByTypeChart");
+    if (repairTypeCanvas && chartData.repairs_by_type.labels.length) {
+      const colorPalette = [
+        "rgba(220,53,69,0.75)",
+        "rgba(13,110,253,0.75)",
+        "rgba(25,135,84,0.75)",
+        "rgba(255,193,7,0.75)",
+        "rgba(32,201,151,0.75)",
+        "rgba(111,66,193,0.75)",
+      ];
+      const borderPalette = [
+        "rgba(220,53,69,1)",
+        "rgba(13,110,253,1)",
+        "rgba(25,135,84,1)",
+        "rgba(255,193,7,1)",
+        "rgba(32,201,151,1)",
+        "rgba(111,66,193,1)",
+      ];
+      const backgroundColors = chartData.repairs_by_type.labels.map(
+        (_, index) => colorPalette[index % colorPalette.length],
+      );
+      const borderColors = chartData.repairs_by_type.labels.map(
+        (_, index) => borderPalette[index % borderPalette.length],
+      );
+      const totalRepairsByType = chartData.repairs_by_type.repair_counts.reduce(
+        (sum, value) => sum + value,
+        0,
+      );
+
+      new Chart(repairTypeCanvas, {
+        type: "pie",
+        data: {
+          labels: chartData.repairs_by_type.labels,
+          datasets: [
+            {
+              data: chartData.repairs_by_type.repair_counts,
+              backgroundColor: backgroundColors,
+              borderColor: borderColors,
+              borderWidth: 1,
+            },
+          ],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          layout: {
+            padding: { top: 8, right: 8, bottom: 4, left: 8 },
+          },
+          plugins: {
+            legend: {
+              position: "bottom",
+              labels: {
+                boxWidth: 12,
+                font: { size: 11 },
+              },
+            },
+            tooltip: {
+              callbacks: {
+                label: function (context) {
+                  const label = context.label || "";
+                  const value = context.parsed || 0;
+                  const percentage = totalRepairsByType
+                    ? ((value / totalRepairsByType) * 100).toFixed(1)
+                    : "0.0";
+                  return `${label}: ${value} (${percentage}%)`;
                 },
               },
             },

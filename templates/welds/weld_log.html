@@ -2,7 +2,7 @@
 
 {% block extra_head %}
   {{ block.super }}
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tabulator-tables@5.5.2/dist/css/tabulator_modern.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tabulator-tables@5.5.2/dist/css/tabulator_materialize.min.css">
   <style>
     :root {
       color-scheme: light;
@@ -1236,5 +1236,6 @@
       loadData();
     })();
     </script>
+  {% endif %}
   {% endif %}
 {% endblock %}

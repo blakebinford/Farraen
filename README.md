@@ -14,7 +14,7 @@ Ferraen now ships with a custom Bootstrap 5 theme layered with industrial-grade 
 docs/bootstrap-migration.md          # Bullet migration plan for the Bootstrap path
 static/styles/scss/_tokens.scss      # Brand tokens + Bootstrap variable overrides
 static/styles/scss/_theme.scss       # Layout, components, utilities (authoring source)
-static/styles/scss/theme.scss        # Import glue for Sass compilation
+static/styles/scss/ferraen.scss      # Import glue for Sass compilation
 static/styles/app.css                # Compiled production stylesheet served by Django
 static/scripts/theme.js              # Theme toggle + command palette
 static/scripts/ui.js                 # Modal & toast helpers
@@ -65,7 +65,7 @@ See `templates/ui/` for concrete snippets ready to `{% include %}` or translate 
 1. Ensure `STATIC_URL` serves `static/` (already configured in this project).
 2. Include the Bootstrap CDN + `static/styles/app.css` links (already present in `templates/base.html` and standalone pages).
 3. Use `{% extends 'base.html' %}` for app views or drop component partials directly.
-4. Rebuild CSS with `npm run build` (Sass) before running `collectstatic` for production deploys.
+4. Rebuild CSS with `npm run build` (Sass) before running `collectstatic` for production deploys. The command compiles `static/styles/scss/ferraen.scss` into `static/styles/app.css`.
 
 ### React (or other SPA)
 1. Copy `static/styles/app.css` (or compile from SCSS) into your `src/` directory and import it once.

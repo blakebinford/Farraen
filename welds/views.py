@@ -77,6 +77,21 @@ def _serialize_heat(prefix: str, weld: Weld) -> dict:
     }
 
 
+def _format_user_display(user) -> str:
+    if not user:
+        return ""
+    full_name = getattr(user, "get_full_name", None)
+    if callable(full_name):
+        name = full_name()
+        if name:
+            return name
+    for attr in ("name", "email", "username"):
+        value = getattr(user, attr, "")
+        if value:
+            return value
+    return str(user)
+
+
 def _serialize_weld(weld: Weld) -> dict:
     payload = {
         "id": weld.id,
@@ -96,6 +111,10 @@ def _serialize_weld(weld: Weld) -> dict:
         "disposition_comment": weld.disposition_comment,
         "created_at": weld.created_at.isoformat(),
         "updated_at": weld.updated_at.isoformat(),
+        "created_by_id": weld.created_by_id,
+        "created_by_name": _format_user_display(weld.created_by),
+        "updated_by_id": weld.updated_by_id,
+        "updated_by_name": _format_user_display(weld.updated_by),
     }
     payload.update(_serialize_heat("material1", weld))
     payload.update(_serialize_heat("material2", weld))

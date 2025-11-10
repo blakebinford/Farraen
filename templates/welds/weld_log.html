@@ -140,14 +140,11 @@
         <div id="weld-log-status" class="small text-muted mt-2" role="status"></div>
       </div>
     </div>
-  {% endif %}
-{% endblock %}
-
-{% if not setup_error %}
-  <script src="https://cdn.jsdelivr.net/npm/tabulator-tables@5.5.2/dist/js/tabulator.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <script>
-    (function () {
+  {% if not setup_error %}
+    <script src="https://cdn.jsdelivr.net/npm/tabulator-tables@5.5.2/dist/js/tabulator.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <script>
+      (function () {
       const dataEndpoint = "{{ data_url }}";
       const heatOptionsEndpoint = "{{ heat_options_url }}";
       const heatSearchEndpoint = "{{ heat_search_url }}";
@@ -1049,5 +1046,6 @@
 
       loadData();
     })();
-  </script>
-{% endif %}
+    </script>
+  {% endif %}
+{% endblock %}

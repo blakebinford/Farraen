@@ -16,6 +16,16 @@
       height: 65vh;
       min-height: 460px;
     }
+    .ag-theme-alpine .ag-cell-edit-wrapper {
+      overflow: visible;
+    }
+    .heat-cell-editor {
+      position: relative;
+      width: 100%;
+    }
+    .heat-cell-editor input {
+      width: 100%;
+    }
     .heat-autocomplete {
       position: relative;
     }
@@ -218,57 +228,90 @@
       };
     }
 
-    function findMaterialField(material, field) {
-      return document.querySelector(`[data-material="${material}"][data-field="${field}"]`);
+    const heatLookupByNumber = new Map();
+
+    function normalizeHeatPayload(raw) {
+      if (!raw) {
+        return null;
+      }
+      const toStringOrEmpty = value => (value === null || value === undefined ? '' : String(value));
+      const heatNumber = toStringOrEmpty(raw.heat_number);
+      if (!heatNumber) {
+        return null;
+      }
+      const normalized = {
+        id: raw.id ?? null,
+        heat_number: heatNumber,
+        description: toStringOrEmpty(raw.description),
+        grade: toStringOrEmpty(raw.grade ?? raw.material_grade),
+        outer_diameter_in: toStringOrEmpty(raw.outer_diameter_in ?? raw.od),
+        wall_thickness_in: toStringOrEmpty(raw.wall_thickness_in ?? raw.wall_thickness),
+        wps_number: toStringOrEmpty(raw.wps_number),
+      };
+      normalized.material_grade = normalized.grade;
+      normalized.od = normalized.outer_diameter_in;
+      normalized.wall_thickness = normalized.wall_thickness_in;
+      return normalized;
     }
 
-    function setMaterialField(material, field, value) {
-      const element = findMaterialField(material, field);
-      if (!element) {
-        return;
+    function rememberHeatOption(raw) {
+      const normalized = normalizeHeatPayload(raw);
+      if (!normalized) {
+        return null;
       }
-      const nextValue = value === undefined || value === null ? '' : String(value);
-      if (Object.prototype.hasOwnProperty.call(element, 'value')) {
-        element.value = nextValue;
-      } else {
-        element.textContent = nextValue;
-      }
-      if (typeof element.dispatchEvent === 'function') {
-        element.dispatchEvent(new Event('change', { bubbles: true }));
-      }
-    }
-
-    function clearMaterialHeatSelection(material) {
-      setMaterialField(material, 'heat_id', '');
+      heatLookupByNumber.set(normalized.heat_number, normalized);
+      return normalized;
     }
 
     class HeatAutocomplete {
-      constructor(input) {
+      constructor(input, { resultsContainer = null, onHeatSelected = null, minimumInputLength = 2 } = {}) {
         this.input = input;
-        this.material = input.dataset.material;
-        this.resultsEl = input.closest('.heat-autocomplete')?.querySelector('.heat-autocomplete-results') || null;
+        this.resultsEl = resultsContainer || input.closest('.heat-autocomplete')?.querySelector('.heat-autocomplete-results') || null;
+        this.onHeatSelected = typeof onHeatSelected === 'function' ? onHeatSelected : null;
+        this.minimumInputLength = minimumInputLength;
         this.results = [];
         this.activeIndex = -1;
         this.abortController = null;
+        this.boundOnInput = this.onInput.bind(this);
+        this.boundOnKeyDown = this.onKeyDown.bind(this);
+        this.boundOnFocus = this.onFocus.bind(this);
+        this.boundOnBlur = this.onBlur.bind(this);
         this.debouncedSearch = debounce(this.search.bind(this), 300);
         input.setAttribute('autocomplete', 'off');
-        input.addEventListener('input', this.onInput.bind(this));
-        input.addEventListener('keydown', this.onKeyDown.bind(this));
-        input.addEventListener('focus', () => {
-          if (this.results.length > 0) {
-            this.showResults();
-          }
-        });
-        input.addEventListener('blur', () => {
-          window.setTimeout(() => this.hideResults(), 150);
-        });
+        input.addEventListener('input', this.boundOnInput);
+        input.addEventListener('keydown', this.boundOnKeyDown);
+        input.addEventListener('focus', this.boundOnFocus);
+        input.addEventListener('blur', this.boundOnBlur);
+      }
+
+      destroy() {
+        if (this.abortController) {
+          this.abortController.abort();
+          this.abortController = null;
+        }
+        if (this.input) {
+          this.input.removeEventListener('input', this.boundOnInput);
+          this.input.removeEventListener('keydown', this.boundOnKeyDown);
+          this.input.removeEventListener('focus', this.boundOnFocus);
+          this.input.removeEventListener('blur', this.boundOnBlur);
+        }
+        this.hideResults();
+        this.results = [];
+      }
+
+      onFocus() {
+        if (this.results.length > 0) {
+          this.showResults();
+        }
+      }
+
+      onBlur() {
+        window.setTimeout(() => this.hideResults(), 150);
       }
 
       onInput(event) {
-        const rawValue = event.target.value || '';
-        const query = rawValue.trim();
-        clearMaterialHeatSelection(this.material);
-        if (!query || query.length < 2 || !heatSearchEndpoint) {
+        const query = (event.target.value || '').trim();
+        if (!query || query.length < this.minimumInputLength || !heatSearchEndpoint) {
           this.results = [];
           this.hideResults();
           return;
@@ -364,7 +407,9 @@
           })
           .then(payload => {
             const list = payload && Array.isArray(payload.results) ? payload.results : [];
-            this.results = list;
+            this.results = list
+              .map(item => rememberHeatOption(item) || normalizeHeatPayload(item))
+              .filter(Boolean);
             this.renderResults();
           })
           .catch(error => {
@@ -411,14 +456,10 @@
           option.appendChild(title);
 
           const metaValues = [];
-          const grade = heat.grade || heat.material_grade || '';
-          const description = heat.description || '';
-          const od = heat.od || heat.outer_diameter_in || '';
-          const wall = heat.wall_thickness || heat.wall_thickness_in || '';
-          if (grade) metaValues.push(`Grade ${grade}`);
-          if (description) metaValues.push(description);
-          if (od) metaValues.push(`OD ${od}`);
-          if (wall) metaValues.push(`WT ${wall}`);
+          if (heat.grade) metaValues.push(`Grade ${heat.grade}`);
+          if (heat.description) metaValues.push(heat.description);
+          if (heat.outer_diameter_in) metaValues.push(`OD ${heat.outer_diameter_in}`);
+          if (heat.wall_thickness_in) metaValues.push(`WT ${heat.wall_thickness_in}`);
           if (metaValues.length) {
             const meta = document.createElement('span');
             meta.className = 'heat-meta';
@@ -441,33 +482,78 @@
       }
 
       applyHeat(heat) {
-        const grade = heat.grade || heat.material_grade || '';
-        const od = heat.od || heat.outer_diameter_in || '';
-        const wall = heat.wall_thickness || heat.wall_thickness_in || '';
-        const description = heat.description || '';
-        const identifier = heat.id !== undefined && heat.id !== null ? heat.id : '';
-
-        this.input.value = heat.heat_number || '';
-        setMaterialField(this.material, 'heat_number', this.input.value);
-        setMaterialField(this.material, 'heat_id', identifier);
-        setMaterialField(this.material, 'description', description);
-        setMaterialField(this.material, 'grade', grade);
-        setMaterialField(this.material, 'outer_diameter_in', od);
-        setMaterialField(this.material, 'wall_thickness_in', wall);
+        const normalized = rememberHeatOption(heat) || heat;
+        this.input.value = normalized.heat_number || '';
+        if (this.onHeatSelected) {
+          this.onHeatSelected(normalized);
+        }
         this.hideResults();
       }
     }
 
-    function initHeatAutocompletes() {
-      if (!heatSearchEndpoint) {
-        return;
+    class HeatCellEditor {
+      agInit(params) {
+        this.params = params;
+        this.input = document.createElement('input');
+        this.input.type = 'text';
+        this.input.className = 'form-control';
+
+        const initialValue = params.value != null ? String(params.value) : '';
+        const startedWithCharPress = params.charPress && params.charPress.length === 1;
+        this.input.value = startedWithCharPress ? params.charPress : initialValue;
+
+        this.wrapper = document.createElement('div');
+        this.wrapper.className = 'heat-cell-editor heat-autocomplete';
+        this.wrapper.appendChild(this.input);
+
+        this.resultsEl = document.createElement('div');
+        this.resultsEl.className = 'heat-autocomplete-results hidden';
+        this.resultsEl.setAttribute('role', 'listbox');
+        this.wrapper.appendChild(this.resultsEl);
+
+        this.autocomplete = new HeatAutocomplete(this.input, {
+          resultsContainer: this.resultsEl,
+          onHeatSelected: heat => {
+            const normalized = rememberHeatOption(heat) || heat;
+            this.input.value = normalized.heat_number || '';
+            if (this.params && typeof this.params.stopEditing === 'function') {
+              window.setTimeout(() => this.params.stopEditing(), 0);
+            }
+          },
+        });
       }
-      const inputs = document.querySelectorAll('[data-heat-input]');
-      inputs.forEach(input => {
-        if (!input.__heatAutocomplete) {
-          input.__heatAutocomplete = new HeatAutocomplete(input);
+
+      getGui() {
+        return this.wrapper;
+      }
+
+      afterGuiAttached() {
+        window.setTimeout(() => {
+          if (this.input) {
+            this.input.focus();
+            if (typeof this.input.select === 'function') {
+              this.input.select();
+            }
+          }
+        }, 0);
+      }
+
+      getValue() {
+        if (!this.input) {
+          return '';
         }
-      });
+        return this.input.value.trim();
+      }
+
+      destroy() {
+        if (this.autocomplete && typeof this.autocomplete.destroy === 'function') {
+          this.autocomplete.destroy();
+        }
+        this.input = null;
+        this.resultsEl = null;
+        this.wrapper = null;
+        this.params = null;
+      }
     }
 
     const statusEl = document.getElementById('grid-status');
@@ -638,17 +724,13 @@
       pendingSaveTimers.set(node.id, timer);
     }
 
-    const heatNumberOptions = [];
-    const heatLookupByNumber = new Map();
     const ndeRigNameOptions = [];
     const ndeRigLookupByName = new Map();
 
     function syncHeatOptions(options) {
-      heatNumberOptions.length = 0;
       heatLookupByNumber.clear();
       for (const heat of options) {
-        heatNumberOptions.push(heat.heat_number);
-        heatLookupByNumber.set(heat.heat_number, heat);
+        rememberHeatOption(heat);
       }
     }
 
@@ -663,15 +745,15 @@
 
     function materialHeatValueSetter(prefix) {
       return params => {
-        const newValue = params.newValue || '';
-        const heat = heatLookupByNumber.get(newValue) || null;
-        params.data[`${prefix}_heat_number`] = heat ? heat.heat_number : '';
+        const newValue = (params.newValue || '').trim();
+        const heat = newValue ? heatLookupByNumber.get(newValue) || null : null;
+        params.data[`${prefix}_heat_number`] = newValue;
         params.data[`${prefix}_heat_id`] = heat ? heat.id : null;
-        params.data[`${prefix}_description`] = heat ? (heat.description || '') : '';
-        params.data[`${prefix}_grade`] = heat ? (heat.material_grade || '') : '';
-        params.data[`${prefix}_outer_diameter_in`] = heat && heat.outer_diameter_in !== undefined ? (heat.outer_diameter_in || '') : '';
-        params.data[`${prefix}_wall_thickness_in`] = heat && heat.wall_thickness_in !== undefined ? (heat.wall_thickness_in || '') : '';
-        params.data[`${prefix}_wps_number`] = heat ? (heat.wps_number || '') : '';
+        params.data[`${prefix}_description`] = heat ? heat.description : '';
+        params.data[`${prefix}_grade`] = heat ? heat.grade : '';
+        params.data[`${prefix}_outer_diameter_in`] = heat ? heat.outer_diameter_in : '';
+        params.data[`${prefix}_wall_thickness_in`] = heat ? heat.wall_thickness_in : '';
+        params.data[`${prefix}_wps_number`] = heat ? heat.wps_number : '';
         return true;
       };
     }
@@ -694,12 +776,7 @@
         headerName: 'Material 1 Heat #',
         field: 'material1_heat_number',
         minWidth: 200,
-        cellEditor: 'agRichSelectCellEditor',
-        cellEditorParams: () => ({
-          values: heatNumberOptions,
-          filterList: true,
-          searchDebounceDelay: 120,
-        }),
+        cellEditor: HeatCellEditor,
         valueSetter: materialHeatValueSetter('material1'),
       },
       { headerName: 'Material 1 Description', field: 'material1_description', minWidth: 200, editable: false },
@@ -711,12 +788,7 @@
         headerName: 'Material 2 Heat #',
         field: 'material2_heat_number',
         minWidth: 200,
-        cellEditor: 'agRichSelectCellEditor',
-        cellEditorParams: () => ({
-          values: heatNumberOptions,
-          filterList: true,
-          searchDebounceDelay: 120,
-        }),
+        cellEditor: HeatCellEditor,
         valueSetter: materialHeatValueSetter('material2'),
       },
       { headerName: 'Material 2 Description', field: 'material2_description', minWidth: 200, editable: false },

@@ -492,11 +492,19 @@ class WeldKPIDashboardServiceTests(TestCase):
         self.assertEqual(len(kpis["wps_stats"]), 2)
         wps_labels = {entry["wps_label"] for entry in kpis["wps_stats"]}
         self.assertSetEqual(wps_labels, {"WPS-100", "WPS-200"})
+        wps_stats = {entry["wps_label"]: entry for entry in kpis["wps_stats"]}
+        self.assertAlmostEqual(
+            float(wps_stats["WPS-200"]["repair_share_percent"]), 100.0, places=1
+        )
+        self.assertAlmostEqual(
+            float(wps_stats["WPS-100"]["repair_share_percent"]), 0.0, places=1
+        )
 
         welder_stats = {entry["welder_stencil"]: entry for entry in kpis["welder_stats"]}
         self.assertEqual(welder_stats["A1"]["weld_count"], 2)
-        self.assertEqual(welder_stats["A1"]["repair_repair_pass_count"], 1)
+        self.assertEqual(welder_stats["A1"]["repair_pass_count"], 1)
         self.assertEqual(welder_stats["B2"]["weld_count"], 2)
+        self.assertEqual(welder_stats["B2"].get("repair_pass_count"), 0)
 
         self.assertEqual(len(kpis["production"]["time_series"]), 2)
         self.assertIsNotNone(kpis["production"]["best_day"])
@@ -515,5 +523,7 @@ class WeldKPIDashboardServiceTests(TestCase):
 
         self.assertIsInstance(payload["repair_rate_by_wps"]["repair_rates"][0], float)
         self.assertIsInstance(payload["repair_rate_by_welder"]["repair_rates"][0], float)
+        self.assertEqual(payload["repair_rate_by_wps"]["total_repairs"], 1)
+        self.assertIn(1, payload["repair_rate_by_welder"]["repair_counts"])
         self.assertRegex(payload["weld_inches_by_day"]["labels"][0], r"\d{4}-\d{2}-\d{2}")
 

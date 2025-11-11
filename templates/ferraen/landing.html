@@ -1,0 +1,93 @@
+{% load static %}
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Ferraen · Operate with clarity</title>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+  <link rel="stylesheet" href="{% static 'styles/app.css' %}">
+</head>
+<body>
+  <header class="app-header" style="position:static; margin-bottom:var(--space-8);">
+    <a class="logo-wordmark" href="#"><span class="logo-dot"></span>Ferraen</a>
+    <nav style="display:flex; gap:var(--space-5); margin-left:auto;">
+      <a href="#features">Features</a>
+      <a href="#trust">Customers</a>
+      <a href="#pricing">Pricing</a>
+      <a href="#docs">Docs</a>
+    </nav>
+    <div style="display:flex; gap:var(--space-4);">
+      <button class="btn btn--ghost btn--sm" type="button">Sign in</button>
+      <button class="btn btn--primary btn--sm" type="button">Request demo</button>
+    </div>
+  </header>
+  <main>
+    <section class="hero">
+      <div>
+        <div class="pill">Operate with clarity.</div>
+        <h1 class="hero__title">Industrial automation that feels crafted.</h1>
+        <p class="hero__lede">Ferraen blends modern industrial aesthetics with premium orchestration tools so your operations team commands every critical moment.</p>
+        <div style="display:flex; gap:var(--space-4); margin-top:var(--space-6);">
+          <button class="btn btn--primary btn--lg" type="button">Launch Ferraen</button>
+          <button class="btn btn--secondary btn--lg" type="button">Explore playbooks</button>
+        </div>
+      </div>
+      <div class="gradient-panel">
+        <h2 style="margin:0; font-size:1.2rem; font-family:var(--font-heading);">Live system pulse</h2>
+        <div style="margin-top:var(--space-6); display:grid; gap:var(--space-4);">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <span class="kpi-card__label">Queue latency</span>
+            <span class="kpi-card__value" style="font-size:1.8rem;">182 ms</span>
+          </div>
+          <div class="progress"><div class="progress__bar" style="width:68%;"></div></div>
+          <div class="chip-row">
+            <span class="chip">Stable</span>
+            <span class="chip">SLA 99%</span>
+            <span class="chip">Auto-heal ready</span>
+          </div>
+        </div>
+      </div>
+    </section>
+    <section id="trust" style="padding:var(--space-9) var(--space-8); background:var(--color-neutral-bg);">
+      <div class="kpi-card__label">Trusted by</div>
+      <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:var(--space-6); align-items:center;">
+        <span class="card" style="align-items:center;">Atlas Robotics</span>
+        <span class="card" style="align-items:center;">Nova Labs</span>
+        <span class="card" style="align-items:center;">Zephyr Works</span>
+        <span class="card" style="align-items:center;">Helix Forge</span>
+      </div>
+    </section>
+    <section id="features" style="padding:var(--space-9) var(--space-8); display:grid; gap:var(--space-7);">
+      <header style="display:grid; gap:var(--space-4);">
+        <div class="kpi-card__label">Why Ferraen</div>
+        <h2 style="margin:0; font-size:1.6rem; font-family:var(--font-heading);">Crafted capabilities, industrial focus</h2>
+      </header>
+      <div class="layout-columns" style="gap:var(--space-6);">
+        <div class="card">
+          <div class="pill">Automate</div>
+          <h3 style="margin:0; font-size:1.3rem; font-family:var(--font-heading);">Orchestration clarity</h3>
+          <p style="color:var(--color-text-secondary);">Design workflows with a structured grid, versioned guardrails, and command-palette shortcuts.</p>
+        </div>
+        <div class="card">
+          <div class="pill">Observe</div>
+          <h3 style="margin:0; font-size:1.3rem; font-family:var(--font-heading);">Insightful telemetry</h3>
+          <p style="color:var(--color-text-secondary);">High contrast dashboards with micro-interactions keep teams ahead of incidents.</p>
+        </div>
+        <div class="card">
+          <div class="pill">Respond</div>
+          <h3 style="margin:0; font-size:1.3rem; font-family:var(--font-heading);">Coordinated response</h3>
+          <p style="color:var(--color-text-secondary);">Guided playbooks, toasts, and focus states ensure swift action when seconds matter.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+  <footer class="app-footer">
+    <span>© {% now "Y" %} Ferraen</span>
+    <span>Operate with clarity.</span>
+  </footer>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+  <script src="{% static 'scripts/theme.js' %}"></script>
+</body>
+</html>

@@ -1,0 +1,49 @@
+{% load static %}
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Ferraen · Sign in</title>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+  <link rel="stylesheet" href="{% static 'styles/app.css' %}">
+</head>
+<body style="min-height:100vh; display:grid; place-items:stretch;">
+  <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); min-height:100vh;">
+    <aside class="gradient-panel" style="color:var(--color-text-primary); display:grid; gap:var(--space-7);">
+      <div class="logo-wordmark"><span class="logo-dot"></span>Ferraen</div>
+      <div>
+        <div class="pill" style="width:max-content;">Operate with clarity.</div>
+        <h1 class="hero__title" style="margin-top:var(--space-6);">Industrial-grade command for premium operations teams.</h1>
+        <p class="hero__lede">Ferraen orchestrates automation, insights, and incident response in a glassy control surface.</p>
+      </div>
+      <div class="card" style="background:rgba(255,255,255,0.75);">
+        <div class="kpi-card__label">Trust by</div>
+        <div style="display:flex; gap:var(--space-6); align-items:center;">
+          <span>Atlas Robotics</span>
+          <span>Nova Labs</span>
+          <span>Zephyr Works</span>
+        </div>
+      </div>
+    </aside>
+    <main style="display:grid; place-items:center; padding:var(--space-10); background:var(--color-neutral-bg);">
+      <form class="card" style="width:min(420px,100%); gap:var(--space-6);">
+        <header style="display:grid; gap:var(--space-3);">
+          <h1 style="margin:0; font-size:1.5rem; font-family:var(--font-heading);">Sign in</h1>
+          <p style="color:var(--color-text-secondary); margin:0;">Access the Ferraen control center.</p>
+        </header>
+        {% include 'ui/input.html' with id='email' label='Email' type='email' placeholder='you@company.com' %}
+        {% include 'ui/input.html' with id='password' label='Password' type='password' placeholder='••••••••' %}
+        <div class="progress" aria-hidden="true"><div class="progress__bar" style="width:64%;"></div></div>
+        <p class="form-field__hint">Strength: strong — uses uppercase, lowercase, and symbols.</p>
+        <button class="btn btn--primary btn--md" type="submit">Sign in</button>
+        <button class="btn btn--secondary btn--md" type="button">Continue with SSO</button>
+        <p style="font-size:0.9rem; color:var(--color-text-secondary);">No account? <a href="#">Request access</a></p>
+      </form>
+    </main>
+  </div>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+  <script src="{% static 'scripts/theme.js' %}"></script>
+</body>
+</html>

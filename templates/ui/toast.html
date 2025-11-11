@@ -1,9 +1,0 @@
-{#
-  Usage:
-  <button data-demo-toast data-toast-title="Saved" data-toast-message="Preferences stored">Show toast</button>
-  Include this partial near the end of body to define the aria-live region (already present in base template).
-#}
-<div class="toast" role="status" aria-live="polite">
-  <div class="toast__title">{{ title }}</div>
-  {% if message %}<div class="toast__body">{{ message }}</div>{% endif %}
-</div>

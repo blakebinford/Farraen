@@ -1,3 +1,4 @@
+import json
 from datetime import date
 from decimal import Decimal
 from unittest.mock import patch
@@ -10,7 +11,7 @@ from drive.models import FileNode, Folder
 from organizations.models import Membership, Organization
 from projects.models import Project, ProjectMember
 
-from .models import MaterialHeat, NDERig, Welder, Weld
+from .models import MaterialHeat, NDERig, Welder, Weld, WeldHistory
 from .services import build_weld_dashboard_chart_payload, get_project_weld_kpis
 from .views import _migrations_required_message
 
@@ -528,4 +529,227 @@ class WeldKPIDashboardServiceTests(TestCase):
         self.assertIn("POROSITY", payload["repairs_by_type"]["labels"][0].upper())
         self.assertIn(1, payload["repairs_by_type"]["repair_counts"])
         self.assertRegex(payload["weld_inches_by_day"]["labels"][0], r"\d{4}-\d{2}-\d{2}")
+
+
+class WeldHistoryAPITests(WeldLogAPITests):
+    def _post_weld(self, payload):
+        return self.client.post(
+            self._data_url(), data=payload, content_type="application/json"
+        )
+
+    def _base_payload(self, **overrides):
+        data = {
+            "weld_id": overrides.pop("weld_id", "W-001"),
+            "disposition": overrides.pop(
+                "disposition", Weld.Disposition.ACCEPTED
+            ),
+        }
+        data.update(overrides)
+        return data
+
+    def test_history_created_on_create(self):
+        response = self._post_weld(self._base_payload())
+        self.assertEqual(response.status_code, 201)
+        weld = Weld.objects.get(pk=response.json()["weld"]["id"])
+
+        entries = list(weld.history.all())
+        self.assertEqual(len(entries), 1)
+        entry = entries[0]
+        self.assertEqual(entry.change_type, WeldHistory.ChangeType.CREATE)
+        self.assertEqual(entry.changed_by, self.user)
+        self.assertEqual(entry.before, {})
+        self.assertEqual(entry.after.get("weld_id"), "W-001")
+        self.assertIn("weld_id", entry.changed_fields)
+        self.assertEqual(entry.reason, "")
+
+    def test_history_created_on_update(self):
+        create = self._post_weld(self._base_payload())
+        self.assertEqual(create.status_code, 201)
+        weld_id = create.json()["weld"]["id"]
+        payload = self._base_payload(nde_number="NDE-100")
+        payload["id"] = weld_id
+        update = self._post_weld(payload)
+        self.assertEqual(update.status_code, 200)
+
+        weld = Weld.objects.get(pk=weld_id)
+        history_entries = list(
+            weld.history.order_by("created_at", "id")
+        )
+        self.assertEqual(len(history_entries), 2)
+        update_entry = history_entries[-1]
+        self.assertEqual(update_entry.change_type, WeldHistory.ChangeType.UPDATE)
+        self.assertIn("nde_number", update_entry.changed_fields)
+        self.assertEqual(update_entry.before.get("nde_number"), "")
+        self.assertEqual(update_entry.after.get("nde_number"), "NDE-100")
+
+    def test_history_endpoint_returns_entries_sorted(self):
+        create = self._post_weld(self._base_payload())
+        self.assertEqual(create.status_code, 201)
+        weld_id = create.json()["weld"]["id"]
+        payload = self._base_payload(nde_number="A1")
+        payload["id"] = weld_id
+        self.assertEqual(self._post_weld(payload).status_code, 200)
+
+        weld = Weld.objects.get(pk=weld_id)
+        url = reverse(
+            "welds:weld_history",
+            kwargs={
+                "org_slug": self.org.slug,
+                "project_slug": self.project.slug,
+                "weld_pk": weld.id,
+            },
+        )
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        rows = response.json().get("rows", [])
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[0]["change_type"], "UPDATE")
+        self.assertEqual(rows[1]["change_type"], "CREATE")
+        self.assertEqual(rows[0]["after"].get("nde_number"), "A1")
+        self.assertEqual(rows[0]["changed_by"]["display_name"], self.user.email)
+
+    def test_rollback_requires_manager_permission(self):
+        create = self._post_weld(self._base_payload())
+        self.assertEqual(create.status_code, 201)
+        weld_id = create.json()["weld"]["id"]
+        payload = self._base_payload(nde_number="PRE")
+        payload["id"] = weld_id
+        self.assertEqual(self._post_weld(payload).status_code, 200)
+        weld = Weld.objects.get(pk=weld_id)
+        history_entry = weld.history.filter(
+            change_type=WeldHistory.ChangeType.UPDATE
+        ).first()
+        rollback_url = reverse(
+            "welds:weld_history_rollback",
+            kwargs={
+                "org_slug": self.org.slug,
+                "project_slug": self.project.slug,
+                "history_id": history_entry.id,
+            },
+        )
+        response = self.client.post(
+            rollback_url, data={}, content_type="application/json"
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_rollback_restores_previous_values_and_creates_history(self):
+        ProjectMember.objects.filter(
+            project=self.project, user=self.user
+        ).update(role=ProjectMember.Role.MANAGER)
+        create = self._post_weld(self._base_payload())
+        self.assertEqual(create.status_code, 201)
+        weld_id = create.json()["weld"]["id"]
+        payload = self._base_payload(nde_number="PRE")
+        payload["id"] = weld_id
+        self.assertEqual(self._post_weld(payload).status_code, 200)
+        weld = Weld.objects.get(pk=weld_id)
+        update_entry = weld.history.filter(
+            change_type=WeldHistory.ChangeType.UPDATE
+        ).first()
+        rollback_url = reverse(
+            "welds:weld_history_rollback",
+            kwargs={
+                "org_slug": self.org.slug,
+                "project_slug": self.project.slug,
+                "history_id": update_entry.id,
+            },
+        )
+        response = self.client.post(
+            rollback_url,
+            data=json.dumps({"reason": "Revert test"}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["weld"]["nde_number"], "")
+
+        weld.refresh_from_db()
+        history_entries = list(
+            weld.history.order_by("-created_at", "-id")
+        )
+        self.assertEqual(len(history_entries), 3)
+        rollback_entry = history_entries[0]
+        self.assertEqual(
+            rollback_entry.change_type, WeldHistory.ChangeType.ROLLBACK
+        )
+        self.assertEqual(rollback_entry.reason, "Revert test")
+        self.assertEqual(rollback_entry.before.get("nde_number"), "PRE")
+        self.assertEqual(rollback_entry.after.get("nde_number"), "")
+
+    def test_rollback_conflict_returns_current_and_target(self):
+        ProjectMember.objects.filter(
+            project=self.project, user=self.user
+        ).update(role=ProjectMember.Role.MANAGER)
+        create = self._post_weld(self._base_payload())
+        self.assertEqual(create.status_code, 201)
+        weld_id = create.json()["weld"]["id"]
+        payload = self._base_payload(nde_number="PRE")
+        payload["id"] = weld_id
+        self.assertEqual(self._post_weld(payload).status_code, 200)
+        payload["nde_number"] = "POST"
+        self.assertEqual(self._post_weld(payload).status_code, 200)
+        weld = Weld.objects.get(pk=weld_id)
+        target_entry = weld.history.filter(
+            change_type=WeldHistory.ChangeType.UPDATE
+        ).order_by("created_at").first()
+        rollback_url = reverse(
+            "welds:weld_history_rollback",
+            kwargs={
+                "org_slug": self.org.slug,
+                "project_slug": self.project.slug,
+                "history_id": target_entry.id,
+            },
+        )
+        response = self.client.post(
+            rollback_url,
+            data=json.dumps({"reason": "Attempt"}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 409)
+        payload = response.json()
+        self.assertEqual(payload["error"], "conflict")
+        self.assertEqual(payload["current"].get("nde_number"), "POST")
+        self.assertEqual(payload["target"].get("nde_number"), "")
+
+    def test_rollback_records_reason_in_history_response(self):
+        ProjectMember.objects.filter(
+            project=self.project, user=self.user
+        ).update(role=ProjectMember.Role.MANAGER)
+        create = self._post_weld(self._base_payload())
+        self.assertEqual(create.status_code, 201)
+        weld_id = create.json()["weld"]["id"]
+        payload = self._base_payload(nde_number="PRE")
+        payload["id"] = weld_id
+        self.assertEqual(self._post_weld(payload).status_code, 200)
+        weld = Weld.objects.get(pk=weld_id)
+        update_entry = weld.history.filter(
+            change_type=WeldHistory.ChangeType.UPDATE
+        ).first()
+        rollback_url = reverse(
+            "welds:weld_history_rollback",
+            kwargs={
+                "org_slug": self.org.slug,
+                "project_slug": self.project.slug,
+                "history_id": update_entry.id,
+            },
+        )
+        reason = "QA requested rollback"
+        response = self.client.post(
+            rollback_url,
+            data=json.dumps({"reason": reason}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        history = response.json().get("history", {})
+        self.assertEqual(history.get("reason"), reason)
+        url = reverse(
+            "welds:weld_history",
+            kwargs={
+                "org_slug": self.org.slug,
+                "project_slug": self.project.slug,
+                "weld_pk": weld.id,
+            },
+        )
+        entries = self.client.get(url).json().get("rows", [])
+        self.assertEqual(entries[0].get("reason"), reason)
 

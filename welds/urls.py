@@ -1,5 +1,7 @@
 from django.urls import path
 
+from django.urls import path
+
 from . import views
 
 
@@ -36,5 +38,15 @@ urlpatterns = [
         "projects/<slug:project_slug>/weld-log/options/nde-rigs/",
         views.nde_rig_options,
         name="weld_nde_rig_options",
+    ),
+    path(
+        "projects/<slug:project_slug>/weld-log/welds/<int:weld_pk>/history/",
+        views.weld_history,
+        name="weld_history",
+    ),
+    path(
+        "projects/<slug:project_slug>/weld-log/welds/history/<int:history_id>/rollback/",
+        views.weld_history_rollback,
+        name="weld_history_rollback",
     ),
 ]

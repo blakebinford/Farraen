@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import MaterialHeat, NDERig, Welder, Weld
+from .models import MaterialHeat, NDERig, Welder, Weld, WeldHistory
 
 
 @admin.register(MaterialHeat)
@@ -79,3 +79,16 @@ class WeldAdmin(admin.ModelAdmin):
     @admin.display(description="NDE type")
     def nde_type_display(self, obj):
         return obj.get_nde_type_display() or ""
+
+
+@admin.register(WeldHistory)
+class WeldHistoryAdmin(admin.ModelAdmin):
+    list_display = (
+        "weld",
+        "change_type",
+        "changed_by",
+        "created_at",
+    )
+    list_filter = ("change_type", "created_at")
+    search_fields = ("weld__weld_id", "reason", "changed_fields")
+    ordering = ("-created_at",)

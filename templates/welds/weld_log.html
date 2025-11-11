@@ -255,6 +255,119 @@
   height: 100%;
 }
 
+  .weld-id-link {
+    color: #2563eb;
+    text-decoration: underline;
+    background: transparent;
+    border: none;
+    padding: 0;
+    font: inherit;
+    cursor: pointer;
+  }
+
+  .weld-id-link:hover,
+  .weld-id-link:focus {
+    text-decoration: none;
+    outline: none;
+  }
+
+  .history-entry-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .history-entry-card {
+    border: 1px solid rgba(15, 23, 42, 0.12);
+    border-radius: 0.75rem;
+    padding: 1rem 1.25rem;
+    background-color: #fff;
+    box-shadow: 0 6px 16px rgba(15, 23, 42, 0.08);
+  }
+
+  .history-entry-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 0.75rem;
+  }
+
+  .history-entry-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    align-items: baseline;
+    font-size: 0.92rem;
+    color: #334155;
+  }
+
+  .history-entry-reason {
+    font-size: 0.85rem;
+    color: #475569;
+    background-color: rgba(37, 99, 235, 0.05);
+    border-radius: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    margin-bottom: 0.75rem;
+  }
+
+  .history-field-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .history-field-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+  }
+
+  .history-field-label {
+    font-weight: 600;
+    color: #1f2937;
+  }
+
+  .history-field-change {
+    color: #334155;
+    font-size: 0.92rem;
+  }
+
+  .history-field-change .history-field-arrow {
+    margin-inline: 0.35rem;
+    font-weight: 600;
+  }
+
+  .history-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 1rem;
+  }
+
+  .history-summary-label {
+    font-size: 0.75rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #64748b;
+  }
+
+  .history-summary-value {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #1f2937;
+  }
+
+  .history-rollback-table th {
+    white-space: nowrap;
+  }
+
+  .history-conflict-table th {
+    white-space: nowrap;
+  }
+
 </style>
 
 {% endblock %}
@@ -289,6 +402,49 @@
         </div>
         <div id="weld-log-grid" aria-live="polite"></div>
         <div id="weld-log-status" class="small text-muted mt-2" role="status" aria-live="polite"></div>
+      </div>
+    </div>
+    <div class="modal fade" id="weld-history-modal" tabindex="-1" aria-hidden="true" aria-labelledby="weld-history-modal-title">
+      <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title" id="weld-history-modal-title">Weld Details &amp; History</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body">
+            <div id="weld-detail-summary" class="mb-3"></div>
+            <div id="weld-history-status" class="alert alert-info d-none" role="status" aria-live="polite"></div>
+            <div id="weld-history-entries" class="history-entry-list"></div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal fade" id="weld-rollback-modal" tabindex="-1" aria-hidden="true" aria-labelledby="weld-rollback-modal-title">
+      <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title" id="weld-rollback-modal-title">Confirm Weld Rollback</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body">
+            <p class="small text-muted">Review the values that will be restored. You can optionally record a reason for the rollback.</p>
+            <div id="weld-rollback-diff" class="mb-3"></div>
+            <div id="weld-rollback-conflict" class="alert alert-warning d-none" role="alert"></div>
+            <div id="weld-rollback-conflict-diff" class="mb-3"></div>
+            <div class="mb-3">
+              <label for="weld-rollback-reason" class="form-label">Reason (optional)</label>
+              <textarea id="weld-rollback-reason" class="form-control" rows="3" placeholder="Reason for rolling back"></textarea>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+            <button type="button" class="btn btn-primary" id="weld-rollback-confirm-btn">Confirm Rollback</button>
+          </div>
+        </div>
       </div>
     </div>
   {% if not setup_error %}
@@ -330,6 +486,58 @@
       let statusExtra = "";
       let activeSaves = 0;
       let currentAbortController = null;
+      const HISTORY_PAGE_SIZE = 100;
+      const HISTORY_MAX_PAGES = 100;
+      const historyEntryCache = new Map();
+      const historyUrlTemplate = "{{ weld_history_url_template }}";
+      const rollbackUrlTemplate = "{{ weld_history_rollback_url_template }}";
+      const canRollback = {{ can_rollback_welds|yesno:"true,false" }};
+      const Modal = window.bootstrap ? window.bootstrap.Modal : null;
+      const detailModalEl = document.getElementById("weld-history-modal");
+      const rollbackModalEl = document.getElementById("weld-rollback-modal");
+      const detailModal = Modal && detailModalEl ? new Modal(detailModalEl, { focus: true }) : null;
+      const rollbackModal = Modal && rollbackModalEl ? new Modal(rollbackModalEl, { focus: true }) : null;
+      const historyEntriesContainer = document.getElementById("weld-history-entries");
+      const historyStatusEl = document.getElementById("weld-history-status");
+      const weldSummaryEl = document.getElementById("weld-detail-summary");
+      const rollbackDiffEl = document.getElementById("weld-rollback-diff");
+      const rollbackReasonEl = document.getElementById("weld-rollback-reason");
+      const rollbackConfirmBtn = document.getElementById("weld-rollback-confirm-btn");
+      const rollbackConflictAlert = document.getElementById("weld-rollback-conflict");
+      const rollbackConflictDiffEl = document.getElementById("weld-rollback-conflict-diff");
+      let activeWeldDetail = null;
+      let pendingRollbackHistoryId = null;
+      let pendingRollbackEntry = null;
+      let rollbackRequiresConfirm = false;
+      let rollbackConflictState = null;
+
+      if (rollbackModalEl) {
+        rollbackModalEl.addEventListener("hidden.bs.modal", () => {
+          resetRollbackModalState();
+        });
+      }
+
+      if (historyEntriesContainer) {
+        historyEntriesContainer.addEventListener("click", event => {
+          const trigger = event.target.closest(".js-history-rollback");
+          if (!trigger || !canRollback) {
+            return;
+          }
+          event.preventDefault();
+          const historyId = Number(trigger.getAttribute("data-history-id"));
+          if (!historyId) {
+            return;
+          }
+          const entry = historyEntryCache.get(historyId);
+          prepareRollbackModal(entry || null);
+        });
+      }
+
+      if (rollbackConfirmBtn) {
+        rollbackConfirmBtn.addEventListener("click", () => {
+          submitRollback();
+        });
+      }
 
       function ensureOptionsPreloaded() {
         if (!preloadOptionsPromise) {
@@ -589,6 +797,126 @@
           .replace(/Z$/, "")
           .replace(/\+\d{2}:?\d{2}$/, "")
           .replace(/\.\d+/, "");
+      }
+
+      function formatDateTimeDisplay(value) {
+        if (!value) {
+          return "";
+        }
+        const date = new Date(value);
+        if (!Number.isNaN(date.getTime())) {
+          return date.toLocaleString();
+        }
+        return formatIsoDateTime(value);
+      }
+
+      function escapeHtml(value) {
+        if (value === null || value === undefined) {
+          return "";
+        }
+        return String(value)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#x27;");
+      }
+
+      const HISTORY_FIELD_LABELS = {
+        weld_id: "Weld ID",
+        nde_number: "NDE Number",
+        nde_type: "NDE Type",
+        drawing_number: "Drawing Number",
+        material1_heat_id: "Material 1 Heat",
+        material1_description: "Material 1 Description",
+        material1_grade: "Material 1 Grade",
+        material1_outer_diameter_in: "Material 1 OD (in)",
+        material1_wall_thickness_in: "Material 1 Wall Thickness (in)",
+        material2_heat_id: "Material 2 Heat",
+        material2_description: "Material 2 Description",
+        material2_grade: "Material 2 Grade",
+        material2_outer_diameter_in: "Material 2 OD (in)",
+        material2_wall_thickness_in: "Material 2 Wall Thickness (in)",
+        weld_type: "Weld Type",
+        date_welded: "Date Welded",
+        welder_stencil_root_hotpass: "Welder Root / Hot Pass",
+        welder_stencil_fill: "Welder Fill",
+        welder_stencil_cap: "Welder Cap",
+        welder_stencil_repair: "Welder Repair",
+        nde_date: "NDE Date",
+        nde_rig_id: "NDE Rig",
+        repair_type: "Repair Type",
+        disposition: "Disposition",
+        disposition_comment: "Disposition Comment",
+        updated_at: "Updated",
+        updated_by_name: "Updated By",
+      };
+
+      function shouldDisplayHistoryField(field) {
+        return Object.prototype.hasOwnProperty.call(HISTORY_FIELD_LABELS, field);
+      }
+
+      function resolveHistoryValue(field, snapshot) {
+        if (!snapshot) {
+          return "";
+        }
+        switch (field) {
+          case "nde_type":
+            return snapshot.nde_type_label || snapshot.nde_type || "";
+          case "weld_type":
+            return snapshot.weld_type_label || snapshot.weld_type || "";
+          case "repair_type":
+            return snapshot.repair_type_label || snapshot.repair_type || "";
+          case "disposition":
+            return snapshot.disposition_label || snapshot.disposition || "";
+          case "nde_rig_id":
+            return snapshot.nde_rig_name || "";
+          case "material1_heat_id":
+            return (
+              snapshot.material1_heat_number ||
+              (snapshot.material1_heat_id !== undefined && snapshot.material1_heat_id !== null
+                ? snapshot.material1_heat_id
+                : "")
+            );
+          case "material2_heat_id":
+            return (
+              snapshot.material2_heat_number ||
+              (snapshot.material2_heat_id !== undefined && snapshot.material2_heat_id !== null
+                ? snapshot.material2_heat_id
+                : "")
+            );
+          case "date_welded":
+          case "nde_date":
+            return snapshot[field] ? formatIsoDateTime(snapshot[field]) : "";
+          case "updated_at":
+            return snapshot[field] ? formatDateTimeDisplay(snapshot[field]) : "";
+          case "updated_by_name":
+            return snapshot.updated_by_name || "";
+          case "disposition_comment":
+            return snapshot.disposition_comment || "";
+          default: {
+            const value = snapshot[field];
+            if (value === null || value === undefined) {
+              return "";
+            }
+            return String(value);
+          }
+        }
+      }
+
+      function isValueEmpty(value) {
+        if (value === null || value === undefined) {
+          return true;
+        }
+        const text = String(value);
+        return text.trim() === "";
+      }
+
+      function renderDiffValue(value) {
+        if (isValueEmpty(value)) {
+          return '<span class="text-muted">Blank</span>';
+        }
+        return escapeHtml(String(value)).replace(/\n/g, "<br>");
       }
 
       function getCsrfToken() {
@@ -860,6 +1188,440 @@
         }
 
         return normalized;
+      }
+
+      function setHistoryStatus(message, variant = "info") {
+        if (!historyStatusEl) {
+          return;
+        }
+        if (!message) {
+          historyStatusEl.textContent = "";
+          historyStatusEl.className = "alert alert-info d-none";
+          historyStatusEl.classList.add("d-none");
+          return;
+        }
+        historyStatusEl.textContent = message;
+        historyStatusEl.className = `alert alert-${variant}`;
+        historyStatusEl.classList.remove("d-none");
+      }
+
+      function historyBadgeClass(changeType) {
+        switch (changeType) {
+          case "CREATE":
+            return "badge bg-success-subtle text-success";
+          case "ROLLBACK":
+            return "badge bg-warning-subtle text-warning";
+          case "UPDATE":
+          default:
+            return "badge bg-primary-subtle text-primary";
+        }
+      }
+
+      function renderFieldDiff(field, entry, userName, timestamp) {
+        const label = HISTORY_FIELD_LABELS[field] || field;
+        const beforeValue = resolveHistoryValue(field, entry.before);
+        const afterValue = resolveHistoryValue(field, entry.after);
+        const beforeHtml = renderDiffValue(beforeValue);
+        const afterHtml = renderDiffValue(afterValue);
+        const beforeEmpty = isValueEmpty(beforeValue);
+        const afterEmpty = isValueEmpty(afterValue);
+        let changeHtml = "";
+        if (beforeEmpty && !afterEmpty) {
+          changeHtml = `${afterHtml} added by <strong>${userName}</strong> at ${timestamp}.`;
+        } else if (!beforeEmpty && afterEmpty) {
+          changeHtml = `${beforeHtml} removed by <strong>${userName}</strong> at ${timestamp}.`;
+        } else if (!beforeEmpty || !afterEmpty) {
+          changeHtml = `${beforeHtml} <span class="history-field-arrow">&rarr;</span> ${afterHtml} updated by <strong>${userName}</strong> at ${timestamp}.`;
+        } else {
+          changeHtml = `No change recorded.`;
+        }
+        return `<li class="history-field-item"><div class="history-field-label">${escapeHtml(label)}</div><div class="history-field-change">${changeHtml}</div></li>`;
+      }
+
+      function buildHistoryEntryHtml(entry) {
+        const userName = escapeHtml(entry?.changed_by?.display_name || "System");
+        const timestamp = escapeHtml(formatDateTimeDisplay(entry?.created_at));
+        const reasonHtml = entry?.reason
+          ? `<div class="history-entry-reason"><strong>Reason:</strong> ${escapeHtml(entry.reason)}</div>`
+          : "";
+        const fieldItems = (entry?.changed_fields || [])
+          .filter(shouldDisplayHistoryField)
+          .map(field => renderFieldDiff(field, entry, userName, timestamp))
+          .join("");
+        const fieldsHtml = fieldItems || '<li class="history-field-item text-muted">No tracked field changes</li>';
+        const rollbackButton = canRollback
+          ? `<button type="button" class="btn btn-sm btn-outline-danger js-history-rollback" data-history-id="${entry.id}">Rollback</button>`
+          : "";
+        return `
+          <div class="history-entry-header">
+            <div class="history-entry-meta">
+              <span class="${historyBadgeClass(entry.change_type)}">${escapeHtml(entry.change_type)}</span>
+              <span>${userName}</span>
+              <span>at ${timestamp}</span>
+            </div>
+            ${rollbackButton}
+          </div>
+          ${reasonHtml}
+          <ul class="history-field-list">${fieldsHtml}</ul>
+        `;
+      }
+
+      function renderHistoryEntries(entries) {
+        if (!historyEntriesContainer) {
+          return;
+        }
+        historyEntriesContainer.innerHTML = "";
+        if (!entries || !entries.length) {
+          historyEntriesContainer.innerHTML = '<p class="text-muted mb-0">No history entries available.</p>';
+          return;
+        }
+        const fragment = document.createDocumentFragment();
+        for (const entry of entries) {
+          historyEntryCache.set(entry.id, entry);
+          const article = document.createElement("article");
+          article.className = "history-entry-card";
+          article.innerHTML = buildHistoryEntryHtml(entry);
+          fragment.appendChild(article);
+        }
+        historyEntriesContainer.appendChild(fragment);
+      }
+
+      function renderRollbackDiff(entry) {
+        if (!entry) {
+          return '<p class="text-muted mb-0">No history entry selected.</p>';
+        }
+        const rows = (entry.changed_fields || [])
+          .filter(shouldDisplayHistoryField)
+          .map(field => {
+            const label = HISTORY_FIELD_LABELS[field] || field;
+            const targetValue = renderDiffValue(resolveHistoryValue(field, entry.before));
+            const priorValue = renderDiffValue(resolveHistoryValue(field, entry.after));
+            return `<tr><th scope="row">${escapeHtml(label)}</th><td>${targetValue}</td><td>${priorValue}</td></tr>`;
+          })
+          .join("");
+        if (!rows) {
+          return '<p class="text-muted mb-0">No tracked field changes to restore.</p>';
+        }
+        return `
+          <div class="table-responsive">
+            <table class="table table-sm table-striped history-rollback-table">
+              <thead>
+                <tr>
+                  <th scope="col">Field</th>
+                  <th scope="col">Will revert to</th>
+                  <th scope="col">Snapshot after change</th>
+                </tr>
+              </thead>
+              <tbody>${rows}</tbody>
+            </table>
+          </div>
+        `;
+      }
+
+      function renderConflictDiff(currentSnapshot, targetSnapshot) {
+        const current = currentSnapshot || {};
+        const target = targetSnapshot || {};
+        const keys = new Set([
+          ...Object.keys(current),
+          ...Object.keys(target),
+        ]);
+        const rows = [];
+        for (const field of keys) {
+          if (!shouldDisplayHistoryField(field)) {
+            continue;
+          }
+          const currentValue = resolveHistoryValue(field, current);
+          const targetValue = resolveHistoryValue(field, target);
+          if (currentValue === targetValue) {
+            continue;
+          }
+          const label = HISTORY_FIELD_LABELS[field] || field;
+          rows.push(
+            `<tr><th scope="row">${escapeHtml(label)}</th><td>${renderDiffValue(targetValue)}</td><td>${renderDiffValue(currentValue)}</td></tr>`
+          );
+        }
+        if (!rows.length) {
+          return '<p class="text-muted mb-0">No differences detected between the current weld and the requested snapshot.</p>';
+        }
+        return `
+          <div class="table-responsive">
+            <table class="table table-sm table-bordered history-conflict-table">
+              <thead>
+                <tr>
+                  <th scope="col">Field</th>
+                  <th scope="col">Requested snapshot</th>
+                  <th scope="col">Current weld</th>
+                </tr>
+              </thead>
+              <tbody>${rows.join("")}</tbody>
+            </table>
+          </div>
+        `;
+      }
+
+      function renderWeldSummary(data) {
+        if (!weldSummaryEl) {
+          return;
+        }
+        if (!data) {
+          weldSummaryEl.innerHTML = '<p class="text-muted mb-0">No weld selected.</p>';
+          return;
+        }
+        const disposition = data.disposition_label || data.disposition || "";
+        const updatedAt = formatDateTimeDisplay(data.updated_at);
+        weldSummaryEl.innerHTML = `
+          <div class="history-summary-grid">
+            <div>
+              <span class="history-summary-label">Weld ID</span>
+              <div class="history-summary-value">${escapeHtml(data.weld_id || "")}</div>
+            </div>
+            <div>
+              <span class="history-summary-label">Disposition</span>
+              <div class="history-summary-value">${escapeHtml(disposition)}</div>
+            </div>
+            <div>
+              <span class="history-summary-label">Updated</span>
+              <div class="history-summary-value">${escapeHtml(updatedAt)}</div>
+            </div>
+            <div>
+              <span class="history-summary-label">Updated By</span>
+              <div class="history-summary-value">${escapeHtml(data.updated_by_name || "")}</div>
+            </div>
+          </div>
+        `;
+      }
+
+      async function loadWeldHistory(weldId) {
+        if (!weldId) {
+          renderHistoryEntries([]);
+          setHistoryStatus("", "info");
+          return;
+        }
+        setHistoryStatus("Loading history…", "info");
+        historyEntryCache.clear();
+        const allEntries = [];
+        const perPage = HISTORY_PAGE_SIZE;
+        let totalCount = null;
+        let currentPage = 1;
+        let truncated = false;
+        try {
+          const url = historyUrlTemplate.replace("{weld_id}", encodeURIComponent(weldId));
+          while (true) {
+            if (currentPage > HISTORY_MAX_PAGES) {
+              truncated = true;
+              break;
+            }
+            const response = await fetch(`${url}?page=${currentPage}&per_page=${perPage}`, {
+              credentials: "same-origin",
+            });
+            if (!response.ok) {
+              const text = await response.text();
+              throw new Error(text || `Failed to load weld history (${response.status})`);
+            }
+            const data = await response.json();
+            const rows = Array.isArray(data.rows) ? data.rows : [];
+            if (typeof data.total === "number" && Number.isFinite(data.total)) {
+              totalCount = data.total;
+            }
+            if (!rows.length) {
+              break;
+            }
+            allEntries.push(...rows);
+            if (rows.length < perPage) {
+              break;
+            }
+            if (totalCount !== null && allEntries.length >= totalCount) {
+              break;
+            }
+            currentPage += 1;
+          }
+          renderHistoryEntries(allEntries);
+          if (!allEntries.length) {
+            setHistoryStatus("No history entries yet for this weld.", "info");
+            return;
+          }
+          if (truncated || (totalCount !== null && allEntries.length < totalCount)) {
+            const totalLabel =
+              totalCount !== null && Number.isFinite(totalCount)
+                ? totalCount
+                : `${allEntries.length}+`;
+            setHistoryStatus(
+              `Showing latest ${allEntries.length} of ${totalLabel} history entries.`,
+              "warning",
+            );
+          } else {
+            setHistoryStatus("", "info");
+          }
+        } catch (error) {
+          console.error(error);
+          renderHistoryEntries([]);
+          setHistoryStatus(error?.message || "Unable to load weld history.", "danger");
+        }
+      }
+
+      function resetRollbackModalState() {
+        rollbackRequiresConfirm = false;
+        rollbackConflictState = null;
+        pendingRollbackHistoryId = null;
+        pendingRollbackEntry = null;
+        if (rollbackReasonEl) {
+          rollbackReasonEl.value = "";
+        }
+        if (rollbackConflictAlert) {
+          rollbackConflictAlert.className = "alert alert-warning d-none";
+          rollbackConflictAlert.textContent = "";
+        }
+        if (rollbackConflictDiffEl) {
+          rollbackConflictDiffEl.innerHTML = "";
+        }
+        if (rollbackConfirmBtn) {
+          rollbackConfirmBtn.textContent = "Confirm Rollback";
+          rollbackConfirmBtn.classList.remove("btn-danger");
+          rollbackConfirmBtn.classList.add("btn-primary");
+          rollbackConfirmBtn.disabled = false;
+        }
+      }
+
+      function prepareRollbackModal(entry) {
+        resetRollbackModalState();
+        if (!entry) {
+          return;
+        }
+        pendingRollbackHistoryId = entry.id;
+        pendingRollbackEntry = entry;
+        if (rollbackDiffEl) {
+          rollbackDiffEl.innerHTML = renderRollbackDiff(entry);
+        }
+        if (rollbackModal) {
+          rollbackModal.show();
+        } else {
+          alert("Rollback modal is unavailable in this environment.");
+        }
+      }
+
+      async function submitRollback(confirmOverride = false) {
+        if (!pendingRollbackHistoryId) {
+          return;
+        }
+        if (rollbackConfirmBtn) {
+          rollbackConfirmBtn.disabled = true;
+        }
+        try {
+          const url = rollbackUrlTemplate.replace(
+            "{history_id}",
+            encodeURIComponent(pendingRollbackHistoryId),
+          );
+          const payload = {
+            confirm: confirmOverride || rollbackRequiresConfirm,
+            reason: rollbackReasonEl ? rollbackReasonEl.value.trim() : "",
+          };
+          const response = await fetch(url, {
+            method: "POST",
+            credentials: "same-origin",
+            headers: {
+              "Content-Type": "application/json",
+              "X-CSRFToken": getCsrfToken(),
+            },
+            body: JSON.stringify(payload),
+          });
+          if (response.status === 409) {
+            const data = await response.json();
+            rollbackRequiresConfirm = true;
+            rollbackConflictState = data;
+            if (rollbackConflictAlert) {
+              rollbackConflictAlert.className = "alert alert-danger";
+              rollbackConflictAlert.textContent = data.message || "Weld changed since this history entry — continue?";
+              rollbackConflictAlert.classList.remove("d-none");
+            }
+            if (rollbackConflictDiffEl) {
+              rollbackConflictDiffEl.innerHTML = renderConflictDiff(
+                data.current,
+                data.target,
+              );
+            }
+            if (rollbackConfirmBtn) {
+              rollbackConfirmBtn.textContent = "Proceed Anyway";
+              rollbackConfirmBtn.classList.remove("btn-primary");
+              rollbackConfirmBtn.classList.add("btn-danger");
+              rollbackConfirmBtn.disabled = false;
+            }
+            return;
+          }
+          if (response.status === 400) {
+            const data = await response.json().catch(() => ({}));
+            if (rollbackConflictAlert) {
+              rollbackConflictAlert.className = "alert alert-danger";
+              rollbackConflictAlert.textContent = data.error || data.message || "Rollback failed.";
+              rollbackConflictAlert.classList.remove("d-none");
+            }
+            if (rollbackConfirmBtn) {
+              rollbackConfirmBtn.disabled = false;
+            }
+            return;
+          }
+          if (!response.ok) {
+            const text = await response.text();
+            if (rollbackConflictAlert) {
+              rollbackConflictAlert.className = "alert alert-danger";
+              rollbackConflictAlert.textContent = text || "Rollback failed.";
+              rollbackConflictAlert.classList.remove("d-none");
+            }
+            if (rollbackConfirmBtn) {
+              rollbackConfirmBtn.disabled = false;
+            }
+            return;
+          }
+          const data = await response.json();
+          if (rollbackModal) {
+            rollbackModal.hide();
+          }
+          resetRollbackModalState();
+          if (data?.weld) {
+            const normalized = normalizeRow(data.weld);
+            if (table) {
+              await table.updateData([normalized]);
+              const row = table.getRow(normalized.id);
+              if (row) {
+                row._originalData = { ...normalized };
+                row.getElement()?.classList.remove("is-dirty");
+              }
+            }
+            activeWeldDetail = normalized;
+            renderWeldSummary(normalized);
+          }
+          if (activeWeldDetail?.id) {
+            await loadWeldHistory(activeWeldDetail.id);
+          }
+          if (data?.history) {
+            historyEntryCache.set(data.history.id, data.history);
+          }
+          setStatus("Rollback completed successfully.", "success");
+        } catch (error) {
+          console.error(error);
+          if (rollbackConflictAlert) {
+            rollbackConflictAlert.className = "alert alert-danger";
+            rollbackConflictAlert.textContent = error?.message || "Rollback failed.";
+            rollbackConflictAlert.classList.remove("d-none");
+          }
+          if (rollbackConfirmBtn) {
+            rollbackConfirmBtn.disabled = false;
+          }
+        }
+      }
+
+      function openWeldDetail(rowData) {
+        if (!rowData) {
+          return;
+        }
+        activeWeldDetail = rowData;
+        renderWeldSummary(rowData);
+        if (detailModal) {
+          detailModal.show();
+        } else {
+          console.warn("Bootstrap modal not available; cannot show weld detail modal.");
+        }
+        setHistoryStatus("Loading history…", "info");
+        loadWeldHistory(rowData.id);
       }
 
       function denormalizeRow(row) {
@@ -1698,6 +2460,19 @@
             headerSort: true,
             editor: "input",
             validator: ["required"],
+            formatter(cell) {
+              const value = cell.getValue() || "";
+              if (!value) {
+                return "";
+              }
+              const display = escapeHtml(value);
+              if (!detailModal) {
+                return display;
+              }
+              const rowData = cell.getRow()?.getData?.();
+              const weldPk = rowData?.id ?? "";
+              return `<button type="button" class="weld-id-link" data-weld-id="${weldPk}">${display}</button>`;
+            },
           },
           {
             title: "NDE Number",
@@ -2039,6 +2814,18 @@
             totalAvailableRows = reportedCount;
             return normalizedRows;
           },
+        });
+        table.on("cellClick", (event, cell) => {
+          if (cell.getField && cell.getField() === "weld_id") {
+            const trigger = event.target?.closest?.(".weld-id-link");
+            if (trigger) {
+              event.preventDefault();
+              const data = cell.getRow()?.getData?.();
+              if (data) {
+                openWeldDetail(data);
+              }
+            }
+          }
         });
         table.on("selectionChanged", () => {
           updateStatusCounts();

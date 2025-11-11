@@ -1,8 +1,10 @@
 import json
+import json
 import logging
 from decimal import Decimal, InvalidOperation
 
-from django.db import connection
+from django.core.paginator import Paginator
+from django.db import connection, transaction, IntegrityError
 from django.db.models import Q
 from django.http import JsonResponse, HttpResponseBadRequest, HttpResponseForbidden
 from django.shortcuts import render, get_object_or_404
@@ -11,9 +13,10 @@ from django.utils.dateparse import parse_date
 from django.views.decorators.http import require_http_methods
 
 from organizations.decorators import require_membership
+from projects.models import ProjectMember
 from projects.utils import get_project_for_request, user_has_project_access
 
-from .models import MaterialHeat, NDERig, Welder, Weld
+from .models import MaterialHeat, NDERig, Welder, Weld, WeldHistory
 
 
 logger = logging.getLogger(__name__)
@@ -51,6 +54,15 @@ def _require_project_membership(request, project):
     if not user_has_project_access(request.user, project):
         return HttpResponseForbidden("No project access")
     return None
+
+
+def _user_can_rollback(user, project) -> bool:
+    if not user or not getattr(user, "is_authenticated", False):
+        return False
+    membership = ProjectMember.objects.filter(project=project, user=user).first()
+    if not membership:
+        return False
+    return membership.role == ProjectMember.Role.MANAGER
 
 
 def _decimal_to_str(value):
@@ -192,6 +204,122 @@ def _serialize_weld(
     return payload
 
 
+def _calculate_changed_fields(before: dict | None, after: dict | None) -> list[str]:
+    before = before or {}
+    after = after or {}
+    keys = set(before.keys()) | set(after.keys())
+    return sorted(key for key in keys if before.get(key) != after.get(key))
+
+
+def _parse_decimal_value(value):
+    if value in (None, ""):
+        return None
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError):
+        return None
+
+
+def _parse_date_value(value):
+    if not value:
+        return None
+    if isinstance(value, str):
+        return parse_date(value)
+    return value
+
+
+def _parse_int_value(value):
+    if value in (None, ""):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _snapshot_to_model_updates(snapshot: dict | None, *, weld: Weld | None = None) -> dict:
+    snapshot = snapshot or {}
+
+    def get_value(key, default=None):
+        if key in snapshot:
+            return snapshot.get(key)
+        if weld is not None:
+            return getattr(weld, key, default)
+        return default
+
+    updates: dict = {}
+
+    weld_identifier = snapshot.get("weld_id")
+    if weld_identifier:
+        updates["weld_id"] = weld_identifier
+    elif weld is not None:
+        updates["weld_id"] = weld.weld_id
+
+    updates["nde_number"] = get_value("nde_number", "") or ""
+    updates["nde_type"] = get_value("nde_type") or None
+    updates["drawing_number"] = get_value("drawing_number", "") or ""
+
+    updates["material1_heat_id"] = _parse_int_value(
+        get_value("material1_heat_id")
+    )
+    updates["material1_description"] = get_value("material1_description", "") or ""
+    updates["material1_grade"] = get_value("material1_grade", "") or ""
+    updates["material1_outer_diameter_in"] = _parse_decimal_value(
+        get_value("material1_outer_diameter_in")
+    )
+    updates["material1_wall_thickness_in"] = _parse_decimal_value(
+        get_value("material1_wall_thickness_in")
+    )
+
+    updates["material2_heat_id"] = _parse_int_value(
+        get_value("material2_heat_id")
+    )
+    updates["material2_description"] = get_value("material2_description", "") or ""
+    updates["material2_grade"] = get_value("material2_grade", "") or ""
+    updates["material2_outer_diameter_in"] = _parse_decimal_value(
+        get_value("material2_outer_diameter_in")
+    )
+    updates["material2_wall_thickness_in"] = _parse_decimal_value(
+        get_value("material2_wall_thickness_in")
+    )
+
+    updates["weld_type"] = get_value("weld_type") or ""
+    updates["date_welded"] = _parse_date_value(get_value("date_welded"))
+
+    updates["welder_stencil_root_hotpass"] = (
+        get_value("welder_stencil_root_hotpass", "") or ""
+    )
+    updates["welder_stencil_fill"] = get_value("welder_stencil_fill", "") or ""
+    updates["welder_stencil_cap"] = get_value("welder_stencil_cap", "") or ""
+    updates["welder_stencil_repair"] = get_value("welder_stencil_repair", "") or ""
+
+    updates["nde_date"] = _parse_date_value(get_value("nde_date"))
+    updates["nde_rig_id"] = _parse_int_value(get_value("nde_rig_id"))
+    updates["repair_type"] = get_value("repair_type") or None
+    updates["disposition"] = get_value("disposition", Weld.Disposition.PENDING)
+    updates["disposition_comment"] = get_value("disposition_comment", "") or ""
+
+    return updates
+
+
+def _serialize_history_entry(entry: WeldHistory) -> dict:
+    changed_by = entry.changed_by
+    return {
+        "id": entry.id,
+        "weld_id": getattr(entry.weld, "weld_id", ""),
+        "change_type": entry.change_type,
+        "changed_fields": entry.changed_fields or [],
+        "before": entry.before or {},
+        "after": entry.after or {},
+        "changed_by": {
+            "id": getattr(changed_by, "id", None),
+            "display_name": _format_user_display(changed_by) or "System",
+        },
+        "reason": entry.reason or "",
+        "created_at": entry.created_at.isoformat(),
+    }
+
+
 def _material_heat_payload(
     heat: MaterialHeat,
     *,
@@ -306,6 +434,23 @@ def weld_log(request, org_slug, project_slug):
                 "weld_type_options": _choice_options(Weld.WeldType.choices),
                 "repair_type_options": _choice_options(Weld.RepairType.choices),
                 "nde_type_options": _choice_options(Weld.NDEType.choices),
+                "weld_history_url_template": reverse(
+                    "welds:weld_history",
+                    kwargs={
+                        "org_slug": request.org.slug,
+                        "project_slug": project.slug,
+                        "weld_pk": 0,
+                    },
+                ).replace("/0/", "/{weld_id}/"),
+                "weld_history_rollback_url_template": reverse(
+                    "welds:weld_history_rollback",
+                    kwargs={
+                        "org_slug": request.org.slug,
+                        "project_slug": project.slug,
+                        "history_id": 0,
+                    },
+                ).replace("/0/", "/{history_id}/"),
+                "can_rollback_welds": _user_can_rollback(request.user, project),
             }
         )
 
@@ -394,6 +539,8 @@ def weld_log_data(request, org_slug, project_slug):
             },
         )
         return JsonResponse({"error": "Weld ID is required."}, status=400)
+
+    history_reason = str(payload.get("reason", "") or "").strip()
 
     def _clean_text(key):
         return str(payload.get(key, "") or "").strip()
@@ -677,11 +824,30 @@ def weld_log_data(request, org_slug, project_slug):
                 },
             )
             return JsonResponse({"error": "Weld ID already exists for this project."}, status=400)
-        weld.weld_id = weld_id
-        for field, value in attrs.items():
-            setattr(weld, field, value)
-        weld.updated_by = request.user
-        weld.save()
+        before_snapshot = _serialize_weld(
+            weld, org_slug=request.org.slug, project_slug=project.slug
+        )
+        with transaction.atomic():
+            weld.weld_id = weld_id
+            for field, value in attrs.items():
+                setattr(weld, field, value)
+            weld.updated_by = request.user
+            weld.save()
+            after_snapshot = _serialize_weld(
+                weld, org_slug=request.org.slug, project_slug=project.slug
+            )
+            changed_fields = _calculate_changed_fields(
+                before_snapshot, after_snapshot
+            )
+            WeldHistory.objects.create(
+                weld=weld,
+                changed_by=request.user,
+                change_type=WeldHistory.ChangeType.UPDATE,
+                changed_fields=changed_fields,
+                before=before_snapshot,
+                after=after_snapshot,
+                reason=history_reason,
+            )
         logger.info(
             "Updated weld entry",
             extra={
@@ -692,15 +858,7 @@ def weld_log_data(request, org_slug, project_slug):
                 "weld_pk": weld.pk,
             },
         )
-        return JsonResponse(
-            {
-                "weld": _serialize_weld(
-                    weld,
-                    org_slug=request.org.slug,
-                    project_slug=project.slug,
-                )
-            }
-        )
+        return JsonResponse({"weld": after_snapshot})
 
     if existing_qs.exists():
         logger.warning(
@@ -714,13 +872,26 @@ def weld_log_data(request, org_slug, project_slug):
         )
         return JsonResponse({"error": "Weld ID already exists for this project."}, status=400)
 
-    weld = Weld.objects.create(
-        project=project,
-        weld_id=weld_id,
-        created_by=request.user,
-        updated_by=request.user,
-        **attrs,
-    )
+    with transaction.atomic():
+        weld = Weld.objects.create(
+            project=project,
+            weld_id=weld_id,
+            created_by=request.user,
+            updated_by=request.user,
+            **attrs,
+        )
+        after_snapshot = _serialize_weld(
+            weld, org_slug=request.org.slug, project_slug=project.slug
+        )
+        WeldHistory.objects.create(
+            weld=weld,
+            changed_by=request.user,
+            change_type=WeldHistory.ChangeType.CREATE,
+            changed_fields=sorted(after_snapshot.keys()),
+            before={},
+            after=after_snapshot,
+            reason=history_reason,
+        )
     logger.info(
         "Created weld entry",
         extra={
@@ -731,15 +902,230 @@ def weld_log_data(request, org_slug, project_slug):
             "weld_pk": weld.pk,
         },
     )
+    return JsonResponse({"weld": after_snapshot}, status=201)
+
+
+@require_membership("GUEST")
+@require_http_methods(["GET"])
+def weld_history(request, org_slug, project_slug, weld_pk):
+    project = get_project_for_request(request, request.org, project_slug)
+    forbidden = _require_project_membership(request, project)
+    if forbidden:
+        logger.warning(
+            "User without access attempted to load weld history",
+            extra={
+                "user_id": getattr(request.user, "id", None),
+                "org_slug": org_slug,
+                "project_slug": project_slug,
+                "weld_pk": weld_pk,
+            },
+        )
+        return forbidden
+
+    weld = get_object_or_404(Weld, pk=weld_pk, project=project)
+    page_number = request.GET.get("page", "1")
+    per_page_raw = request.GET.get("per_page", "25")
+    try:
+        page = max(int(page_number), 1)
+    except (TypeError, ValueError):
+        page = 1
+    try:
+        per_page = int(per_page_raw)
+    except (TypeError, ValueError):
+        per_page = 25
+    per_page = max(1, min(per_page, 100))
+
+    history_qs = (
+        weld.history.select_related("changed_by", "weld")
+        .order_by("-created_at", "-id")
+    )
+    paginator = Paginator(history_qs, per_page)
+    page_obj = paginator.get_page(page)
+    rows = [_serialize_history_entry(entry) for entry in page_obj]
+
+    logger.info(
+        "Loaded weld history",
+        extra={
+            "user_id": getattr(request.user, "id", None),
+            "org_slug": org_slug,
+            "project_slug": project_slug,
+            "weld_pk": weld_pk,
+            "page": page,
+            "per_page": per_page,
+            "row_count": len(rows),
+        },
+    )
+
     return JsonResponse(
         {
-            "weld": _serialize_weld(
-                weld,
-                org_slug=request.org.slug,
-                project_slug=project.slug,
+            "rows": rows,
+            "page": page_obj.number,
+            "per_page": per_page,
+            "total": paginator.count,
+        }
+    )
+
+
+@require_membership("GUEST")
+@require_http_methods(["POST"])
+def weld_history_rollback(request, org_slug, project_slug, history_id):
+    project = get_project_for_request(request, request.org, project_slug)
+    forbidden = _require_project_membership(request, project)
+    if forbidden:
+        logger.warning(
+            "User without access attempted weld rollback",
+            extra={
+                "user_id": getattr(request.user, "id", None),
+                "org_slug": org_slug,
+                "project_slug": project_slug,
+                "history_id": history_id,
+            },
+        )
+        return forbidden
+
+    if not _user_can_rollback(request.user, project):
+        logger.warning(
+            "Rollback forbidden due to role",
+            extra={
+                "user_id": getattr(request.user, "id", None),
+                "org_slug": org_slug,
+                "project_slug": project_slug,
+                "history_id": history_id,
+            },
+        )
+        return HttpResponseForbidden("Insufficient permissions for rollback")
+
+    try:
+        payload = json.loads(request.body.decode("utf-8")) if request.body else {}
+    except json.JSONDecodeError:
+        logger.exception(
+            "Failed to decode rollback payload",
+            extra={
+                "user_id": getattr(request.user, "id", None),
+                "org_slug": org_slug,
+                "project_slug": project_slug,
+                "history_id": history_id,
+            },
+        )
+        return HttpResponseBadRequest("Invalid JSON body")
+
+    confirm = bool(payload.get("confirm"))
+    rollback_reason = str(payload.get("reason", "") or "").strip()
+
+    history_entry = get_object_or_404(
+        WeldHistory.objects.select_related("weld", "changed_by"),
+        pk=history_id,
+        weld__project=project,
+    )
+    weld = history_entry.weld
+
+    current_snapshot = _serialize_weld(
+        weld, org_slug=request.org.slug, project_slug=project.slug
+    )
+
+    if current_snapshot != (history_entry.after or {}) and not confirm:
+        logger.info(
+            "Rollback conflict detected",
+            extra={
+                "user_id": getattr(request.user, "id", None),
+                "org_slug": org_slug,
+                "project_slug": project_slug,
+                "history_id": history_id,
+                "weld_pk": weld.pk,
+            },
+        )
+        return JsonResponse(
+            {
+                "error": "conflict",
+                "message": "Weld has changed since this history entry.",
+                "current": current_snapshot,
+                "target": history_entry.before or {},
+                "requires_confirmation": True,
+            },
+            status=409,
+        )
+
+    if not history_entry.before:
+        logger.warning(
+            "Rollback requested to empty snapshot",
+            extra={
+                "user_id": getattr(request.user, "id", None),
+                "org_slug": org_slug,
+                "project_slug": project_slug,
+                "history_id": history_id,
+                "weld_pk": weld.pk,
+            },
+        )
+        return JsonResponse(
+            {"error": "Rollback to the initial creation state is not supported."},
+            status=400,
+        )
+
+    updates = _snapshot_to_model_updates(history_entry.before, weld=weld)
+    reason_text = (
+        rollback_reason
+        or f"Rollback to history entry {history_entry.id}"
+    )
+
+    with transaction.atomic():
+        before_snapshot = current_snapshot
+        for field, value in updates.items():
+            setattr(weld, field, value)
+        weld.updated_by = request.user
+        try:
+            weld.save()
+        except IntegrityError:
+            logger.exception(
+                "Rollback failed due to integrity error",
+                extra={
+                    "user_id": getattr(request.user, "id", None),
+                    "org_slug": org_slug,
+                    "project_slug": project_slug,
+                    "history_id": history_id,
+                    "weld_pk": weld.pk,
+                },
             )
+            transaction.set_rollback(True)
+            return JsonResponse(
+                {
+                    "error": "integrity_error",
+                    "message": "Rollback failed due to a conflicting weld identifier.",
+                },
+                status=400,
+            )
+        after_snapshot = _serialize_weld(
+            weld, org_slug=request.org.slug, project_slug=project.slug
+        )
+        changed_fields = _calculate_changed_fields(
+            before_snapshot, after_snapshot
+        )
+        rollback_history = WeldHistory.objects.create(
+            weld=weld,
+            changed_by=request.user,
+            change_type=WeldHistory.ChangeType.ROLLBACK,
+            changed_fields=changed_fields,
+            before=before_snapshot,
+            after=after_snapshot,
+            reason=reason_text,
+        )
+
+    logger.info(
+        "Rolled back weld entry",
+        extra={
+            "user_id": getattr(request.user, "id", None),
+            "org_slug": org_slug,
+            "project_slug": project_slug,
+            "history_id": history_id,
+            "weld_pk": weld.pk,
         },
-        status=201,
+    )
+
+    return JsonResponse(
+        {
+            "weld": after_snapshot,
+            "history": _serialize_history_entry(rollback_history),
+            "restored_from_history_id": history_entry.id,
+        }
     )
 
 

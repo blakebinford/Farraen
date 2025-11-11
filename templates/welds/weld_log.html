@@ -4,8 +4,7 @@
   {{ block.super }}
   <link
     rel="stylesheet"
-    href="https://cdn.jsdelivr.net/npm/tabulator-tables@5.6.4/dist/css/tabulator_bootstrap5.min.css"
-    onerror="this.onerror=null;this.href='https://unpkg.com/tabulator-tables@5.6.4/dist/css/tabulator_bootstrap5.min.css'"
+    href="https://cdn.jsdelivr.net/npm/tabulator-tables@6.3.1/dist/css/tabulator_bootstrap5.min.css"
   >
   <style>
   :root {
@@ -340,71 +339,7 @@
     {{ weld_type_options|json_script:"weld-type-options" }}
     {{ repair_type_options|json_script:"weld-repair-type-options" }}
     {{ nde_type_options|json_script:"weld-nde-type-options" }}
-    <script>
-      (function () {
-        const TABULATOR_JS_SOURCES = [
-          "https://cdn.jsdelivr.net/npm/tabulator-tables@5.6.4/dist/js/tabulator.min.js",
-          "https://unpkg.com/tabulator-tables@5.6.4/dist/js/tabulator.min.js",
-        ];
-
-        function getTabulatorConstructor() {
-          return window.Tabulator || window.TabulatorFull || null;
-        }
-
-        function loadScript(src) {
-          return new Promise((resolve, reject) => {
-            const script = document.createElement("script");
-            script.src = src;
-            script.async = false;
-            script.defer = false;
-            script.onload = () => resolve();
-            script.onerror = () => {
-              script.remove();
-              reject(new Error(`Failed to load ${src}`));
-            };
-            document.head.appendChild(script);
-          });
-        }
-
-        window.ensureTabulatorReady = function ensureTabulatorReady() {
-          const existing = getTabulatorConstructor();
-          if (existing) {
-            return Promise.resolve(existing);
-          }
-
-          if (!window.__tabulatorLoaderPromise) {
-            window.__tabulatorLoaderPromise = (async () => {
-              for (const src of TABULATOR_JS_SOURCES) {
-                if (getTabulatorConstructor()) {
-                  break;
-                }
-                try {
-                  await loadScript(src);
-                } catch (error) {
-                  console.warn(error.message);
-                  continue;
-                }
-                if (getTabulatorConstructor()) {
-                  break;
-                }
-              }
-
-              const constructor = getTabulatorConstructor();
-              if (!constructor) {
-                throw new Error("Tabulator assets failed to load");
-              }
-              return constructor;
-            })();
-
-            window.__tabulatorLoaderPromise.catch(() => {
-              window.__tabulatorLoaderPromise = null;
-            });
-          }
-
-          return window.__tabulatorLoaderPromise;
-        };
-      })();
-    </script>
+    <script src="https://cdn.jsdelivr.net/npm/tabulator-tables@6.3.1/dist/js/tabulator.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <script>
       (function () {
@@ -1902,268 +1837,263 @@
         ];
       }
 
-      function initializeTabulator(TabulatorConstructor) {
-        if (!TabulatorConstructor) {
+      try {
+        if (!window.Tabulator) {
           throw new Error("Tabulator assets failed to load");
         }
 
-        table = new TabulatorConstructor("#weld-log-grid", {
-        layout: "fitDataStretch",
-        height: "78vh",
-        rowHeight: 34,
-        reactiveData: false,
-        data: [],
-        columns: buildColumns(),
+        table = new Tabulator("#weld-log-grid", {
+          layout: "fitDataStretch",
+          height: "78vh",
+          rowHeight: 34,
+          reactiveData: false,
+          data: [],
+          columns: buildColumns(),
 
-        movableColumns: true,
-        resizableColumns: true,
-        resizableRows: false,
-        autoResize: true,
+          movableColumns: true,
+          resizableColumns: true,
+          resizableRows: false,
+          autoResize: true,
 
-        // 👇 Add / ensure these are present
-        selectable: true,              // enable basic row selection
-        selectableRange: true,         // turn on range selection
-        selectableRangeMode: "cell",   // range selection is by cell, not row
-        selectableRangeColumns: true,
-        selectableRangeRows: true,
-        selectableRollingSelection: true,
+          // 👇 Add / ensure these are present
+          selectable: true,              // enable basic row selection
+          selectableRange: true,         // turn on range selection
+          selectableRangeMode: "cell",   // range selection is by cell, not row
+          selectableRangeColumns: true,
+          selectableRangeRows: true,
+          selectableRollingSelection: true,
 
-        clipboard: true,
-        clipboardCopyStyled: false,
-        clipboardCopyRowRangeSelection: "data", // or "range" depending on what you prefer
-        clipboardPasteAction: "replace",
+          clipboard: true,
+          clipboardCopyStyled: false,
+          clipboardCopyRowRangeSelection: "data", // or "range" depending on what you prefer
+          clipboardPasteAction: "replace",
 
-        history: true,
-        keybindings: {
-          navPrev: "shift+tab",
-          navNext: "tab",
-        },
-        persistenceMode: "local",
-        index: "id",
+          history: true,
+          keybindings: {
+            navPrev: "shift+tab",
+            navNext: "tab",
+          },
+          persistenceMode: "local",
+          index: "id",
 
-        progressiveRender: "basic",
-        progressiveRenderSize: 100,
-        progressiveRenderMargin: 200,
+          progressiveRender: "basic",
+          progressiveRenderSize: 100,
+          progressiveRenderMargin: 200,
 
-        pagination: "remote",
-        paginationSize: 100,
-        paginationSizeSelector: [50, 100, 200],
+          pagination: true,
+          paginationMode: "remote", // Tabulator v6 requires explicit pagination mode configuration
+          paginationSize: 100,
+          paginationSizeSelector: [50, 100, 200],
 
-        ajaxSorting: true,
-        ajaxFiltering: true,
-        ajaxURL: dataEndpoint,
-        ajaxURLGenerator: (url, config, params) => {
-          // Map Tabulator's pagination/sort/filter params onto the query string keys our backend understands.
-          // TODO: adjust the parameter names below once the API accepts explicit paging arguments.
-          const searchParams = new URLSearchParams();
-          const page = params?.page ?? 1;
-          const size = params?.size ?? 100;
-          searchParams.set("page", page);
-          searchParams.set("page_size", size);
+          ajaxSorting: true,
+          ajaxFiltering: true,
+          ajaxURL: dataEndpoint,
+          ajaxURLGenerator: (url, config, params) => {
+            // Map Tabulator's pagination/sort/filter params onto the query string keys our backend understands.
+            // TODO: adjust the parameter names below once the API accepts explicit paging arguments.
+            const searchParams = new URLSearchParams();
+            const page = params?.page ?? 1;
+            const size = params?.size ?? 100;
+            searchParams.set("page", page);
+            searchParams.set("page_size", size);
 
-          if (Array.isArray(params?.sorters)) {
-            params.sorters.forEach((sorter, index) => {
-              if (sorter?.field) {
-                searchParams.set(`sort[${index}][field]`, sorter.field);
-                searchParams.set(`sort[${index}][dir]`, sorter.dir || "asc");
-              }
-            });
-          }
-
-          if (Array.isArray(params?.filters)) {
-            params.filters.forEach((filter, index) => {
-              if (filter?.field) {
-                searchParams.set(`filter[${index}][field]`, filter.field);
-                searchParams.set(`filter[${index}][type]`, filter.type || "=");
-                searchParams.set(`filter[${index}][value]`, filter.value ?? "");
-              }
-            });
-          }
-
-          const query = searchParams.toString();
-          const separator = url.includes("?") ? "&" : "?";
-          return query ? `${url}${separator}${query}` : url;
-        },
-        ajaxRequestFunc: async (url, config, params) => {
-          hasTriggeredInitialLoad = true;
-          await ensureOptionsPreloaded();
-          const response = await fetch(url, { credentials: "same-origin" });
-          if (!response.ok) {
-            const text = await response.text();
-            throw new Error(text || `Failed to load weld log (${response.status})`);
-          }
-          return response.json();
-        },
-        ajaxResponse: (url, params, response) => {
-          const payload = response || {};
-          const rawRows = Array.isArray(payload.data)
-            ? payload.data
-            : Array.isArray(payload.rows)
-              ? payload.rows
-              : [];
-          const normalizedRows = rawRows.map(normalizeRow);
-          let reportedCount = Number.isFinite(payload.row_count)
-            ? payload.row_count
-            : Number.isFinite(payload.total)
-              ? payload.total
-              : NaN;
-          const pageSize = Number(params?.size) || 100;
-          const currentPage = Number(params?.page) || 1;
-          if (!Number.isFinite(reportedCount)) {
-            reportedCount = normalizedRows.length;
-          }
-
-          if (Array.isArray(payload.data) && payload.last_page !== undefined) {
-            // Backend already performed the paging; hand the response straight to Tabulator.
-            const lastPageNumber = Number(payload.last_page) || 1;
-            if (!Number.isFinite(reportedCount) || reportedCount === normalizedRows.length) {
-              reportedCount = Math.max(normalizedRows.length, lastPageNumber * pageSize);
+            if (Array.isArray(params?.sorters)) {
+              params.sorters.forEach((sorter, index) => {
+                if (sorter?.field) {
+                  searchParams.set(`sort[${index}][field]`, sorter.field);
+                  searchParams.set(`sort[${index}][dir]`, sorter.dir || "asc");
+                }
+              });
             }
+
+            if (Array.isArray(params?.filters)) {
+              params.filters.forEach((filter, index) => {
+                if (filter?.field) {
+                  searchParams.set(`filter[${index}][field]`, filter.field);
+                  searchParams.set(`filter[${index}][type]`, filter.type || "=");
+                  searchParams.set(`filter[${index}][value]`, filter.value ?? "");
+                }
+              });
+            }
+
+            const query = searchParams.toString();
+            const separator = url.includes("?") ? "&" : "?";
+            return query ? `${url}${separator}${query}` : url;
+          },
+          ajaxRequestFunc: async (url, config, params) => {
+            hasTriggeredInitialLoad = true;
+            await ensureOptionsPreloaded();
+            const response = await fetch(url, { credentials: "same-origin" });
+            if (!response.ok) {
+              const text = await response.text();
+              throw new Error(text || `Failed to load weld log (${response.status})`);
+            }
+            return response.json();
+          },
+          ajaxResponse: (url, params, response) => {
+            const payload = response || {};
+            const rawRows = Array.isArray(payload.data)
+              ? payload.data
+              : Array.isArray(payload.rows)
+                ? payload.rows
+                : [];
+            const normalizedRows = rawRows.map(normalizeRow);
+            let reportedCount = Number.isFinite(payload.row_count)
+              ? payload.row_count
+              : Number.isFinite(payload.total)
+                ? payload.total
+                : NaN;
+            const pageSize = Number(params?.size) || 100;
+            const currentPage = Number(params?.page) || 1;
+            if (!Number.isFinite(reportedCount)) {
+              reportedCount = normalizedRows.length;
+            }
+
+            if (Array.isArray(payload.data) && payload.last_page !== undefined) {
+              // Backend already performed the paging; hand the response straight to Tabulator.
+              const lastPageNumber = Number(payload.last_page) || 1;
+              if (!Number.isFinite(reportedCount) || reportedCount === normalizedRows.length) {
+                reportedCount = Math.max(normalizedRows.length, lastPageNumber * pageSize);
+              }
+              totalAvailableRows = reportedCount;
+              return {
+                data: normalizedRows,
+                last_page: lastPageNumber,
+              };
+            }
+
             totalAvailableRows = reportedCount;
+
+            // Legacy shim: the current backend returns the entire dataset. Slice client-side until true server paging ships.
+            const start = (currentPage - 1) * pageSize;
+            const end = start + pageSize;
+            const slicedRows = normalizedRows.slice(start, end);
+            const lastPage = totalAvailableRows > 0
+              ? Math.max(1, Math.ceil(totalAvailableRows / pageSize))
+              : 1;
             return {
-              data: normalizedRows,
-              last_page: lastPageNumber,
+              data: slicedRows,
+              last_page: lastPage,
             };
-          }
-
-          totalAvailableRows = reportedCount;
-
-          // Legacy shim: the current backend returns the entire dataset. Slice client-side until true server paging ships.
-          const start = (currentPage - 1) * pageSize;
-          const end = start + pageSize;
-          const slicedRows = normalizedRows.slice(start, end);
-          const lastPage = totalAvailableRows > 0
-            ? Math.max(1, Math.ceil(totalAvailableRows / pageSize))
-            : 1;
-          return {
-            data: slicedRows,
-            last_page: lastPage,
-          };
-        },
-      });
-
-      table.on("selectionChanged", () => {
-        updateStatusCounts();
-      });
-
-      table.on("dataLoading", () => {
-        suppressRowAddedEvents = true;
-        setStatus("Loading weld log…");
-      });
-
-      table.on("dataLoaded", () => {
-        const rows = table.getRows();
-        rows.forEach(row => {
-          snapshotRow(row);
-          row.getElement()?.classList.remove("is-dirty");
+          },
         });
-        dirtyRows.clear();
-        updateStatusCounts();
-        refreshHistoryButtons();
-        const totalRows = typeof totalAvailableRows === "number"
-          ? totalAvailableRows
-          : rows.length;
-        setStatus(`Loaded ${totalRows} weld entr${totalRows === 1 ? "y" : "ies"}.`, "success");
-        suppressRowAddedEvents = false;
-      });
+        table.on("selectionChanged", () => {
+          updateStatusCounts();
+        });
 
-      table.on("dataLoadError", error => {
-        console.error("Failed to load weld log", error);
-        setStatus(error?.message || "Unable to load weld log.", "danger");
-        suppressRowAddedEvents = false;
-      });
+        table.on("dataLoading", () => {
+          suppressRowAddedEvents = true;
+          setStatus("Loading weld log…");
+        });
 
-      table.on("cellEdited", cell => {
-        const row = cell.getRow();
-        row?.getElement()?.classList.remove("has-error");
-        cell?.getElement()?.classList.remove("has-error");
-        markRowDirty(row);
-        const field = cell.getField();
-        const value = cell.getValue();
-        const rowData = row?.getData ? row.getData() : null;
-        if (field === "disposition") {
-          const commentCell = row.getCell("disposition_comment");
-          commentCell?.validate();
-          if (rowData) {
-            rowData.disposition_label = findOptionLabel(dispositionOptions, value);
-          }
-        } else if (field === "weld_type") {
-          if (rowData) {
-            rowData.weld_type_label = findOptionLabel(weldTypeOptions, value);
-          }
-        } else if (field === "repair_type") {
-          if (rowData) {
-            rowData.repair_type_label = findOptionLabel(repairTypeOptions, value);
-          }
-        } else if (field === "nde_type") {
-          if (rowData) {
-            rowData.nde_type_label = findOptionLabel(ndeTypeOptions, value);
-          }
-        }
-        if (field === "disposition" || field === "weld_type" || field === "repair_type" || field === "nde_type") {
-          const targetCell = row?.getCell(field);
-          targetCell?.render();
-        }
-        updateStatusCounts();
-        refreshHistoryButtons();
-        queueAutosave(cell);
-      });
-
-      table.on("cellEditCancelled", cell => {
-        updateStatusCounts();
-      });
-
-      table.on("rowAdded", row => {
-        if (suppressRowAddedEvents) {
-          snapshotRow(row);
-          row.getElement()?.classList.remove("is-dirty");
+        table.on("dataLoaded", () => {
+          const rows = table.getRows();
+          rows.forEach(row => {
+            snapshotRow(row);
+            row.getElement()?.classList.remove("is-dirty");
+          });
+          dirtyRows.clear();
+          updateStatusCounts();
           refreshHistoryButtons();
-          return;
-        }
-        if (row._originalData === undefined) {
-          row._originalData = null;
-        }
-        markRowDirty(row);
-        updateStatusCounts("Row added");
-        refreshHistoryButtons();
-      });
+          const totalRows = typeof totalAvailableRows === "number"
+            ? totalAvailableRows
+            : rows.length;
+          setStatus(`Loaded ${totalRows} weld entr${totalRows === 1 ? "y" : "ies"}.`, "success");
+          suppressRowAddedEvents = false;
+        });
 
-      table.on("rowDeleted", row => {
-        dirtyRows.delete(row);
-        updateStatusCounts();
-        refreshHistoryButtons();
-      });
+        table.on("dataLoadError", error => {
+          console.error("Failed to load weld log", error);
+          setStatus(error?.message || "Unable to load weld log.", "danger");
+          suppressRowAddedEvents = false;
+        });
 
-      table.on("historyUndo", (action, component) => {
-        const row = component?.getRow ? component.getRow() : null;
-        if (row) {
+        table.on("cellEdited", cell => {
+          const row = cell.getRow();
+          row?.getElement()?.classList.remove("has-error");
+          cell?.getElement()?.classList.remove("has-error");
           markRowDirty(row);
-        }
-        updateStatusCounts("Undo");
-        refreshHistoryButtons();
-      });
+          const field = cell.getField();
+          const value = cell.getValue();
+          const rowData = row?.getData ? row.getData() : null;
+          if (field === "disposition") {
+            const commentCell = row.getCell("disposition_comment");
+            commentCell?.validate();
+            if (rowData) {
+              rowData.disposition_label = findOptionLabel(dispositionOptions, value);
+            }
+          } else if (field === "weld_type") {
+            if (rowData) {
+              rowData.weld_type_label = findOptionLabel(weldTypeOptions, value);
+            }
+          } else if (field === "repair_type") {
+            if (rowData) {
+              rowData.repair_type_label = findOptionLabel(repairTypeOptions, value);
+            }
+          } else if (field === "nde_type") {
+            if (rowData) {
+              rowData.nde_type_label = findOptionLabel(ndeTypeOptions, value);
+            }
+          }
+          if (field === "disposition" || field === "weld_type" || field === "repair_type" || field === "nde_type") {
+            const targetCell = row?.getCell(field);
+            targetCell?.render();
+          }
+          updateStatusCounts();
+          refreshHistoryButtons();
+          queueAutosave(cell);
+        });
 
-      table.on("historyRedo", (action, component) => {
-        const row = component?.getRow ? component.getRow() : null;
-        if (row) {
+        table.on("cellEditCancelled", cell => {
+          updateStatusCounts();
+        });
+
+        table.on("rowAdded", row => {
+          if (suppressRowAddedEvents) {
+            snapshotRow(row);
+            row.getElement()?.classList.remove("is-dirty");
+            refreshHistoryButtons();
+            return;
+          }
+          if (row._originalData === undefined) {
+            row._originalData = null;
+          }
           markRowDirty(row);
-        }
-        updateStatusCounts("Redo");
-        refreshHistoryButtons();
-      });
+          updateStatusCounts("Row added");
+          refreshHistoryButtons();
+        });
+
+        table.on("rowDeleted", row => {
+          dirtyRows.delete(row);
+          updateStatusCounts();
+          refreshHistoryButtons();
+        });
+
+        table.on("historyUndo", (action, component) => {
+          const row = component?.getRow ? component.getRow() : null;
+          if (row) {
+            markRowDirty(row);
+          }
+          updateStatusCounts("Undo");
+          refreshHistoryButtons();
+        });
+
+        table.on("historyRedo", (action, component) => {
+          const row = component?.getRow ? component.getRow() : null;
+          if (row) {
+            markRowDirty(row);
+          }
+          updateStatusCounts("Redo");
+          refreshHistoryButtons();
+        });
 
         refreshHistoryButtons();
         loadData();
-        return table;
+      } catch (error) {
+        console.error(error);
+        const message = error?.message || "Unable to initialize weld log grid.";
+        setStatus(message, "danger");
       }
-
-      ensureTabulatorReady()
-        .then(initializeTabulator)
-        .catch(error => {
-          console.error(error);
-          const message = error?.message || "Unable to initialize weld log grid.";
-          setStatus(message, "danger");
-        });
 
       function addNewRow() {
         if (!table) {

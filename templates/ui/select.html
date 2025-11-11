@@ -1,0 +1,14 @@
+{#
+  Usage:
+  {% include 'ui/select.html' with id='priority' label='Priority' options=priority_options value='high' %}
+  Options should be a list of {'label': 'High', 'value': 'high'} dictionaries.
+#}
+<div class="form-field {{ class|default:'' }}">
+  {% if label %}<label class="form-field__label" for="{{ id }}">{{ label }}</label>{% endif %}
+  <select id="{{ id }}" name="{{ name|default:id }}" class="select">
+    {% for option in options %}
+      <option value="{{ option.value }}" {% if option.value == value %}selected{% endif %}>{{ option.label }}</option>
+    {% endfor %}
+  </select>
+  {% if hint %}<span class="form-field__hint">{{ hint }}</span>{% endif %}
+</div>

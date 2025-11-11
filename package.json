@@ -1,0 +1,13 @@
+{
+  "name": "ferraen-design-system",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "sass --watch static/styles/scss/theme.scss static/styles/app.css",
+    "build": "sass static/styles/scss/theme.scss static/styles/app.css --style=compressed --no-source-map"
+  },
+  "devDependencies": {
+    "bootstrap": "^5.3.3",
+    "sass": "^1.72.0"
+  }
+}

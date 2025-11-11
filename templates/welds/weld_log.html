@@ -1684,6 +1684,9 @@
         return input;
       }
 
+      let rangeSelectEnabled = false;
+        window.addEventListener("keydown", e => { if (e.key === "Shift") rangeSelectEnabled = true; });
+        window.addEventListener("keyup",   e => { if (e.key === "Shift") rangeSelectEnabled = false; });
 
       function buildColumns() {
         return [
@@ -1932,7 +1935,7 @@
 
           // 👇 Add / ensure these are present
           selectable: true,              // enable basic row selection
-          selectableRange: true,         // turn on range selection
+          selectableRange: false,         // turn on range selection
           selectableRangeMode: "cell",   // range selection is by cell, not row
           selectableRangeColumns: true,
           selectableRangeRows: true,
@@ -2040,6 +2043,11 @@
         table.on("selectionChanged", () => {
           updateStatusCounts();
         });
+        table.on("cellMouseDown", (cell, e) => {
+          if (!rangeSelectEnabled) return;                 // only with Shift
+          table.modules.rangeSelection?.startRange(cell);  // internal API used by Tabulator’s module
+        });
+
 
         table.on("dataLoading", () => {
           suppressRowAddedEvents = true;

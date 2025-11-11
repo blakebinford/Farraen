@@ -2,7 +2,11 @@
 
 {% block extra_head %}
   {{ block.super }}
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tabulator-tables@5.6.2/dist/css/tabulator_materialize.min.css">
+  <link
+    rel="stylesheet"
+    href="https://cdn.jsdelivr.net/npm/tabulator-tables@5.6.4/dist/css/tabulator_bootstrap5.min.css"
+    onerror="this.onerror=null;this.href='https://unpkg.com/tabulator-tables@5.6.4/dist/css/tabulator_bootstrap5.min.css'"
+  >
   <style>
   :root {
     color-scheme: light;
@@ -336,7 +340,71 @@
     {{ weld_type_options|json_script:"weld-type-options" }}
     {{ repair_type_options|json_script:"weld-repair-type-options" }}
     {{ nde_type_options|json_script:"weld-nde-type-options" }}
-    <script src="https://cdn.jsdelivr.net/npm/tabulator-tables@5.6.2/dist/js/tabulator.min.js"></script>
+    <script>
+      (function () {
+        const TABULATOR_JS_SOURCES = [
+          "https://cdn.jsdelivr.net/npm/tabulator-tables@5.6.4/dist/js/tabulator.min.js",
+          "https://unpkg.com/tabulator-tables@5.6.4/dist/js/tabulator.min.js",
+        ];
+
+        function getTabulatorConstructor() {
+          return window.Tabulator || window.TabulatorFull || null;
+        }
+
+        function loadScript(src) {
+          return new Promise((resolve, reject) => {
+            const script = document.createElement("script");
+            script.src = src;
+            script.async = false;
+            script.defer = false;
+            script.onload = () => resolve();
+            script.onerror = () => {
+              script.remove();
+              reject(new Error(`Failed to load ${src}`));
+            };
+            document.head.appendChild(script);
+          });
+        }
+
+        window.ensureTabulatorReady = function ensureTabulatorReady() {
+          const existing = getTabulatorConstructor();
+          if (existing) {
+            return Promise.resolve(existing);
+          }
+
+          if (!window.__tabulatorLoaderPromise) {
+            window.__tabulatorLoaderPromise = (async () => {
+              for (const src of TABULATOR_JS_SOURCES) {
+                if (getTabulatorConstructor()) {
+                  break;
+                }
+                try {
+                  await loadScript(src);
+                } catch (error) {
+                  console.warn(error.message);
+                  continue;
+                }
+                if (getTabulatorConstructor()) {
+                  break;
+                }
+              }
+
+              const constructor = getTabulatorConstructor();
+              if (!constructor) {
+                throw new Error("Tabulator assets failed to load");
+              }
+              return constructor;
+            })();
+
+            window.__tabulatorLoaderPromise.catch(() => {
+              window.__tabulatorLoaderPromise = null;
+            });
+          }
+
+          return window.__tabulatorLoaderPromise;
+        };
+      })();
+    </script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <script>
       (function () {
@@ -1834,14 +1902,12 @@
         ];
       }
 
-      const TabulatorConstructor = window.Tabulator || window.TabulatorFull;
-      if (!TabulatorConstructor) {
-        console.error("Tabulator assets failed to load");
-        setStatus("Unable to initialize weld log grid.", "danger");
-        return;
-      }
+      function initializeTabulator(TabulatorConstructor) {
+        if (!TabulatorConstructor) {
+          throw new Error("Tabulator assets failed to load");
+        }
 
-      table = new TabulatorConstructor("#weld-log-grid", {
+        table = new TabulatorConstructor("#weld-log-grid", {
         layout: "fitDataStretch",
         height: "78vh",
         rowHeight: 34,
@@ -2086,7 +2152,24 @@
         refreshHistoryButtons();
       });
 
+        refreshHistoryButtons();
+        loadData();
+        return table;
+      }
+
+      ensureTabulatorReady()
+        .then(initializeTabulator)
+        .catch(error => {
+          console.error(error);
+          const message = error?.message || "Unable to initialize weld log grid.";
+          setStatus(message, "danger");
+        });
+
       function addNewRow() {
+        if (!table) {
+          setStatus("Table is not ready yet.", "warning");
+          return;
+        }
         const blank = normalizeRow({
           weld_id: "",
           disposition: dispositionDefault,
@@ -2145,6 +2228,10 @@
       }
 
       function deleteEmptyRows() {
+        if (!table) {
+          setStatus("Table is not ready yet.", "warning");
+          return;
+        }
         const rows = table.getRows();
         let removed = 0;
         rows.forEach(rowComponent => {
@@ -2328,10 +2415,18 @@
       }
 
       exportCsvBtn?.addEventListener("click", () => {
+        if (!table) {
+          setStatus("Table is not ready yet.", "warning");
+          return;
+        }
         table.download("csv", "weld_log.csv");
       });
 
       exportExcelBtn?.addEventListener("click", () => {
+        if (!table) {
+          setStatus("Table is not ready yet.", "warning");
+          return;
+        }
         try {
           table.download("xlsx", "weld_log.xlsx", { sheetName: "Weld Log" });
         } catch (error) {
@@ -2353,17 +2448,20 @@
       });
 
       undoBtn?.addEventListener("click", () => {
+        if (!table) {
+          return;
+        }
         table.undo();
         refreshHistoryButtons();
       });
 
       redoBtn?.addEventListener("click", () => {
+        if (!table) {
+          return;
+        }
         table.redo();
         refreshHistoryButtons();
       });
-
-      refreshHistoryButtons();
-      loadData();
     })();
     </script>
   {% endif %}

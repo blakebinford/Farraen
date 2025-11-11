@@ -324,3 +324,45 @@ class Weld(models.Model):
         if outer_diameter is None:
             return Decimal("0")
         return outer_diameter * Decimal("3.14")
+
+
+class WeldHistory(models.Model):
+    class ChangeType(models.TextChoices):
+        CREATE = "CREATE", "Create"
+        UPDATE = "UPDATE", "Update"
+        ROLLBACK = "ROLLBACK", "Rollback"
+
+    weld = models.ForeignKey(
+        "Weld",
+        on_delete=models.CASCADE,
+        related_name="history",
+    )
+    changed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="weld_history_changes",
+    )
+    change_type = models.CharField(
+        max_length=16,
+        choices=ChangeType.choices,
+    )
+    changed_fields = models.JSONField(default=list)
+    before = models.JSONField(default=dict)
+    after = models.JSONField(default=dict)
+    reason = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        indexes = [
+            models.Index(fields=["weld", "-created_at"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.weld_id_display} – {self.change_type}"
+
+    @property
+    def weld_id_display(self) -> str:
+        return getattr(self.weld, "weld_id", "#")

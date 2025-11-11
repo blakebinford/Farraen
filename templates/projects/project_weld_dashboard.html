@@ -161,7 +161,7 @@
                       <td class="text-center">{{ welder.weld_count|intcomma }}</td>
                       <td class="text-center">{{ welder.repair_pass_count|intcomma }}</td>
                       <td class="text-center">{{ welder.repair_rate_percent|floatformat:1 }}%</td>
-                      <td class="text-center">{{ welder.total_weld_inches|floatformat:1 }}</td>
+                      <td class="text-center">{{ welder.total_weld_inches|floatformat:1|intcomma }}</td>
                     </tr>
                   {% endfor %}
                 </tbody>

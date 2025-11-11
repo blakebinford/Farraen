@@ -185,112 +185,69 @@
     background-color: inherit !important;
   }
   /* Pill-style welder selection */
-.welder-pill-list {
-  width: 100%;
-  min-height: 8rem;
-  max-height: 12rem;
-  padding: 0.35rem;
-  border: 1px solid rgba(148, 163, 184, 0.9);
-  border-radius: 0.35rem;
-  background-color: #fff;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-  overflow-y: auto;
-  align-content: flex-start;
-}
+  .welder-pill-list {
+    width: 100%;
+    min-height: 8rem;
+    max-height: 12rem;
+    padding: 0.35rem;
+    border: 1px solid rgba(148, 163, 184, 0.9);
+    border-radius: 0.35rem;
+    background-color: #fff;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    overflow-y: auto;
+    align-content: flex-start;
+  }
 
-.welder-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  padding: 0.2rem 0.55rem;
-  border-radius: 999px;
-  border: 1px solid rgba(148, 163, 184, 0.8);
-  background-color: #ffffff;
-  font-size: 0.85rem;
-  cursor: pointer;
-  white-space: nowrap;
-  user-select: none;
-}
+  .welder-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.2rem 0.55rem;
+    border-radius: 999px;
+    border: 1px solid rgba(148, 163, 184, 0.8);
+    background-color: #ffffff;
+    font-size: 0.85rem;
+    cursor: pointer;
+    white-space: nowrap;
+    user-select: none;
+  }
 
-.welder-pill-stencil {
-  font-weight: 600;
-}
+  .welder-pill-stencil {
+    font-weight: 600;
+  }
 
-.welder-pill-name {
-  opacity: 0.8;
-}
+  .welder-pill-name {
+    opacity: 0.8;
+  }
 
-.welder-pill.is-selected {
-  background-color: rgba(37, 99, 235, 0.08);
-  border-color: rgba(37, 99, 235, 0.9);
-}
+  .welder-pill.is-selected {
+    background-color: rgba(37, 99, 235, 0.08);
+    border-color: rgba(37, 99, 235, 0.9);
+  }
 
-.welder-pill:focus-visible {
-  outline: 2px solid rgba(37, 99, 235, 0.9);
-  outline-offset: 2px;
-}
-/* Floating overlay for welder multiselect */
-.welder-overlay {
-  position: absolute;
-  z-index: 2050;
-  background-color: #ffffff;
-  border: 1px solid rgba(15, 23, 42, 0.12);
-  border-radius: 0.5rem;
-  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.18);
-  padding: 0.5rem 0.6rem 0.55rem;
-  max-width: 22rem;
-  min-width: 14rem;
-}
+  .welder-pill:focus-visible {
+    outline: 2px solid rgba(37, 99, 235, 0.9);
+    outline-offset: 2px;
+  }
+  /* Floating overlay for welder multiselect */
+  .welder-overlay {
+    position: absolute;
+    z-index: 2050;
+    background-color: #ffffff;
+    border: 1px solid rgba(15, 23, 42, 0.12);
+    border-radius: 0.5rem;
+    box-shadow: 0 16px 40px rgba(15, 23, 42, 0.18);
+    padding: 0.5rem 0.6rem 0.55rem;
+    max-width: 22rem;
+    min-width: 14rem;
+  }
 
-/* Pill-style welder selection (inside overlay) */
-.welder-pill-list {
-  width: 100%;
-  min-height: 6.5rem;
-  max-height: 12rem;
-  padding: 0.3rem;
-  border: 1px solid rgba(148, 163, 184, 0.9);
-  border-radius: 0.35rem;
-  background-color: #fff;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-  overflow-y: auto;
-  align-content: flex-start;
-}
-
-.welder-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  padding: 0.2rem 0.55rem;
-  border-radius: 999px;
-  border: 1px solid rgba(148, 163, 184, 0.8);
-  background-color: #ffffff;
-  font-size: 0.85rem;
-  cursor: pointer;
-  white-space: nowrap;
-  user-select: none;
-}
-
-.welder-pill-stencil {
-  font-weight: 600;
-}
-
-.welder-pill-name {
-  opacity: 0.8;
-}
-
-.welder-pill.is-selected {
-  background-color: rgba(37, 99, 235, 0.08);
-  border-color: rgba(37, 99, 235, 0.9);
-}
-
-.welder-pill:focus-visible {
-  outline: 2px solid rgba(37, 99, 235, 0.9);
-  outline-offset: 2px;
-}
+  .welder-overlay .welder-pill-list {
+    min-height: 6.5rem;
+    padding: 0.3rem;
+  }
 
 /* Optional: small anchor element inside the cell */
 .welder-multiselect-anchor {
@@ -331,7 +288,7 @@
           </div>
         </div>
         <div id="weld-log-grid" aria-live="polite"></div>
-        <div id="weld-log-status" class="small text-muted mt-2" role="status"></div>
+        <div id="weld-log-status" class="small text-muted mt-2" role="status" aria-live="polite"></div>
       </div>
     </div>
   {% if not setup_error %}
@@ -368,6 +325,11 @@
       let preloadOptionsPromise = null;
       let totalAvailableRows = null;
       let hasTriggeredInitialLoad = false;
+      let statusMessage = "";
+      let statusVariant = "muted";
+      let statusExtra = "";
+      let activeSaves = 0;
+      let currentAbortController = null;
 
       function ensureOptionsPreloaded() {
         if (!preloadOptionsPromise) {
@@ -434,13 +396,22 @@
         };
       }
 
-      function createChoiceFormatter(options, labelField) {
+      function createChoiceFormatter(options, labelField, choiceMap) {
         return function (cell) {
+          const value = cell.getValue();
+          if (value === undefined || value === null || value === "") {
+            return "";
+          }
+          if (choiceMap && Object.prototype.hasOwnProperty.call(choiceMap, value)) {
+            return choiceMap[value] || "";
+          }
           const data = cell.getRow().getData();
           if (data && data[labelField]) {
             return data[labelField];
           }
-          return findOptionLabel(options, cell.getValue());
+          // Defensive fallback: prefer cached choice labels, then any *_label field from the row,
+          // and finally the raw option list.
+          return findOptionLabel(options, value) || "";
         };
       }
 
@@ -496,40 +467,36 @@
         }
       }
 
-      function clearStatusResetTimer() {
-        if (statusResetTimer) {
-          window.clearTimeout(statusResetTimer);
-          statusResetTimer = null;
-        }
-      }
-
-      function scheduleStatusReset(delay = 2500) {
-        clearStatusResetTimer();
-        statusResetTimer = window.setTimeout(() => {
-          statusResetTimer = null;
-          updateStatusCounts();
-        }, delay);
-      }
-
-      function setStatus(message, variant = "muted") {
+      function renderStatus() {
         if (!statusEl) {
           return;
         }
-        clearStatusResetTimer();
+
         const colors = {
           muted: "text-muted",
           success: "text-success",
           danger: "text-danger",
           warning: "text-warning",
         };
-        statusEl.className = `small mt-2 ${colors[variant] || colors.muted}`;
-        statusEl.textContent = message || "";
-      }
+        const appliedVariant = statusMessage ? statusVariant : "muted";
+        statusEl.className = `small mt-2 ${colors[appliedVariant] || colors.muted}`;
 
-      function updateStatusCounts(extra = "") {
-        if (!statusEl || !table) {
+        const hints = [];
+        if (activeSaves > 0) {
+          hints.push("Saving…");
+        }
+        if (statusExtra) {
+          hints.push(statusExtra);
+        }
+        if (statusMessage) {
+          hints.push(statusMessage);
+        }
+
+        if (!table) {
+          statusEl.textContent = hints.join(" • ");
           return;
         }
+
         const activeCount = typeof table.getDataCount === "function"
           ? table.getDataCount("active")
           : table.getData().length;
@@ -543,8 +510,60 @@
           `${selected} selected`,
           `${dirtyCount} modified`,
         ].join(" • ");
-        const suffix = extra ? ` – ${extra}` : "";
+        const suffix = hints.length ? ` – ${hints.join(" • ")}` : "";
         statusEl.textContent = `${summary}${suffix}`;
+      }
+
+      function clearStatusResetTimer() {
+        if (statusResetTimer) {
+          window.clearTimeout(statusResetTimer);
+          statusResetTimer = null;
+        }
+      }
+
+      function scheduleStatusReset(delay = 2500) {
+        clearStatusResetTimer();
+        statusResetTimer = window.setTimeout(() => {
+          statusResetTimer = null;
+          statusMessage = "";
+          statusVariant = "muted";
+          statusExtra = "";
+          renderStatus();
+        }, delay);
+      }
+
+      function setStatus(message, variant = "muted") {
+        if (!statusEl) {
+          return;
+        }
+        clearStatusResetTimer();
+        statusMessage = message || "";
+        statusVariant = variant || "muted";
+        statusExtra = "";
+        renderStatus();
+      }
+
+      function updateStatusCounts(extra = "") {
+        statusExtra = extra || "";
+        renderStatus();
+      }
+
+      function updateSaveButtonState() {
+        if (saveBtn) {
+          saveBtn.disabled = activeSaves > 0;
+        }
+      }
+
+      function beginSaveOperation() {
+        activeSaves += 1;
+        updateSaveButtonState();
+        renderStatus();
+      }
+
+      function endSaveOperation() {
+        activeSaves = Math.max(0, activeSaves - 1);
+        updateSaveButtonState();
+        renderStatus();
       }
 
       function refreshHistoryButtons() {
@@ -769,6 +788,14 @@
           });
         }
 
+        // Ensure label fields stay populated even when the API only returns IDs.
+        if (normalized.material1_heat && !normalized.material1_heat_label) {
+          const cached = heatCache.get(normalized.material1_heat);
+          if (cached) {
+            normalized.material1_heat_label = cached.heat_number || "";
+          }
+        }
+
         if (normalized.material2_heat && row.material2_heat_number) {
           rememberHeat({
             id: normalized.material2_heat,
@@ -783,6 +810,13 @@
           });
         }
 
+        if (normalized.material2_heat && !normalized.material2_heat_label) {
+          const cached = heatCache.get(normalized.material2_heat);
+          if (cached) {
+            normalized.material2_heat_label = cached.heat_number || "";
+          }
+        }
+
         if (normalized.nde_rig && row.nde_rig_name) {
           rememberNdeRig({
             id: normalized.nde_rig,
@@ -790,6 +824,16 @@
             qualification_folder_url: row.nde_rig_folder_url || "",
             qualification_folder_name: row.nde_rig_folder_name || "",
           });
+        }
+
+        if (normalized.nde_rig && !normalized.nde_rig_name) {
+          const cached = ndeRigCache.get(normalized.nde_rig);
+          if (cached) {
+            normalized.nde_rig_name = cached.name || "";
+            normalized.nde_rig_folder_url = normalized.nde_rig_folder_url || cached.qualification_folder_url || "";
+            normalized.nde_rig_folder_name =
+              normalized.nde_rig_folder_name || cached.qualification_folder_name || "";
+          }
         }
 
         normalized.weld_type = normalizeChoiceValue(row.weld_type);
@@ -958,6 +1002,7 @@
         if (!value) {
           return "";
         }
+        // Prefer cached heat metadata, then fall back to whatever *_label text is already on the row.
         const fromCache = heatCache.get(value);
         if (fromCache) {
           return fromCache.heat_number;
@@ -1005,6 +1050,7 @@
         if (!value) {
           return "";
         }
+        // Prefer cached rig data first so rows render cleanly when only IDs are returned from the API.
         const cached = ndeRigCache.get(value);
         const name = cached ? cached.name : dataLabel || "";
         const url = cached ? cached.qualification_folder_url : folderUrl || "";
@@ -1038,6 +1084,13 @@
     // Attach dropdown to BODY so transforms/scrolling on the table don't break positioning
     const resultsEl = document.createElement("div");
     resultsEl.className = "lookup-editor-results";
+    const listboxId = `lookup-results-${Math.random().toString(36).slice(2, 10)}`;
+    resultsEl.id = listboxId;
+    resultsEl.setAttribute("role", "listbox");
+    resultsEl.setAttribute("aria-label", "Lookup options");
+    input.setAttribute("aria-controls", listboxId);
+    input.setAttribute("aria-expanded", "false");
+    input.setAttribute("aria-autocomplete", "list");
     document.body.appendChild(resultsEl);
 
     let options = [];
@@ -1063,6 +1116,7 @@
         document.addEventListener("scroll", repositionResults, true);
       }
       repositionResults();
+      input.setAttribute("aria-expanded", "true");
     }
 
     function closeResults() {
@@ -1076,6 +1130,8 @@
       resultsEl.style.top = "";
       resultsEl.style.width = "";
       activeIndex = -1;
+      input.setAttribute("aria-expanded", "false");
+      input.removeAttribute("aria-activedescendant");
     }
 
     function destroyResults() {
@@ -1101,7 +1157,16 @@
       const items = resultsEl.querySelectorAll(".lookup-editor-option");
       items.forEach((item, index) => {
         item.classList.toggle("is-active", index === activeIndex);
+        item.setAttribute("aria-selected", index === activeIndex ? "true" : "false");
       });
+      if (activeIndex >= 0 && items[activeIndex]) {
+        const activeItem = items[activeIndex];
+        if (activeItem.id) {
+          input.setAttribute("aria-activedescendant", activeItem.id);
+        }
+      } else {
+        input.removeAttribute("aria-activedescendant");
+      }
     }
 
     function renderOptions(list) {
@@ -1115,6 +1180,10 @@
         const item = document.createElement("div");
         item.className = "lookup-editor-option";
         item.tabIndex = -1;
+        item.setAttribute("role", "option");
+        item.setAttribute("aria-selected", index === activeIndex ? "true" : "false");
+        const optionId = `${listboxId}-option-${index}`;
+        item.id = optionId;
 
         const title = document.createElement("strong");
         title.textContent = option.label || option.heat_number || option.name || "";
@@ -1135,6 +1204,7 @@
         resultsEl.appendChild(item);
         if (index === activeIndex) {
           item.classList.add("is-active");
+          input.setAttribute("aria-activedescendant", optionId);
         }
       });
 
@@ -1230,6 +1300,9 @@
     // Floating overlay attached to <body> to avoid clipping
     const overlay = document.createElement("div");
     overlay.className = "welder-overlay welder-multiselect-editor";
+    overlay.setAttribute("role", "dialog");
+    overlay.setAttribute("aria-modal", "true");
+    overlay.setAttribute("aria-label", "Select welders");
 
     // Current stencils from the cell
     const selected = new Set(parseStencilList(cell.getValue()));
@@ -1340,6 +1413,8 @@
         pill.className = "welder-pill";
         pill.setAttribute("data-stencil", option.stencil);
         pill.tabIndex = 0;
+        pill.setAttribute("role", "button");
+        pill.setAttribute("aria-pressed", selected.has(option.stencil) ? "true" : "false");
 
         if (selected.has(option.stencil)) {
           pill.classList.add("is-selected");
@@ -1633,7 +1708,7 @@
             headerSort: true,
             editor: "list",
             editorParams: createListEditorParams(ndeTypeChoiceMap, { allowEmpty: true }),
-            formatter: createChoiceFormatter(ndeTypeOptions, "nde_type_label"),
+            formatter: createChoiceFormatter(ndeTypeOptions, "nde_type_label", ndeTypeChoiceMap),
           },
           {
             title: "Drawing Number",
@@ -1713,7 +1788,7 @@
             headerSort: true,
             editor: "list",
             editorParams: createListEditorParams(weldTypeChoiceMap, { allowEmpty: true }),
-            formatter: createChoiceFormatter(weldTypeOptions, "weld_type_label"),
+            formatter: createChoiceFormatter(weldTypeOptions, "weld_type_label", weldTypeChoiceMap),
           },
           {
             title: "Date Welded",
@@ -1787,7 +1862,7 @@
             editor: "list",
             editorParams: createListEditorParams(dispositionChoiceMap),
             validator: ["required"],
-            formatter: createChoiceFormatter(dispositionOptions, "disposition_label"),
+            formatter: createChoiceFormatter(dispositionOptions, "disposition_label", dispositionChoiceMap),
           },
           {
             title: "Repair Type",
@@ -1795,7 +1870,7 @@
             headerSort: true,
             editor: "list",
             editorParams: createListEditorParams(repairTypeChoiceMap, { allowEmpty: true }),
-            formatter: createChoiceFormatter(repairTypeOptions, "repair_type_label"),
+            formatter: createChoiceFormatter(repairTypeOptions, "repair_type_label", repairTypeChoiceMap),
           },          
           {
             title: "Disposition Comment",
@@ -1880,22 +1955,12 @@
           progressiveRenderSize: 100,
           progressiveRenderMargin: 200,
 
-          pagination: true,
-          paginationMode: "remote", // Tabulator v6 requires explicit pagination mode configuration
-          paginationSize: 100,
-          paginationSizeSelector: [50, 100, 200],
-
           ajaxSorting: true,
           ajaxFiltering: true,
           ajaxURL: dataEndpoint,
           ajaxURLGenerator: (url, config, params) => {
-            // Map Tabulator's pagination/sort/filter params onto the query string keys our backend understands.
-            // TODO: adjust the parameter names below once the API accepts explicit paging arguments.
+            // Map Tabulator's sort/filter params onto the query string keys our backend understands.
             const searchParams = new URLSearchParams();
-            const page = params?.page ?? 1;
-            const size = params?.size ?? 100;
-            searchParams.set("page", page);
-            searchParams.set("page_size", size);
 
             if (Array.isArray(params?.sorters)) {
               params.sorters.forEach((sorter, index) => {
@@ -1922,15 +1987,37 @@
           },
           ajaxRequestFunc: async (url, config, params) => {
             hasTriggeredInitialLoad = true;
-            await ensureOptionsPreloaded();
-            const response = await fetch(url, { credentials: "same-origin" });
-            if (!response.ok) {
-              const text = await response.text();
-              throw new Error(text || `Failed to load weld log (${response.status})`);
+            if (currentAbortController) {
+              currentAbortController.abort();
             }
-            return response.json();
+            await ensureOptionsPreloaded();
+            const controller = new AbortController();
+            currentAbortController = controller;
+            try {
+              const response = await fetch(url, {
+                credentials: "same-origin",
+                signal: controller.signal,
+              });
+              if (!response.ok) {
+                const text = await response.text();
+                throw new Error(text || `Failed to load weld log (${response.status})`);
+              }
+              return response.json();
+            } catch (error) {
+              if (error?.name === "AbortError") {
+                return { data: [], aborted: true };
+              }
+              throw error;
+            } finally {
+              if (currentAbortController === controller) {
+                currentAbortController = null;
+              }
+            }
           },
           ajaxResponse: (url, params, response) => {
+            if (response && response.aborted) {
+              return table?.getData() || [];
+            }
             const payload = response || {};
             const rawRows = Array.isArray(payload.data)
               ? payload.data
@@ -1943,38 +2030,11 @@
               : Number.isFinite(payload.total)
                 ? payload.total
                 : NaN;
-            const pageSize = Number(params?.size) || 100;
-            const currentPage = Number(params?.page) || 1;
             if (!Number.isFinite(reportedCount)) {
               reportedCount = normalizedRows.length;
             }
-
-            if (Array.isArray(payload.data) && payload.last_page !== undefined) {
-              // Backend already performed the paging; hand the response straight to Tabulator.
-              const lastPageNumber = Number(payload.last_page) || 1;
-              if (!Number.isFinite(reportedCount) || reportedCount === normalizedRows.length) {
-                reportedCount = Math.max(normalizedRows.length, lastPageNumber * pageSize);
-              }
-              totalAvailableRows = reportedCount;
-              return {
-                data: normalizedRows,
-                last_page: lastPageNumber,
-              };
-            }
-
             totalAvailableRows = reportedCount;
-
-            // Legacy shim: the current backend returns the entire dataset. Slice client-side until true server paging ships.
-            const start = (currentPage - 1) * pageSize;
-            const end = start + pageSize;
-            const slicedRows = normalizedRows.slice(start, end);
-            const lastPage = totalAvailableRows > 0
-              ? Math.max(1, Math.ceil(totalAvailableRows / pageSize))
-              : 1;
-            return {
-              data: slicedRows,
-              last_page: lastPage,
-            };
+            return normalizedRows;
           },
         });
         table.on("selectionChanged", () => {
@@ -2111,12 +2171,37 @@
           markRowDirty(rowComponent);
           updateStatusCounts("New row added");
           refreshHistoryButtons();
+          const weldCell = rowComponent.getCell("weld_id");
+          if (weldCell && table) {
+            window.requestAnimationFrame(() => {
+              table.editCell(weldCell);
+            });
+          }
         });
       }
 
       function isRowEmpty(data) {
         if (!data) {
           return true;
+        }
+        const earlyIdentifiers = [
+          "weld_id",
+          "nde_number",
+          "material1_heat",
+          "material2_heat",
+        ];
+        const hasKeyField = earlyIdentifiers.some(key => {
+          const value = data[key];
+          if (value === null || value === undefined) {
+            return false;
+          }
+          if (typeof value === "string") {
+            return value.trim() !== "";
+          }
+          return true;
+        });
+        if (hasKeyField) {
+          return false;
         }
         const keysToInspect = [
           "weld_id",
@@ -2171,7 +2256,11 @@
             removed += 1;
           }
         });
-        updateStatusCounts(removed ? `${removed} empty row${removed === 1 ? "" : "s"} removed` : "No empty rows");
+        updateStatusCounts(
+          removed
+            ? `${removed} empty row${removed === 1 ? "" : "s"} removed`
+            : "No empty rows.",
+        );
         refreshHistoryButtons();
       }
 
@@ -2248,7 +2337,6 @@
         rowEl?.classList.remove("has-error");
         cellEl?.classList.remove("has-error");
 
-        setStatus("Saving…", "muted");
         rowEl?.classList.add("is-saving");
         cellEl?.classList.add("is-saving");
 
@@ -2294,8 +2382,13 @@
         const fieldName = cellComponent.getField();
         const newValue = cellComponent.getValue();
         const previous = pendingRowSaves.get(rowComponent) || Promise.resolve();
-        const operation = () =>
-          saveWeldCellChange(rowId, fieldName, newValue, rowData, rowComponent, cellComponent);
+        const operation = () => {
+          beginSaveOperation();
+          return saveWeldCellChange(rowId, fieldName, newValue, rowData, rowComponent, cellComponent)
+            .finally(() => {
+              endSaveOperation();
+            });
+        };
         const next = previous.catch(() => null).then(operation);
         pendingRowSaves.set(rowComponent, next);
         next.catch(() => null).finally(() => {
@@ -2310,22 +2403,43 @@
           setStatus("No changes to save.");
           return;
         }
-        setStatus("Saving changes…", "muted");
-        const rows = Array.from(dirtyRows);
-        let saved = 0;
-        for (const rowComponent of rows) {
-          try {
-            await saveRow(rowComponent);
-            saved += 1;
-          } catch (error) {
-            console.error("Failed to save row", error);
-            setStatus(error.message || "Failed to save some rows.", "danger");
-            updateStatusCounts();
-            return;
+        beginSaveOperation();
+        try {
+          if (pendingRowSaves.size) {
+            const pending = Array.from(pendingRowSaves.values()).map(promise =>
+              promise.catch(() => null),
+            );
+            if (pending.length) {
+              await Promise.all(pending);
+            }
           }
+
+          const rows = Array.from(dirtyRows);
+          let saved = 0;
+          let failed = 0;
+
+          for (const rowComponent of rows) {
+            try {
+              await saveRow(rowComponent);
+              saved += 1;
+            } catch (error) {
+              failed += 1;
+              console.error("Failed to save row", error);
+              rowComponent.getElement()?.classList.add("has-error");
+            }
+          }
+
+          const summaryMessage = `${saved} saved • ${failed} failed`;
+          if (failed > 0) {
+            setStatus(summaryMessage, "danger");
+            scheduleStatusReset(6000);
+          } else {
+            setStatus(summaryMessage, "success");
+            scheduleStatusReset();
+          }
+        } finally {
+          endSaveOperation();
         }
-        setStatus(`${saved} row${saved === 1 ? "" : "s"} saved successfully.`, "success");
-        updateStatusCounts();
       }
 
       async function loadData({ forceRefresh = false } = {}) {

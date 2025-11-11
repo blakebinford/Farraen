@@ -1834,7 +1834,14 @@
         ];
       }
 
-      table = new Tabulator("#weld-log-grid", {
+      const TabulatorConstructor = window.Tabulator || window.TabulatorFull;
+      if (!TabulatorConstructor) {
+        console.error("Tabulator assets failed to load");
+        setStatus("Unable to initialize weld log grid.", "danger");
+        return;
+      }
+
+      table = new TabulatorConstructor("#weld-log-grid", {
         layout: "fitDataStretch",
         height: "78vh",
         rowHeight: 34,

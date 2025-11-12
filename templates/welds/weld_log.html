@@ -2590,18 +2590,21 @@
             headerFilterFunc: "like",  
             formatter(cell) {
               const value = cell.getValue() || "";
-              if (!value) {
-                return "";
-              }
-              const display = escapeHtml(value);
-              if (!weldHistoryPageEndpoint) {
-                return display;
-              }
+              if (!value) return "";
+              if (!weldHistoryPageEndpoint) return escapeHtml(value);
+
               const rowData = cell.getRow()?.getData?.();
               const weldIdentifier = rowData?.weld_id ?? value;
-              const encodedId = escapeHtml(String(weldIdentifier));
-              const weldPk = rowData?.id ?? "";
-              return `<button type="button" class="weld-id-link" data-weld-id="${encodedId}" data-weld-pk="${weldPk}">${display}</button>`;
+
+              const url = new URL(weldHistoryPageEndpoint, window.location.origin);
+              url.searchParams.set("weld_id", weldIdentifier);
+
+              const a = document.createElement("a");
+              a.href = url.toString();
+              a.className = "weld-id-link";
+              a.textContent = value;
+              a.target = "_self"; // or "_blank" if you prefer
+              return a;
             },
           },
           {

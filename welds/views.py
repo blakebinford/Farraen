@@ -478,8 +478,8 @@ def weld_log(request, org_slug, project_slug):
                         "project_slug": project.slug,
                     },
                 ),
-                "weld_history_url": reverse(
-                    "welds:weld_history_data",
+                "weld_history_page_url": reverse(
+                    "welds:weld_history_page",
                     kwargs={
                         "org_slug": request.org.slug,
                         "project_slug": project.slug,
@@ -991,6 +991,221 @@ def weld_log_data(request, org_slug, project_slug):
         },
     )
     return JsonResponse({"weld": after_snapshot}, status=201)
+
+
+def _get_weld_for_history(project, weld_identifier):
+    if not weld_identifier:
+        return None
+    return (
+        project.welds.select_related(
+            "material1_heat",
+            "material1_heat__mtr_document",
+            "material2_heat",
+            "material2_heat__mtr_document",
+            "nde_rig",
+            "nde_rig__qualification_folder",
+            "created_by",
+            "updated_by",
+        )
+        .filter(weld_id__iexact=weld_identifier)
+        .first()
+    )
+
+
+@require_membership("GUEST")
+@require_http_methods(["GET"])
+def weld_history_data(request, org_slug, project_slug):
+    project = get_project_for_request(request, request.org, project_slug)
+    forbidden = _require_project_membership(request, project)
+    if forbidden:
+        logger.warning(
+            "User without access attempted to load weld history data",
+            extra={
+                "user_id": getattr(request.user, "id", None),
+                "org_slug": org_slug,
+                "project_slug": project_slug,
+            },
+        )
+        return forbidden
+
+    missing_tables = _missing_weld_tables()
+    if missing_tables:
+        message = _migrations_required_message(missing_tables)
+        logger.error(
+            "Weld history data unavailable due to missing tables",
+            extra={
+                "user_id": getattr(request.user, "id", None),
+                "org_slug": org_slug,
+                "project_slug": project_slug,
+                "missing": missing_tables,
+            },
+        )
+        return JsonResponse({"error": message}, status=503)
+
+    weld_identifier = str(request.GET.get("weld_id", "")).strip()
+    if not weld_identifier:
+        return JsonResponse({"error": "Missing weld_id parameter."}, status=400)
+
+    weld = _get_weld_for_history(project, weld_identifier)
+    if not weld:
+        logger.info(
+            "Requested weld history for missing weld",
+            extra={
+                "user_id": getattr(request.user, "id", None),
+                "org_slug": org_slug,
+                "project_slug": project_slug,
+                "weld_id": weld_identifier,
+            },
+        )
+        return JsonResponse({"error": "Weld not found."}, status=404)
+
+    weld_payload = _serialize_weld(
+        weld, org_slug=request.org.slug, project_slug=project.slug
+    )
+
+    events_qs = weld.events.select_related("actor")
+    events_payload = [
+        {
+            "at": event.created_at.isoformat(),
+            "action": event.action,
+            "actor_name": _format_user_display(event.actor) or None,
+            "changes": event.changes or {},
+        }
+        for event in events_qs
+    ]
+
+    logger.info(
+        "Loaded weld audit history",
+        extra={
+            "user_id": getattr(request.user, "id", None),
+            "org_slug": org_slug,
+            "project_slug": project_slug,
+            "weld_id": weld_identifier,
+            "event_count": len(events_payload),
+        },
+    )
+
+    return JsonResponse({"weld": weld_payload, "events": events_payload})
+
+
+@require_membership("GUEST")
+@require_http_methods(["GET"])
+def weld_history_page(request, org_slug, project_slug):
+    project = get_project_for_request(request, request.org, project_slug)
+    forbidden = _require_project_membership(request, project)
+    if forbidden:
+        logger.warning(
+            "User without access attempted to load weld history page",
+            extra={
+                "user_id": getattr(request.user, "id", None),
+                "org_slug": org_slug,
+                "project_slug": project_slug,
+            },
+        )
+        return forbidden
+
+    weld_log_url = reverse(
+        "welds:weld_log",
+        kwargs={
+            "org_slug": request.org.slug,
+            "project_slug": project.slug,
+        },
+    )
+
+    missing_tables = _missing_weld_tables()
+    if missing_tables:
+        message = _migrations_required_message(missing_tables)
+        logger.error(
+            "Weld history page unavailable due to missing tables",
+            extra={
+                "user_id": getattr(request.user, "id", None),
+                "org_slug": org_slug,
+                "project_slug": project_slug,
+                "missing": missing_tables,
+            },
+        )
+        return render(
+            request,
+            "welds/weld_history_detail.html",
+            {
+                "org": request.org,
+                "project": project,
+                "error": message,
+                "weld": None,
+                "events": [],
+                "weld_log_url": weld_log_url,
+            },
+            status=503,
+        )
+
+    weld_identifier = str(request.GET.get("weld_id", "")).strip()
+    if not weld_identifier:
+        context = {
+            "org": request.org,
+            "project": project,
+            "error": "Missing weld_id parameter.",
+            "weld": None,
+            "events": [],
+            "weld_log_url": weld_log_url,
+        }
+        return render(
+            request,
+            "welds/weld_history_detail.html",
+            context,
+            status=400,
+        )
+
+    weld = _get_weld_for_history(project, weld_identifier)
+    if not weld:
+        context = {
+            "org": request.org,
+            "project": project,
+            "error": "Weld not found.",
+            "weld": None,
+            "events": [],
+            "weld_log_url": weld_log_url,
+        }
+        return render(
+            request,
+            "welds/weld_history_detail.html",
+            context,
+            status=404,
+        )
+
+    weld_payload = _serialize_weld(
+        weld, org_slug=request.org.slug, project_slug=project.slug
+    )
+    events = [
+        {
+            "at": event.created_at,
+            "action": event.action,
+            "actor_name": _format_user_display(event.actor) or None,
+            "changes": event.changes or {},
+        }
+        for event in weld.events.select_related("actor")
+    ]
+
+    logger.info(
+        "Rendering weld history page",
+        extra={
+            "user_id": getattr(request.user, "id", None),
+            "org_slug": org_slug,
+            "project_slug": project_slug,
+            "weld_id": weld_identifier,
+            "event_count": len(events),
+        },
+    )
+
+    context = {
+        "org": request.org,
+        "project": project,
+        "weld": weld_payload,
+        "events": events,
+        "error": "",
+        "weld_log_url": weld_log_url,
+    }
+
+    return render(request, "welds/weld_history_detail.html", context)
 
 
 @require_membership("GUEST")

@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+
+{% block title %}Weld History · {{ project.name }} · {{ org.name }}{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-4">
+    <div>
+      <h1 class="h4 mb-0">Weld Audit History</h1>
+      <p class="text-muted mb-0">Project {{ project.name }}</p>
+    </div>
+    <div>
+      <a href="{{ weld_log_url }}" class="btn btn-outline-secondary">Back to Weld Log</a>
+    </div>
+  </div>
+
+  {% if error %}
+    <div class="alert alert-warning" role="alert">
+      {{ error }}
+    </div>
+  {% elif not weld %}
+    <div class="alert alert-info" role="alert">
+      Select a weld from the weld log to view its history.
+    </div>
+  {% else %}
+    <div class="card shadow-sm mb-4">
+      <div class="card-body">
+        <h2 class="h5 mb-3">Weld Summary</h2>
+        <div class="row gy-3">
+          <div class="col-md-4">
+            <div class="text-muted small">Weld ID</div>
+            <div class="fw-semibold fs-5">{{ weld.weld_id }}</div>
+          </div>
+          <div class="col-md-4">
+            <div class="text-muted small">Disposition</div>
+            <div class="fw-semibold">{{ weld.disposition_label|default:weld.disposition|default:"—" }}</div>
+          </div>
+          <div class="col-md-4">
+            <div class="text-muted small">NDE Number</div>
+            <div class="fw-semibold">{{ weld.nde_number|default:"—" }}</div>
+          </div>
+          <div class="col-md-4">
+            <div class="text-muted small">Created</div>
+            <div>{{ weld.created_at|date:"SHORT_DATETIME_FORMAT" }}{% if weld.created_by_name %}<span class="d-block text-muted small">by {{ weld.created_by_name }}</span>{% endif %}</div>
+          </div>
+          <div class="col-md-4">
+            <div class="text-muted small">Last Updated</div>
+            <div>{{ weld.updated_at|date:"SHORT_DATETIME_FORMAT" }}{% if weld.updated_by_name %}<span class="d-block text-muted small">by {{ weld.updated_by_name }}</span>{% endif %}</div>
+          </div>
+          <div class="col-md-4">
+            <div class="text-muted small">Weld Type</div>
+            <div>{{ weld.weld_type_label|default:weld.weld_type|default:"—" }}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <section>
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2 class="h5 mb-0">Audit Trail</h2>
+        <span class="badge text-bg-light">{{ events|length }} event{{ events|length|pluralize }}</span>
+      </div>
+      {% if events %}
+        <div class="d-flex flex-column gap-3">
+          {% for event in events %}
+            <article class="card border-0 shadow-sm">
+              <div class="card-body">
+                <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-2">
+                  <div>
+                    <div class="fw-semibold">{{ event.at|date:"SHORT_DATETIME_FORMAT" }}</div>
+                    <div class="text-muted small">{{ event.actor_name|default:"System" }}</div>
+                  </div>
+                  <span class="badge bg-primary-subtle text-primary-emphasis border border-primary-subtle">{{ event.action }}</span>
+                </div>
+                {% if event.changes %}
+                  <div class="d-flex flex-column gap-2">
+                    {% for field, diff in event.changes.items %}
+                      <div>
+                        <div class="fw-semibold">{{ field }}</div>
+                        <div class="text-muted small">From: {% if diff.0 %}{{ diff.0 }}{% else %}—{% endif %}</div>
+                        <div class="text-success small">To: {% if diff.1 %}{{ diff.1 }}{% else %}—{% endif %}</div>
+                      </div>
+                    {% endfor %}
+                  </div>
+                {% else %}
+                  <p class="text-muted mb-0">No field changes recorded for this event.</p>
+                {% endif %}
+              </div>
+            </article>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="alert alert-secondary" role="alert">
+          No audit events have been recorded for this weld yet.
+        </div>
+      {% endif %}
+    </section>
+  {% endif %}
+</div>
+{% endblock %}

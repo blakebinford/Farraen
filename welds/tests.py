@@ -166,6 +166,15 @@ class WeldLogAPITests(TestCase):
             },
         )
 
+    def _history_page_url(self):
+        return reverse(
+            "welds:weld_history_page",
+            kwargs={
+                "org_slug": self.org.slug,
+                "project_slug": self.project.slug,
+            },
+        )
+
     def test_create_weld_applies_material_defaults(self):
         payload = {
             "weld_id": "W-001",
@@ -802,6 +811,33 @@ class WeldHistoryDataTests(WeldLogAPITests):
         self.assertEqual(event["action"], WeldEvent.Action.CREATE)
         self.assertEqual(event["actor_name"], self.user.email)
         self.assertEqual(event["changes"].get("weld_id"), [None, weld.weld_id])
+
+
+class WeldHistoryPageTests(WeldLogAPITests):
+    def test_missing_weld_id_shows_error(self):
+        response = self.client.get(self._history_page_url())
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Missing weld_id", response.content.decode())
+
+    def test_history_page_renders_weld_information(self):
+        payload = {
+            "weld_id": "PAGE-001",
+            "disposition": Weld.Disposition.ACCEPTED,
+        }
+        create_response = self.client.post(
+            self._data_url(), data=payload, content_type="application/json"
+        )
+        self.assertEqual(create_response.status_code, 201)
+
+        weld_identifier = payload["weld_id"]
+        response = self.client.get(
+            self._history_page_url(), {"weld_id": weld_identifier}
+        )
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn("Weld Audit History", content)
+        self.assertIn(weld_identifier, content)
+        self.assertIn("Audit Trail", content)
 
 
 class WeldEventAuditTests(WeldLogAPITests):

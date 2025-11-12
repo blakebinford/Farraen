@@ -25,6 +25,11 @@ urlpatterns = [
         name="weld_history_data",
     ),
     path(
+        "projects/<slug:project_slug>/weld-log/history/view/",
+        views.weld_history_page,
+        name="weld_history_page",
+    ),
+    path(
         "projects/<slug:project_slug>/weld-log/options/heats/",
         views.material_heat_options,
         name="weld_material_heat_options",

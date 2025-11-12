@@ -540,7 +540,7 @@
       const heatSearchEndpoint = "{{ heat_search_url }}";
       const ndeRigsEndpoint = "{{ nde_rigs_url }}";
       const welderOptionsEndpoint = "{{ welder_options_url }}";
-      const weldHistoryDataEndpoint = "{{ weld_history_url }}";
+      const weldHistoryPageEndpoint = "{{ weld_history_page_url }}";
 
       const statusEl = document.getElementById("weld-log-status");
       const saveBtn = document.getElementById("weld-log-save");
@@ -567,8 +567,6 @@
       let activeSaves = 0;
       let currentAbortController = null;
       let isCellEditing = false;
-      let activeAuditRequestToken = 0;
-      let lastAuditWeldPayload = null;
       const HISTORY_PAGE_SIZE = 100;
       const HISTORY_MAX_PAGES = 100;
       const historyEntryCache = new Map();
@@ -935,202 +933,16 @@
           .replace(/'/g, "&#x27;");
       }
 
-      function prepareAuditModal() {
-        if (auditLoadingEl) {
-          auditLoadingEl.classList.remove("d-none");
-        }
-        if (auditErrorEl) {
-          auditErrorEl.classList.add("d-none");
-          auditErrorEl.textContent = "";
-        }
-        if (auditContentEl) {
-          auditContentEl.classList.add("d-none");
-        }
-        if (auditSummaryEl) {
-          auditSummaryEl.innerHTML = "";
-        }
-        if (auditEventsEl) {
-          auditEventsEl.innerHTML = "";
-        }
-      }
-
-      function resetAuditModalState() {
-        lastAuditWeldPayload = null;
-        activeAuditRequestToken += 1;
-        prepareAuditModal();
-      }
-
-      function formatAuditTimestamp(value) {
-        const formatted = formatDateTimeDisplay(value);
-        return formatted || "Unknown";
-      }
-
-      function formatAuditChangeValue(value) {
-        if (value === null || value === undefined || value === "") {
-          return "—";
-        }
-        if (Array.isArray(value) || (typeof value === "object" && value !== null)) {
-          try {
-            return JSON.stringify(value);
-          } catch (error) {
-            return String(value);
-          }
-        }
-        return String(value);
-      }
-
-      function renderAuditChanges(changes) {
-        const entries = Object.entries(changes || {});
-        if (!entries.length) {
-          return '<div class="weld-history-change text-muted">No field changes recorded.</div>';
-        }
-        return entries
-          .map(([field, diff]) => {
-            const previous = Array.isArray(diff) ? diff[0] : undefined;
-            const current = Array.isArray(diff) ? diff[1] : undefined;
-            return `
-              <div class="weld-history-change">
-                <div class="fw-semibold">${escapeHtml(field)}</div>
-                <div class="small text-muted">From: ${escapeHtml(formatAuditChangeValue(previous))}</div>
-                <div class="small text-success">To: ${escapeHtml(formatAuditChangeValue(current))}</div>
-              </div>
-            `;
-          })
-          .join("");
-      }
-
-      function renderAuditEvents(events) {
-        if (!Array.isArray(events) || !events.length) {
-          return '<div class="weld-history-empty">No weld activity has been recorded yet.</div>';
-        }
-        return events
-          .map(event => {
-            const action = escapeHtml(event?.action || "");
-            const actor = escapeHtml(event?.actor_name || "System");
-            const timestamp = escapeHtml(formatAuditTimestamp(event?.at));
-            const changesHtml = renderAuditChanges(event?.changes || {});
-            return `
-              <article class="weld-history-event">
-                <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
-                  <h6 class="mb-0">${timestamp}</h6>
-                  <span class="badge bg-primary-subtle text-primary-emphasis border border-primary-subtle">${action || "EVENT"}</span>
-                </div>
-                <div class="small text-muted mb-2">Actor: ${actor || "System"}</div>
-                ${changesHtml}
-              </article>
-            `;
-          })
-          .join("");
-      }
-
-      function renderAuditSummary(weld) {
-        if (!weld) {
-          return '<p class="text-muted mb-0">Weld details are unavailable.</p>';
-        }
-        const disposition = weld.disposition_label || weld.disposition || "";
-        const createdAt = formatDateTimeDisplay(weld.created_at) || "—";
-        const updatedAt = formatDateTimeDisplay(weld.updated_at) || "—";
-        const createdBy = weld.created_by_name ? escapeHtml(weld.created_by_name) : "";
-        const updatedBy = weld.updated_by_name ? escapeHtml(weld.updated_by_name) : "";
-        const ndeNumber = weld.nde_number ? escapeHtml(weld.nde_number) : "—";
-        const weldType = weld.weld_type_label || weld.weld_type || "";
-        return `
-          <div class="d-flex flex-column gap-2">
-            <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
-              <div>
-                <strong>${escapeHtml(weld.weld_id || "")}</strong>
-                ${disposition ? `<span class="badge bg-secondary ms-2">${escapeHtml(disposition)}</span>` : ""}
-              </div>
-              <div class="text-muted small">Updated ${escapeHtml(updatedAt)}${updatedBy ? ` by ${updatedBy}` : ""}</div>
-            </div>
-            <dl class="row weld-history-summary mb-0">
-              <dt class="col-sm-4">Created</dt>
-              <dd class="col-sm-8">${escapeHtml(createdAt)}${createdBy ? `<span class="d-block text-muted">${createdBy}</span>` : ""}</dd>
-              <dt class="col-sm-4">Last Updated By</dt>
-              <dd class="col-sm-8">${updatedBy || "—"}</dd>
-              <dt class="col-sm-4">Weld Type</dt>
-              <dd class="col-sm-8">${escapeHtml(weldType || "—")}</dd>
-              <dt class="col-sm-4">NDE Number</dt>
-              <dd class="col-sm-8">${ndeNumber}</dd>
-            </dl>
-          </div>
-        `;
-      }
-
-      function showAuditError(message) {
-        if (auditLoadingEl) {
-          auditLoadingEl.classList.add("d-none");
-        }
-        if (auditErrorEl) {
-          auditErrorEl.textContent = message || "Unable to load weld history.";
-          auditErrorEl.classList.remove("d-none");
-        }
-        if (auditContentEl) {
-          auditContentEl.classList.add("d-none");
-        }
-      }
-
-      function renderAuditModal(payload) {
-        if (auditLoadingEl) {
-          auditLoadingEl.classList.add("d-none");
-        }
-        if (auditErrorEl) {
-          auditErrorEl.classList.add("d-none");
-          auditErrorEl.textContent = "";
-        }
-        const weld = payload?.weld || null;
-        lastAuditWeldPayload = weld || null;
-        if (auditSummaryEl) {
-          auditSummaryEl.innerHTML = renderAuditSummary(weld);
-        }
-        if (auditEventsEl) {
-          auditEventsEl.innerHTML = renderAuditEvents(payload?.events || []);
-        }
-        if (auditContentEl) {
-          auditContentEl.classList.remove("d-none");
-        }
-      }
-
-      async function showWeldHistory(weldId) {
-        if (!weldId || !auditModal || !weldHistoryDataEndpoint) {
+      function openWeldHistoryPage(weldId) {
+        if (!weldId || !weldHistoryPageEndpoint) {
           return;
         }
-        const requestToken = ++activeAuditRequestToken;
-        prepareAuditModal();
-        if (auditModalLabel) {
-          auditModalLabel.textContent = `Weld History – ${weldId}`;
-        }
-        auditModal.show();
         try {
-          const url = new URL(weldHistoryDataEndpoint, window.location.origin);
+          const url = new URL(weldHistoryPageEndpoint, window.location.origin);
           url.searchParams.set("weld_id", weldId);
-          const response = await fetch(url.toString(), {
-            credentials: "same-origin",
-            headers: { Accept: "application/json" },
-          });
-          if (!response.ok) {
-            let errorMessage = `Failed to load weld history (${response.status})`;
-            try {
-              const errorData = await response.json();
-              if (errorData && typeof errorData.error === "string") {
-                errorMessage = errorData.error;
-              }
-            } catch (error) {
-              // Ignore parse errors and fall back to default message
-            }
-            throw new Error(errorMessage);
-          }
-          const payload = await response.json();
-          if (requestToken !== activeAuditRequestToken) {
-            return;
-          }
-          renderAuditModal(payload);
+          window.location.assign(url.toString());
         } catch (error) {
-          if (requestToken !== activeAuditRequestToken) {
-            return;
-          }
-          console.error(error);
-          showAuditError(error?.message || "Unable to load weld history.");
+          console.error("Unable to open weld history page", error);
         }
       }
 
@@ -2782,7 +2594,7 @@
                 return "";
               }
               const display = escapeHtml(value);
-              if (!auditModal && !detailModal && !weldHistoryDataEndpoint) {
+              if (!weldHistoryPageEndpoint) {
                 return display;
               }
               const rowData = cell.getRow()?.getData?.();
@@ -3146,7 +2958,7 @@
             const data = cell.getRow()?.getData?.();
             const weldIdentifier = data?.weld_id || trigger.getAttribute("data-weld-id");
             if (weldIdentifier) {
-              showWeldHistory(weldIdentifier);
+              openWeldHistoryPage(weldIdentifier);
             }
           }
         });

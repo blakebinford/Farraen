@@ -11,7 +11,7 @@ from drive.models import FileNode, Folder
 from organizations.models import Membership, Organization
 from projects.models import Project, ProjectMember
 
-from .models import MaterialHeat, NDERig, Welder, Weld, WeldHistory
+from .models import MaterialHeat, NDERig, Welder, Weld, WeldEvent, WeldHistory
 from .services import build_weld_dashboard_chart_payload, get_project_weld_kpis
 from .views import _migrations_required_message
 
@@ -151,6 +151,24 @@ class WeldLogAPITests(TestCase):
     def _data_url(self, name="weld_log_data"):
         return reverse(
             f"welds:{name}",
+            kwargs={
+                "org_slug": self.org.slug,
+                "project_slug": self.project.slug,
+            },
+        )
+
+    def _history_data_url(self):
+        return reverse(
+            "welds:weld_history_data",
+            kwargs={
+                "org_slug": self.org.slug,
+                "project_slug": self.project.slug,
+            },
+        )
+
+    def _history_page_url(self):
+        return reverse(
+            "welds:weld_history_page",
             kwargs={
                 "org_slug": self.org.slug,
                 "project_slug": self.project.slug,
@@ -752,4 +770,134 @@ class WeldHistoryAPITests(WeldLogAPITests):
         )
         entries = self.client.get(url).json().get("rows", [])
         self.assertEqual(entries[0].get("reason"), reason)
+
+
+class WeldHistoryDataTests(WeldLogAPITests):
+    def test_missing_weld_id_returns_400(self):
+        response = self.client.get(self._history_data_url())
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("weld_id", response.json().get("error", ""))
+
+    def test_unknown_weld_returns_404(self):
+        response = self.client.get(
+            self._history_data_url(), {"weld_id": "NO-SUCH-WELD"}
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_history_endpoint_returns_weld_and_events(self):
+        weld = Weld.objects.create(
+            project=self.project,
+            weld_id="HX-100",
+            created_by=self.user,
+            updated_by=self.user,
+        )
+        WeldEvent.objects.create(
+            weld=weld,
+            action=WeldEvent.Action.CREATE,
+            actor=self.user,
+            changes={"weld_id": [None, weld.weld_id]},
+            ip_address="127.0.0.1",
+        )
+
+        response = self.client.get(
+            self._history_data_url(), {"weld_id": weld.weld_id}
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["weld"]["weld_id"], weld.weld_id)
+        events = payload.get("events", [])
+        self.assertEqual(len(events), 1)
+        event = events[0]
+        self.assertEqual(event["action"], WeldEvent.Action.CREATE)
+        self.assertEqual(event["actor_name"], self.user.email)
+        self.assertEqual(event["changes"].get("weld_id"), [None, weld.weld_id])
+
+
+class WeldHistoryPageTests(WeldLogAPITests):
+    def test_missing_weld_id_shows_error(self):
+        response = self.client.get(self._history_page_url())
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Missing weld_id", response.content.decode())
+
+    def test_history_page_renders_weld_information(self):
+        payload = {
+            "weld_id": "PAGE-001",
+            "disposition": Weld.Disposition.ACCEPTED,
+        }
+        create_response = self.client.post(
+            self._data_url(), data=payload, content_type="application/json"
+        )
+        self.assertEqual(create_response.status_code, 201)
+
+        weld_identifier = payload["weld_id"]
+        response = self.client.get(
+            self._history_page_url(), {"weld_id": weld_identifier}
+        )
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn("Weld Audit History", content)
+        self.assertIn(weld_identifier, content)
+        self.assertIn("Audit Trail", content)
+
+
+class WeldEventAuditTests(WeldLogAPITests):
+    def test_create_weld_records_audit_event(self):
+        payload = {
+            "weld_id": "AUD-001",
+            "disposition": Weld.Disposition.ACCEPTED,
+        }
+        response = self.client.post(
+            self._data_url(), data=payload, content_type="application/json"
+        )
+        self.assertEqual(response.status_code, 201)
+        weld_data = response.json()["weld"]
+        weld = Weld.objects.get(pk=weld_data["id"])
+
+        events = list(WeldEvent.objects.filter(weld=weld))
+        self.assertEqual(len(events), 1)
+        event = events[0]
+        self.assertEqual(event.action, WeldEvent.Action.CREATE)
+        self.assertEqual(event.actor, self.user)
+        self.assertEqual(event.changes.get("weld_id"), [None, payload["weld_id"]])
+
+    def test_update_weld_records_audit_event(self):
+        create_payload = {
+            "weld_id": "AUD-200",
+            "disposition": Weld.Disposition.PENDING,
+        }
+        create_response = self.client.post(
+            self._data_url(),
+            data=create_payload,
+            content_type="application/json",
+        )
+        self.assertEqual(create_response.status_code, 201)
+        weld_data = create_response.json()["weld"]
+
+        update_payload = {
+            "id": weld_data["id"],
+            "weld_id": weld_data["weld_id"],
+            "disposition": Weld.Disposition.ACCEPTED,
+            "disposition_comment": "Inspector approved",
+        }
+        update_response = self.client.post(
+            self._data_url(),
+            data=update_payload,
+            content_type="application/json",
+        )
+        self.assertEqual(update_response.status_code, 200)
+
+        weld = Weld.objects.get(pk=weld_data["id"])
+        events = list(WeldEvent.objects.filter(weld=weld).order_by("created_at"))
+        self.assertEqual(len(events), 2)
+        update_event = events[-1]
+        self.assertEqual(update_event.action, WeldEvent.Action.UPDATE)
+        self.assertEqual(update_event.actor, self.user)
+        self.assertEqual(
+            update_event.changes.get("disposition"),
+            [Weld.Disposition.PENDING, Weld.Disposition.ACCEPTED],
+        )
+        self.assertEqual(
+            update_event.changes.get("disposition_comment"),
+            ["", "Inspector approved"],
+        )
 

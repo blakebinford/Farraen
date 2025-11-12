@@ -461,6 +461,7 @@
       const heatSearchEndpoint = "{{ heat_search_url }}";
       const ndeRigsEndpoint = "{{ nde_rigs_url }}";
       const welderOptionsEndpoint = "{{ welder_options_url }}";
+      const weldHistoryPageEndpoint = "{{ weld_history_page_url }}";
 
       const statusEl = document.getElementById("weld-log-status");
       const saveBtn = document.getElementById("weld-log-save");
@@ -486,6 +487,7 @@
       let statusExtra = "";
       let activeSaves = 0;
       let currentAbortController = null;
+      let isCellEditing = false;
       const HISTORY_PAGE_SIZE = 100;
       const HISTORY_MAX_PAGES = 100;
       const historyEntryCache = new Map();
@@ -820,6 +822,19 @@
           .replace(/>/g, "&gt;")
           .replace(/"/g, "&quot;")
           .replace(/'/g, "&#x27;");
+      }
+
+      function openWeldHistoryPage(weldId) {
+        if (!weldId || !weldHistoryPageEndpoint) {
+          return;
+        }
+        try {
+          const url = new URL(weldHistoryPageEndpoint, window.location.origin);
+          url.searchParams.set("weld_id", weldId);
+          window.location.assign(url.toString());
+        } catch (error) {
+          console.error("Unable to open weld history page", error);
+        }
       }
 
       const HISTORY_FIELD_LABELS = {
@@ -2470,12 +2485,14 @@
                 return "";
               }
               const display = escapeHtml(value);
-              if (!detailModal) {
+              if (!weldHistoryPageEndpoint) {
                 return display;
               }
               const rowData = cell.getRow()?.getData?.();
+              const weldIdentifier = rowData?.weld_id ?? value;
+              const encodedId = escapeHtml(String(weldIdentifier));
               const weldPk = rowData?.id ?? "";
-              return `<button type="button" class="weld-id-link" data-weld-id="${weldPk}">${display}</button>`;
+              return `<button type="button" class="weld-id-link" data-weld-id="${encodedId}" data-weld-pk="${weldPk}">${display}</button>`;
             },
           },
           {
@@ -2820,16 +2837,30 @@
           },
         });
         table.on("cellClick", (event, cell) => {
+          if (isCellEditing) {
+            return;
+          }
           if (cell.getField && cell.getField() === "weld_id") {
             const trigger = event.target?.closest?.(".weld-id-link");
-            if (trigger) {
-              event.preventDefault();
-              const data = cell.getRow()?.getData?.();
-              if (data) {
-                openWeldDetail(data);
-              }
+            if (!trigger) {
+              return;
+            }
+            event.preventDefault();
+            const data = cell.getRow()?.getData?.();
+            const weldIdentifier = data?.weld_id || trigger.getAttribute("data-weld-id");
+            if (weldIdentifier) {
+              openWeldHistoryPage(weldIdentifier);
             }
           }
+        });
+        table.on("cellEditing", () => {
+          isCellEditing = true;
+        });
+        table.on("cellEditCancelled", () => {
+          isCellEditing = false;
+        });
+        table.on("cellEdited", () => {
+          isCellEditing = false;
         });
         table.on("selectionChanged", () => {
           updateStatusCounts();

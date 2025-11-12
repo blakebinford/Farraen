@@ -9,6 +9,30 @@ class Project(models.Model):
     is_archived = models.BooleanField(default=False)
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL)
     created_at = models.DateTimeField(auto_now_add=True)
+    planned_welds_per_workday = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Planned weld count per productive workday.",
+    )
+    workdays_per_week = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="Number of planned workdays per calendar week.",
+    )
+    project_total_weld_inches = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Total weld inches planned for the project scope.",
+    )
+    planned_start_date = models.DateField(
+        null=True,
+        blank=True,
+        help_text="Planned start date for weld production.",
+    )
 
     class Meta:
         unique_together = [("org", "slug")]

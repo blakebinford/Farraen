@@ -50,6 +50,16 @@ urlpatterns = [
         name="weld_nde_rig_options",
     ),
     path(
+        "projects/<slug:project_slug>/weld-dashboard/analytics/",
+        views.weld_dashboard_analytics,
+        name="weld_dashboard_analytics",
+    ),
+    path(
+        "projects/<slug:project_slug>/weld-dashboard/drilldown/",
+        views.weld_dashboard_drilldown,
+        name="weld_dashboard_drilldown",
+    ),
+    path(
         "projects/<slug:project_slug>/weld-log/welds/<int:weld_pk>/history/",
         views.weld_history,
         name="weld_history",

@@ -7,6 +7,7 @@
 {% endblock %}
 
 {% block content %}
+  {{ analytics|json_script:"initial-analytics-data" }}
 <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-4">
   <div class="mb-3 mb-md-0">
     <h1 class="h3 mb-1">Weld KPI Dashboard</h1>
@@ -66,6 +67,289 @@
           {% if weld_kpis.production.days_with_welds %}
             <p class="text-muted small mb-0">Across {{ weld_kpis.production.days_with_welds }} day{{ weld_kpis.production.days_with_welds|pluralize }}</p>
           {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card mb-4">
+    <div class="card-header py-2 px-3">Planner Inputs</div>
+    <div class="card-body">
+      <form method="post" class="row g-3 align-items-end">
+        {% csrf_token %}
+        <div class="col-md-3">
+          <label class="form-label small text-uppercase" for="id_planned_welds_per_workday">Planned welds per workday</label>
+          <input type="number" step="0.01" class="form-control" id="id_planned_welds_per_workday" name="planned_welds_per_workday" value="{{ project.planned_welds_per_workday|default_if_none:'' }}" placeholder="e.g. 50">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label small text-uppercase" for="id_workdays_per_week">Workdays per week</label>
+          <input type="number" min="1" max="7" class="form-control" id="id_workdays_per_week" name="workdays_per_week" value="{{ project.workdays_per_week|default_if_none:'' }}" placeholder="e.g. 5">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label small text-uppercase" for="id_project_total_weld_inches">Project total weld inches</label>
+          <input type="number" step="0.01" class="form-control" id="id_project_total_weld_inches" name="project_total_weld_inches" value="{{ project.project_total_weld_inches|default_if_none:'' }}" placeholder="e.g. 60000">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label small text-uppercase" for="id_planned_start_date">Planned start date</label>
+          <input type="date" class="form-control" id="id_planned_start_date" name="planned_start_date" value="{{ project.planned_start_date|date:'Y-m-d' }}">
+        </div>
+        <div class="col-12 d-flex gap-2">
+          <button type="submit" class="btn btn-primary">Save planner inputs</button>
+          <div class="text-muted small" id="plannerAverageNote"></div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="card mb-4">
+    <div class="card-header py-2 px-3">Dashboard Filters</div>
+    <div class="card-body">
+      <form id="dashboardFilterForm" class="row g-3 align-items-end">
+        <div class="col-md-3">
+          <label class="form-label small text-uppercase" for="filterStartDate">Start date</label>
+          <input type="date" class="form-control" id="filterStartDate" name="start_date">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label small text-uppercase" for="filterEndDate">End date</label>
+          <input type="date" class="form-control" id="filterEndDate" name="end_date">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label small text-uppercase" for="filterWelder">Welder</label>
+          <select id="filterWelder" class="form-select" multiple></select>
+          <div class="form-text">Select one or more welders to focus the charts.</div>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label small text-uppercase" for="filterStencil">Stencil</label>
+          <select id="filterStencil" class="form-select">
+            <option value="">All stencils</option>
+          </select>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label small text-uppercase" for="filterHeatNumber">Heat number</label>
+          <input type="text" class="form-control" id="filterHeatNumber" placeholder="Heat number">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label small text-uppercase" for="filterPipeSize">Pipe size</label>
+          <input type="text" class="form-control" id="filterPipeSize" placeholder="Pipe size">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label small text-uppercase" for="filterOd">OD (inches)</label>
+          <input type="number" step="0.001" class="form-control" id="filterOd" placeholder="Outer diameter">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label small text-uppercase" for="filterWps">WPS ID</label>
+          <input type="text" class="form-control" id="filterWps" placeholder="WPS">
+        </div>
+        <div class="col-md-3">
+          <button type="button" id="applyFilters" class="btn btn-primary w-100">Apply filters</button>
+        </div>
+        <div class="col-md-3">
+          <button type="button" id="resetFilters" class="btn btn-outline-secondary w-100">Reset</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="card mb-4">
+    <div class="card-header py-2 px-3 d-flex justify-content-between align-items-center">
+      <div>
+        <h5 class="mb-0">Planned vs Actual S-curve</h5>
+        <div class="text-muted small" id="sCurveSummary"></div>
+      </div>
+      <div class="form-check form-switch">
+        <input class="form-check-input" type="checkbox" id="togglePercentComplete">
+        <label class="form-check-label" for="togglePercentComplete">Show percent complete</label>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="ratio ratio-21x9 mb-3">
+        <canvas id="sCurveChart"></canvas>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-sm align-middle" id="sCurveTable">
+          <thead class="table-light">
+            <tr>
+              <th scope="col">Date</th>
+              <th scope="col" class="text-end">Planned Inches</th>
+              <th scope="col" class="text-end">Actual Inches</th>
+              <th scope="col" class="text-end">Forecast Inches</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td colspan="4" class="text-center text-muted">No data yet.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="card mb-4">
+    <div class="card-header py-2 px-3 d-flex justify-content-between align-items-center">
+      <h5 class="mb-0">Welder Production — Trending &amp; Cumulative</h5>
+      <div class="form-check form-switch">
+        <input class="form-check-input" type="checkbox" id="toggleWelderAverage">
+        <label class="form-check-label" for="toggleWelderAverage">Show 7-day moving average</label>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="row g-3">
+        <div class="col-lg-6">
+          <div class="ratio ratio-16x9">
+            <canvas id="welderDailyChart"></canvas>
+          </div>
+        </div>
+        <div class="col-lg-6">
+          <div class="ratio ratio-16x9">
+            <canvas id="welderCumulativeChart"></canvas>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card mb-4">
+    <div class="card-header py-2 px-3 d-flex justify-content-between align-items-center">
+      <div>
+        <h5 class="mb-0">Repair Rate (per 1,000 weld-inches)</h5>
+        <div class="text-muted small" id="repairRateSummary"></div>
+      </div>
+      <button type="button" class="btn btn-outline-secondary btn-sm" id="downloadRepairRateCsv">Export CSV</button>
+    </div>
+    <div class="card-body">
+      <div class="ratio ratio-21x9 mb-3">
+        <canvas id="repairRateChart"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <div class="card mb-4" id="repairClusteringCard">
+    <div class="card-header py-2 px-3 d-flex justify-content-between align-items-center">
+      <h5 class="mb-0">Repair Clustering</h5>
+      <span class="text-muted small">Click any bar to drill down.</span>
+    </div>
+    <div class="card-body">
+      <div class="row g-4">
+        <div class="col-lg-6 col-xl-3">
+          <h6 class="text-muted small text-uppercase mb-2">Heat Numbers</h6>
+          <div class="ratio ratio-1x1">
+            <canvas id="clusterHeatNumberChart"></canvas>
+          </div>
+        </div>
+        <div class="col-lg-6 col-xl-3">
+          <h6 class="text-muted small text-uppercase mb-2">Pipe Sizes / OD</h6>
+          <div class="ratio ratio-1x1">
+            <canvas id="clusterPipeSizeChart"></canvas>
+          </div>
+        </div>
+        <div class="col-lg-6 col-xl-3">
+          <h6 class="text-muted small text-uppercase mb-2">WPS IDs</h6>
+          <div class="ratio ratio-1x1">
+            <canvas id="clusterWpsChart"></canvas>
+          </div>
+        </div>
+        <div class="col-lg-6 col-xl-3">
+          <h6 class="text-muted small text-uppercase mb-2">Welders</h6>
+          <div class="ratio ratio-1x1">
+            <canvas id="clusterWelderChart"></canvas>
+          </div>
+        </div>
+      </div>
+      <div class="mt-4">
+        <h6 class="text-muted small text-uppercase mb-2">Heat Number vs WPS Density</h6>
+        <div class="table-responsive">
+          <table class="table table-sm align-middle" id="clusterHeatmapTable">
+            <thead class="table-light">
+              <tr>
+                <th scope="col">Heat Number</th>
+                <th scope="col">WPS</th>
+                <th scope="col" class="text-end">Repairs</th>
+                <th scope="col" class="text-end">Weld Inches</th>
+                <th scope="col" class="text-end">Repairs / 1,000 in</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td colspan="5" class="text-center text-muted">No repair clusters yet.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="row g-4 mt-4">
+        <div class="col-lg-6">
+          <h6 class="text-muted small text-uppercase mb-2">Top Heat × WPS Clusters</h6>
+          <div class="table-responsive">
+            <table class="table table-sm align-middle" id="combinedHeatWpsTable">
+              <thead class="table-light">
+                <tr>
+                  <th scope="col">Cluster</th>
+                  <th scope="col" class="text-end">Repairs</th>
+                  <th scope="col" class="text-end">Weld Inches</th>
+                  <th scope="col" class="text-end">Repairs / 1,000 in</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td colspan="4" class="text-center text-muted">No combined clusters yet.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="col-lg-6">
+          <h6 class="text-muted small text-uppercase mb-2">Top Pipe Size × OD Clusters</h6>
+          <div class="table-responsive">
+            <table class="table table-sm align-middle" id="combinedPipeOdTable">
+              <thead class="table-light">
+                <tr>
+                  <th scope="col">Cluster</th>
+                  <th scope="col" class="text-end">Repairs</th>
+                  <th scope="col" class="text-end">Weld Inches</th>
+                  <th scope="col" class="text-end">Repairs / 1,000 in</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td colspan="4" class="text-center text-muted">No combined clusters yet.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      <div class="mt-4">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <h6 class="text-muted small text-uppercase mb-0">Drilldown</h6>
+          <div class="d-flex align-items-center gap-2">
+            <button type="button" class="btn btn-outline-secondary btn-sm" id="exportDrilldownCsv" disabled>Export CSV</button>
+            <span class="text-muted small" id="drilldownStatus"></span>
+          </div>
+        </div>
+        <div class="table-responsive">
+          <table class="table table-sm align-middle" id="drilldownTable">
+            <thead class="table-light">
+              <tr>
+                <th scope="col">Weld ID</th>
+                <th scope="col">Weld Date</th>
+                <th scope="col" class="text-end">Weld Inches</th>
+                <th scope="col">Estimated?</th>
+                <th scope="col">Basis</th>
+                <th scope="col">Welder</th>
+                <th scope="col">Stencil</th>
+                <th scope="col">Heat</th>
+                <th scope="col">Pipe Size</th>
+                <th scope="col">OD</th>
+                <th scope="col">WPS</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td colspan="11" class="text-center text-muted">Select a cluster to view weld and repair records.</td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </div>
     </div>
@@ -291,6 +575,902 @@
 
 <script>
   document.addEventListener("DOMContentLoaded", function () {
+    const analyticsElement = document.getElementById("initial-analytics-data");
+    const analyticsApiUrl = "{{ dashboard_api_url }}";
+    const drilldownApiUrl = "{{ drilldown_api_url }}";
+    let analyticsState = analyticsElement
+      ? JSON.parse(analyticsElement.textContent)
+      : null;
+    let currentFilters = {};
+    let currentDrilldown = null;
+
+    const plannerAverageNote = document.getElementById("plannerAverageNote");
+    const percentToggle = document.getElementById("togglePercentComplete");
+    const welderAverageToggle = document.getElementById("toggleWelderAverage");
+    const welderSelect = document.getElementById("filterWelder");
+    const stencilSelect = document.getElementById("filterStencil");
+    const startDateInput = document.getElementById("filterStartDate");
+    const endDateInput = document.getElementById("filterEndDate");
+    const heatInput = document.getElementById("filterHeatNumber");
+    const pipeInput = document.getElementById("filterPipeSize");
+    const odInput = document.getElementById("filterOd");
+    const wpsInput = document.getElementById("filterWps");
+    const repairRateCsvButton = document.getElementById("downloadRepairRateCsv");
+    const exportDrilldownCsvButton = document.getElementById("exportDrilldownCsv");
+
+    const sCurveCtx = document.getElementById("sCurveChart");
+    const welderDailyCtx = document.getElementById("welderDailyChart");
+    const welderCumulativeCtx = document.getElementById("welderCumulativeChart");
+    const repairRateCtx = document.getElementById("repairRateChart");
+    const clusterHeatCtx = document.getElementById("clusterHeatNumberChart");
+    const clusterPipeCtx = document.getElementById("clusterPipeSizeChart");
+    const clusterWpsCtx = document.getElementById("clusterWpsChart");
+    const clusterWelderCtx = document.getElementById("clusterWelderChart");
+
+    let sCurveChart = null;
+    let welderDailyChart = null;
+    let welderCumulativeChart = null;
+    let repairRateChart = null;
+    let clusterCharts = {};
+
+    function formatNumber(value, digits = 1) {
+      if (value === null || value === undefined || Number.isNaN(value)) {
+        return "0";
+      }
+      return Number(value).toLocaleString(undefined, {
+        minimumFractionDigits: digits,
+        maximumFractionDigits: digits,
+      });
+    }
+
+    function formatDate(value) {
+      if (!value) {
+        return "—";
+      }
+      const parsed = new Date(value);
+      if (Number.isNaN(parsed.getTime())) {
+        return value;
+      }
+      return parsed.toLocaleDateString();
+    }
+
+    function populateFilterOptions(analytics) {
+      if (!analytics) {
+        return;
+      }
+      if (welderSelect && analytics.welder_options) {
+        welderSelect.innerHTML = "";
+        analytics.welder_options.forEach((option) => {
+          const opt = document.createElement("option");
+          opt.value = option.id;
+          opt.textContent = option.stencil
+            ? `${option.stencil}${option.name ? " – " + option.name : ""}`
+            : option.name || option.id;
+          welderSelect.appendChild(opt);
+        });
+      }
+      if (stencilSelect && analytics.stencil_options) {
+        const currentValue = stencilSelect.value;
+        stencilSelect.innerHTML = "";
+        const defaultOption = document.createElement("option");
+        defaultOption.value = "";
+        defaultOption.textContent = "All stencils";
+        stencilSelect.appendChild(defaultOption);
+        analytics.stencil_options.forEach((stencil) => {
+          const opt = document.createElement("option");
+          opt.value = stencil;
+          opt.textContent = stencil;
+          stencilSelect.appendChild(opt);
+        });
+        stencilSelect.value = currentValue || "";
+      }
+    }
+
+    function updatePlannerSummary(analytics) {
+      if (!plannerAverageNote || !analytics) {
+        return;
+      }
+      const planner = analytics.planner_inputs || {};
+      const parts = [];
+      if (planner.project_average_weld_length) {
+        parts.push(
+          `Project average weld length: ${formatNumber(
+            planner.project_average_weld_length,
+            1
+          )} in`
+        );
+      }
+      if (planner.project_average_basis) {
+        parts.push(planner.project_average_basis);
+      }
+      if (planner.scope_is_estimated) {
+        parts.push("Scope is estimated until confirmed.");
+      }
+      plannerAverageNote.textContent = parts.join(" · ");
+    }
+
+    function buildLabels(seriesList) {
+      const set = new Set();
+      seriesList.forEach((series) => {
+        (series || []).forEach((item) => {
+          if (item.date) {
+            set.add(item.date);
+          }
+        });
+      });
+      return Array.from(set).sort();
+    }
+
+    function mapSeriesToLabels(series, labels) {
+      const lookup = new Map();
+      (series || []).forEach((item) => {
+        lookup.set(item.date, Number(item.weld_inches || 0));
+      });
+      return labels.map((label) => lookup.get(label) || 0);
+    }
+
+    function updateSCurveChart(analytics) {
+      if (!sCurveCtx || !analytics) {
+        return;
+      }
+      const planned = analytics.planned_series || [];
+      const actual = analytics.cumulative_production || [];
+      const forecast = analytics.forecast_series || [];
+      const labels = buildLabels([planned, actual, forecast]);
+      const plannedData = mapSeriesToLabels(planned, labels);
+      const actualData = mapSeriesToLabels(actual, labels);
+      const forecastData = mapSeriesToLabels(forecast, labels);
+      const percentPlanned = plannedData.map((value) =>
+        analytics.project_total_scope
+          ? (value / Number(analytics.project_total_scope)) * 100
+          : 0
+      );
+      const percentActual = actualData.map((value) =>
+        analytics.project_total_scope
+          ? (value / Number(analytics.project_total_scope)) * 100
+          : 0
+      );
+
+      if (!sCurveChart) {
+        sCurveChart = new Chart(sCurveCtx, {
+          type: "line",
+          data: {
+            labels,
+            datasets: [
+              {
+                label: "Planned",
+                data: plannedData,
+                borderColor: "#6c757d",
+                borderWidth: 2,
+                borderDash: [6, 4],
+                fill: false,
+                tension: 0.2,
+              },
+              {
+                label: "Actual",
+                data: actualData,
+                borderColor: "#0d6efd",
+                borderWidth: 2,
+                fill: false,
+                tension: 0.2,
+              },
+              {
+                label: "Forecast",
+                data: forecastData,
+                borderColor: "#198754",
+                borderDash: [4, 4],
+                borderWidth: 2,
+                fill: false,
+                tension: 0.2,
+              },
+              {
+                label: "Planned %",
+                data: percentPlanned,
+                borderColor: "#adb5bd",
+                borderWidth: 1,
+                fill: false,
+                hidden: true,
+                yAxisID: "percent",
+                tension: 0.2,
+              },
+              {
+                label: "Actual %",
+                data: percentActual,
+                borderColor: "#0dcaf0",
+                borderWidth: 1,
+                fill: false,
+                hidden: true,
+                yAxisID: "percent",
+                tension: 0.2,
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: "index", intersect: false },
+            plugins: {
+              legend: { position: "bottom" },
+            },
+            scales: {
+              x: {
+                ticks: { autoSkip: true, maxRotation: 45 },
+              },
+              y: {
+                beginAtZero: true,
+                title: { display: true, text: "Weld Inches" },
+              },
+              percent: {
+                display: false,
+                position: "right",
+                beginAtZero: true,
+                max: 100,
+                ticks: {
+                  callback: (value) => `${value}%`,
+                },
+                title: { display: true, text: "Percent Complete" },
+              },
+            },
+          },
+        });
+      } else {
+        sCurveChart.data.labels = labels;
+        sCurveChart.data.datasets[0].data = plannedData;
+        sCurveChart.data.datasets[1].data = actualData;
+        sCurveChart.data.datasets[2].data = forecastData;
+        sCurveChart.data.datasets[3].data = percentPlanned;
+        sCurveChart.data.datasets[4].data = percentActual;
+        sCurveChart.update();
+      }
+      const showPercent = percentToggle && percentToggle.checked;
+      if (sCurveChart) {
+        sCurveChart.options.scales.percent.display = !!showPercent;
+        sCurveChart.data.datasets[3].hidden = !showPercent;
+        sCurveChart.data.datasets[4].hidden = !showPercent;
+        sCurveChart.update();
+      }
+
+      const tbody = document.querySelector("#sCurveTable tbody");
+      if (tbody) {
+        tbody.innerHTML = "";
+        if (!labels.length) {
+          const row = document.createElement("tr");
+          const cell = document.createElement("td");
+          cell.colSpan = 4;
+          cell.className = "text-center text-muted";
+          cell.textContent = "No data yet.";
+          row.appendChild(cell);
+          tbody.appendChild(row);
+        } else {
+          labels.forEach((label, index) => {
+            const row = document.createElement("tr");
+            row.innerHTML = `
+              <td>${formatDate(label)}</td>
+              <td class="text-end">${formatNumber(plannedData[index])}</td>
+              <td class="text-end">${formatNumber(actualData[index])}</td>
+              <td class="text-end">${formatNumber(forecastData[index])}</td>
+            `;
+            tbody.appendChild(row);
+          });
+        }
+      }
+
+      const summary = document.getElementById("sCurveSummary");
+      if (summary && analytics.forecast_summary) {
+        const forecast = analytics.forecast_summary;
+        const parts = [];
+        parts.push(`Percent complete: ${formatNumber(analytics.percent_complete || 0, 1)}%`);
+        if (forecast.projected_completion_date) {
+          parts.push(
+            `Projected completion: ${formatDate(forecast.projected_completion_date)}`
+          );
+        }
+        if (forecast.optimistic_date && forecast.pessimistic_date) {
+          parts.push(
+            `Confidence window: ${formatDate(
+              forecast.optimistic_date
+            )} → ${formatDate(forecast.pessimistic_date)}`
+          );
+        }
+        summary.textContent = parts.join(" · ");
+      }
+    }
+
+    function computeMovingAverage(values, windowSize = 7) {
+      const result = [];
+      for (let i = 0; i < values.length; i += 1) {
+        const start = Math.max(0, i - windowSize + 1);
+        const slice = values.slice(start, i + 1);
+        const avg = slice.reduce((acc, val) => acc + val, 0) / slice.length;
+        result.push(avg);
+      }
+      return result;
+    }
+
+    function updateWelderCharts(analytics) {
+      if (!analytics || !welderDailyCtx || !welderCumulativeCtx) {
+        return;
+      }
+      const welderMap = new Map();
+      (analytics.welder_options || []).forEach((option) => {
+        const label = option.stencil
+          ? `${option.stencil}${option.name ? " – " + option.name : ""}`
+          : option.name || `Welder ${option.id}`;
+        welderMap.set(String(option.id), label);
+      });
+      const welderSeries = analytics.welder_series || {};
+      const labels = buildLabels(Object.values(welderSeries));
+
+      const datasetsDaily = [];
+      const datasetsAverage = [];
+      const datasetsCumulative = [];
+      Object.entries(welderSeries).forEach(([welderId, series], index) => {
+        const colorHue = (index * 67) % 360;
+        const baseColor = `hsl(${colorHue}, 70%, 45%)`;
+        const label = welderMap.get(welderId) || `Welder ${welderId}`;
+        const dailySeries = series.map((item) => ({
+          date: item.date,
+          weld_inches: Number(item.daily_inches || 0),
+        }));
+        const dailyData = mapSeriesToLabels(dailySeries, labels);
+        const avgData = computeMovingAverage(dailyData);
+        const cumulativeData = mapSeriesToLabels(
+          series.map((item) => ({
+            date: item.date,
+            weld_inches: Number(item.cumulative_inches || 0),
+          })),
+          labels
+        );
+
+        datasetsDaily.push({
+          label,
+          data: dailyData,
+          borderColor: baseColor,
+          backgroundColor: baseColor,
+          fill: false,
+          tension: 0.2,
+        });
+        datasetsAverage.push({
+          label: `${label} (7-day avg)`,
+          data: avgData,
+          borderColor: baseColor,
+          borderDash: [4, 4],
+          fill: false,
+          tension: 0.2,
+          hidden: true,
+        });
+        datasetsCumulative.push({
+          label,
+          data: cumulativeData,
+          borderColor: baseColor,
+          fill: false,
+          tension: 0.2,
+        });
+      });
+
+      if (!welderDailyChart) {
+        welderDailyChart = new Chart(welderDailyCtx, {
+          type: "line",
+          data: { labels, datasets: datasetsDaily.concat(datasetsAverage) },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: "index", intersect: false },
+            plugins: { legend: { position: "bottom" } },
+            scales: { y: { beginAtZero: true, title: { display: true, text: "Weld Inches" } } },
+          },
+        });
+      } else {
+        welderDailyChart.data.labels = labels;
+        welderDailyChart.data.datasets = datasetsDaily.concat(datasetsAverage);
+        welderDailyChart.update();
+      }
+
+      if (!welderCumulativeChart) {
+        welderCumulativeChart = new Chart(welderCumulativeCtx, {
+          type: "line",
+          data: { labels, datasets: datasetsCumulative },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: "index", intersect: false },
+            plugins: { legend: { position: "bottom" } },
+            scales: { y: { beginAtZero: true, title: { display: true, text: "Cumulative Inches" } } },
+          },
+        });
+      } else {
+        welderCumulativeChart.data.labels = labels;
+        welderCumulativeChart.data.datasets = datasetsCumulative;
+        welderCumulativeChart.update();
+      }
+
+      if (welderAverageToggle) {
+        const showAverage = welderAverageToggle.checked;
+        if (welderDailyChart) {
+          welderDailyChart.data.datasets.forEach((dataset) => {
+            if (dataset.label && dataset.label.endsWith("(7-day avg)")) {
+              dataset.hidden = !showAverage;
+            }
+          });
+          welderDailyChart.update();
+        }
+      }
+    }
+
+    function updateRepairRateChart(analytics) {
+      if (!repairRateCtx || !analytics) {
+        return;
+      }
+      const series = analytics.repair_rate_series || [];
+      const labels = series.map((item) => item.date);
+      const rateData = series.map((item) => Number(item.rate_per_1000_inches || 0));
+      const repairsData = series.map((item) => Number(item.repairs || 0));
+
+      if (!repairRateChart) {
+        repairRateChart = new Chart(repairRateCtx, {
+          type: "line",
+          data: {
+            labels,
+            datasets: [
+              {
+                label: "Repairs per 1,000 inches",
+                data: rateData,
+                borderColor: "#d63384",
+                backgroundColor: "rgba(214,51,132,0.15)",
+                tension: 0.2,
+                fill: true,
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: "index", intersect: false },
+            plugins: { legend: { position: "bottom" } },
+            scales: {
+              y: {
+                beginAtZero: true,
+                title: { display: true, text: "Repairs per 1,000 inches" },
+              },
+            },
+          },
+        });
+      } else {
+        repairRateChart.data.labels = labels;
+        repairRateChart.data.datasets[0].data = rateData;
+        repairRateChart.update();
+      }
+
+      const summary = document.getElementById("repairRateSummary");
+      if (summary) {
+        const currentRate = rateData.length
+          ? rateData[rateData.length - 1]
+          : 0;
+        const previousRate = rateData.length > 1
+          ? rateData[rateData.length - 2]
+          : currentRate;
+        const direction = currentRate >= previousRate ? "▲" : "▼";
+        summary.textContent = `Current: ${formatNumber(
+          currentRate,
+          2
+        )} repairs per 1,000 in (${direction} vs. previous)`;
+      }
+    }
+
+    function createClusterChart(ctx, dimension) {
+      if (!ctx) {
+        return null;
+      }
+      const chart = new Chart(ctx, {
+        type: "bar",
+        data: { labels: [], datasets: [{
+          label: "Repairs per 1,000 inches",
+          data: [],
+          backgroundColor: "rgba(255,193,7,0.6)",
+          borderColor: "rgba(255,193,7,1)",
+          borderWidth: 1,
+        }] },
+        options: {
+          indexAxis: "y",
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                label: function (context) {
+                  const raw = chart._clusterData?.[context.dataIndex];
+                  if (!raw) {
+                    return `${context.formattedValue} per 1,000 in`;
+                  }
+                  return `${formatNumber(context.parsed.x, 2)} per 1,000 in (${raw.count} repairs, ${formatNumber(raw.weld_inches || 0, 1)} in)`;
+                },
+              },
+            },
+          },
+          scales: {
+            x: {
+              beginAtZero: true,
+              title: { display: true, text: "Repairs per 1,000 inches" },
+            },
+          },
+          onClick: function (event, elements) {
+            if (!elements.length) {
+              return;
+            }
+            const idx = elements[0].index;
+            const raw = chart._clusterData?.[idx];
+            if (raw) {
+              loadDrilldown(dimension, raw.key);
+            }
+          },
+        },
+      });
+      chart.dimension = dimension;
+      return chart;
+    }
+
+    function updateClusterCharts(analytics) {
+      if (!analytics) {
+        return;
+      }
+      if (!clusterCharts.heat) {
+        clusterCharts = {
+          heat: createClusterChart(clusterHeatCtx, "heat_number"),
+          pipe: createClusterChart(clusterPipeCtx, "pipe_size"),
+          wps: createClusterChart(clusterWpsCtx, "wps"),
+          welder: createClusterChart(clusterWelderCtx, "welder"),
+        };
+      }
+
+      function applyClusterData(chart, data) {
+        if (!chart) {
+          return;
+        }
+        chart._clusterData = data || [];
+        chart.data.labels = (data || []).map((item) => item.key || "Unspecified");
+        chart.data.datasets[0].data = (data || []).map((item) =>
+          Number(item.repair_rate_per_1000_inches || 0)
+        );
+        chart.update();
+      }
+
+      applyClusterData(clusterCharts.heat, analytics.clustering?.heat_number);
+
+      const pipeData = (analytics.clustering?.pipe_size || []).concat(
+        analytics.clustering?.od || []
+      );
+      applyClusterData(clusterCharts.pipe, pipeData);
+      applyClusterData(clusterCharts.wps, analytics.clustering?.wps);
+      applyClusterData(clusterCharts.welder, analytics.clustering?.welder);
+
+      const heatmapTable = document.querySelector("#clusterHeatmapTable tbody");
+      if (heatmapTable) {
+        heatmapTable.innerHTML = "";
+        const heatmap = analytics.heatmap || [];
+        if (!heatmap.length) {
+          const row = document.createElement("tr");
+          const cell = document.createElement("td");
+          cell.colSpan = 5;
+          cell.className = "text-center text-muted";
+          cell.textContent = "No repair clusters yet.";
+          row.appendChild(cell);
+          heatmapTable.appendChild(row);
+        } else {
+          heatmap.forEach((item) => {
+            const row = document.createElement("tr");
+            row.innerHTML = `
+              <td>${item.heat_number}</td>
+              <td>${item.wps}</td>
+              <td class="text-end">${formatNumber(item.count, 0)}</td>
+              <td class="text-end">${formatNumber(item.weld_inches || 0)}</td>
+              <td class="text-end">${formatNumber(item.repair_rate_per_1000_inches || 0, 2)}</td>
+            `;
+            row.style.cursor = "pointer";
+            row.addEventListener("click", () => loadDrilldown("heat_wps", item.key));
+            heatmapTable.appendChild(row);
+          });
+        }
+      }
+
+      function renderCombinedTable(selector, data, dimension) {
+        const tbody = document.querySelector(selector);
+        if (!tbody) {
+          return;
+        }
+        tbody.innerHTML = "";
+        if (!data || !data.length) {
+          const row = document.createElement("tr");
+          const cell = document.createElement("td");
+          cell.colSpan = 4;
+          cell.className = "text-center text-muted";
+          cell.textContent = "No combined clusters yet.";
+          row.appendChild(cell);
+          tbody.appendChild(row);
+          return;
+        }
+        data.forEach((item) => {
+          const row = document.createElement("tr");
+          row.innerHTML = `
+            <td>${item.label || item.key}</td>
+            <td class="text-end">${formatNumber(item.count || 0, 0)}</td>
+            <td class="text-end">${formatNumber(item.weld_inches || 0)}</td>
+            <td class="text-end">${formatNumber(item.repair_rate_per_1000_inches || 0, 2)}</td>
+          `;
+          row.style.cursor = "pointer";
+          row.addEventListener("click", () => loadDrilldown(dimension, item.key));
+          tbody.appendChild(row);
+        });
+      }
+
+      renderCombinedTable(
+        "#combinedHeatWpsTable tbody",
+        analytics.pair_clustering?.heat_wps,
+        "heat_wps"
+      );
+      renderCombinedTable(
+        "#combinedPipeOdTable tbody",
+        analytics.pair_clustering?.pipe_od,
+        "pipe_od"
+      );
+    }
+
+    function updateDrilldownTable(rows, contextLabel) {
+      const tbody = document.querySelector("#drilldownTable tbody");
+      const status = document.getElementById("drilldownStatus");
+      if (!tbody) {
+        return;
+      }
+      tbody.innerHTML = "";
+      if (!rows || !rows.length) {
+        const row = document.createElement("tr");
+        const cell = document.createElement("td");
+        cell.colSpan = 11;
+        cell.className = "text-center text-muted";
+        cell.textContent = "No records match the selected cluster.";
+        row.appendChild(cell);
+        tbody.appendChild(row);
+        if (status) {
+          status.textContent = contextLabel
+            ? `No records for ${contextLabel}`
+            : "Select a cluster";
+        }
+        return;
+      }
+      rows.forEach((row) => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td>${row.weld_id || "—"}</td>
+          <td>${formatDate(row.weld_date)}</td>
+          <td class="text-end">${formatNumber(row.weld_length_inches || 0)}</td>
+          <td>${row.length_estimated ? "Yes" : "No"}</td>
+          <td>${row.length_basis || ""}</td>
+          <td>${row.welder || ""}</td>
+          <td>${row.stencil || ""}</td>
+          <td>${row.heat_number || ""}</td>
+          <td>${row.pipe_size || ""}</td>
+          <td>${row.od || ""}</td>
+          <td>${row.wps || ""}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+      if (status) {
+        status.textContent = contextLabel
+          ? `Showing ${rows.length} record${rows.length === 1 ? "" : "s"} for ${contextLabel}`
+          : `Showing ${rows.length} record${rows.length === 1 ? "" : "s"}`;
+      }
+    }
+
+    function formatDrilldownLabel(dimension, key) {
+      if (!dimension) {
+        return "";
+      }
+      if (dimension === "heat_wps" || dimension === "pipe_od") {
+        try {
+          const parsed = JSON.parse(key);
+          if (dimension === "heat_wps") {
+            const heat = parsed?.heat_number ?? "Unspecified";
+            const wps = parsed?.wps ?? "Unspecified";
+            return `Heat ${heat} × WPS ${wps}`;
+          }
+          const pipe = parsed?.pipe_size ?? "Unspecified";
+          const od = parsed?.od ?? "Unspecified";
+          return `Pipe ${pipe} × OD ${od}`;
+        } catch (error) {
+          // fall back to default formatting
+        }
+      }
+      return `${dimension.replace(/_/g, " ")} = ${key}`;
+    }
+
+    function renderAnalytics(analytics) {
+      if (!analytics) {
+        return;
+      }
+      populateFilterOptions(analytics);
+      updatePlannerSummary(analytics);
+      updateSCurveChart(analytics);
+      updateWelderCharts(analytics);
+      updateRepairRateChart(analytics);
+      updateClusterCharts(analytics);
+    }
+
+    function collectFilters() {
+      const params = {};
+      if (startDateInput && startDateInput.value) {
+        params.start_date = startDateInput.value;
+      }
+      if (endDateInput && endDateInput.value) {
+        params.end_date = endDateInput.value;
+      }
+      if (heatInput && heatInput.value) {
+        params.heat_number = heatInput.value;
+      }
+      if (pipeInput && pipeInput.value) {
+        params.pipe_size = pipeInput.value;
+      }
+      if (odInput && odInput.value) {
+        params.od = odInput.value;
+      }
+      if (wpsInput && wpsInput.value) {
+        params.wps_id = wpsInput.value;
+      }
+      if (stencilSelect && stencilSelect.value) {
+        params.stencil_id = stencilSelect.value;
+      }
+      if (welderSelect && welderSelect.selectedOptions.length) {
+        params.welder_id = Array.from(welderSelect.selectedOptions).map(
+          (option) => option.value
+        );
+      }
+      return params;
+    }
+
+    function appendFiltersToUrl(url, filters) {
+      Object.entries(filters || {}).forEach(([key, value]) => {
+        if (Array.isArray(value)) {
+          value.forEach((item) => {
+            if (item !== "") {
+              url.searchParams.append(key, item);
+            }
+          });
+        } else if (value !== undefined && value !== "") {
+          url.searchParams.append(key, value);
+        }
+      });
+    }
+
+    function loadAnalytics(filters) {
+      if (!analyticsApiUrl) {
+        return;
+      }
+      const url = new URL(analyticsApiUrl, window.location.origin);
+      appendFiltersToUrl(url, filters);
+      fetch(url.toString())
+        .then((response) => response.json())
+        .then((data) => {
+          analyticsState = data;
+          renderAnalytics(analyticsState);
+          if (currentDrilldown) {
+            loadDrilldown(currentDrilldown.dimension, currentDrilldown.key, false);
+          }
+        })
+        .catch((error) => {
+          console.error("Failed to load analytics", error);
+        });
+    }
+
+    function loadDrilldown(dimension, key, shouldUpdateState = true) {
+      if (!drilldownApiUrl) {
+        return;
+      }
+      const url = new URL(drilldownApiUrl, window.location.origin);
+      url.searchParams.set("dimension", dimension);
+      url.searchParams.set("key", key);
+      appendFiltersToUrl(url, currentFilters);
+      fetch(url.toString())
+        .then((response) => response.json())
+        .then((rows) => {
+          const label = formatDrilldownLabel(dimension, key);
+          updateDrilldownTable(rows, label);
+          exportDrilldownCsvButton?.removeAttribute("disabled");
+          if (shouldUpdateState) {
+            currentDrilldown = { dimension, key };
+          }
+        })
+        .catch((error) => {
+          console.error("Failed to load drilldown", error);
+        });
+    }
+
+    if (analyticsState) {
+      renderAnalytics(analyticsState);
+    }
+
+    if (percentToggle) {
+      percentToggle.addEventListener("change", () => {
+        updateSCurveChart(analyticsState);
+      });
+    }
+
+    if (welderAverageToggle) {
+      welderAverageToggle.addEventListener("change", () => {
+        if (welderDailyChart) {
+          welderDailyChart.data.datasets.forEach((dataset) => {
+            if (dataset.label && dataset.label.endsWith("(7-day avg)")) {
+              dataset.hidden = !welderAverageToggle.checked;
+            }
+          });
+          welderDailyChart.update();
+        }
+      });
+    }
+
+    const applyFiltersButton = document.getElementById("applyFilters");
+    if (applyFiltersButton) {
+      applyFiltersButton.addEventListener("click", () => {
+        currentFilters = collectFilters();
+        loadAnalytics(currentFilters);
+      });
+    }
+    const resetFiltersButton = document.getElementById("resetFilters");
+    if (resetFiltersButton) {
+      resetFiltersButton.addEventListener("click", () => {
+        [startDateInput, endDateInput, heatInput, pipeInput, odInput, wpsInput].forEach(
+          (input) => {
+            if (input) {
+              input.value = "";
+            }
+          }
+        );
+        if (welderSelect) {
+          Array.from(welderSelect.options).forEach((option) => {
+            option.selected = false;
+          });
+        }
+        if (stencilSelect) {
+          stencilSelect.value = "";
+        }
+        currentFilters = {};
+        currentDrilldown = null;
+        exportDrilldownCsvButton?.setAttribute("disabled", "disabled");
+        document.getElementById("drilldownStatus").textContent = "";
+        loadAnalytics(currentFilters);
+      });
+    }
+
+    if (repairRateCsvButton) {
+      repairRateCsvButton.addEventListener("click", () => {
+        const url = new URL(analyticsApiUrl, window.location.origin);
+        appendFiltersToUrl(url, currentFilters);
+        url.searchParams.set("dataset", "repair_rate");
+        url.searchParams.set("format", "csv");
+        window.open(url.toString(), "_blank");
+      });
+    }
+
+    if (exportDrilldownCsvButton) {
+      exportDrilldownCsvButton.addEventListener("click", () => {
+        if (!currentDrilldown) {
+          return;
+        }
+        const url = new URL(drilldownApiUrl, window.location.origin);
+        appendFiltersToUrl(url, currentFilters);
+        url.searchParams.set("dimension", currentDrilldown.dimension);
+        url.searchParams.set("key", currentDrilldown.key);
+        url.searchParams.set("format", "csv");
+        window.open(url.toString(), "_blank");
+      });
+    }
+
+    // Keep reference to charts for later updates
+    window.weldDashboardCharts = {
+      get analytics() {
+        return analyticsState;
+      },
+      refresh: () => loadAnalytics(currentFilters),
+    };
+
     const dataElement = document.getElementById("weld-dashboard-chart-data");
     if (!dataElement) {
       return;

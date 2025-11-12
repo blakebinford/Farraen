@@ -1,12 +1,13 @@
-import json
+import csv
 import json
 import logging
+from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 
 from django.core.paginator import Paginator
 from django.db import connection, transaction, IntegrityError
 from django.db.models import Q
-from django.http import JsonResponse, HttpResponseBadRequest, HttpResponseForbidden
+from django.http import JsonResponse, HttpResponseBadRequest, HttpResponseForbidden, HttpResponse
 from django.shortcuts import render, get_object_or_404
 from django.urls import reverse
 from django.utils.dateparse import parse_date
@@ -16,6 +17,7 @@ from organizations.decorators import require_membership
 from projects.models import ProjectMember
 from projects.utils import get_project_for_request, user_has_project_access
 
+from .analytics import build_dashboard_analytics, build_drilldown
 from .models import MaterialHeat, NDERig, Welder, Weld, WeldEvent, WeldHistory
 
 
@@ -1750,3 +1752,180 @@ def nde_rig_options(request, org_slug, project_slug):
         },
     )
     return JsonResponse({"nde_rigs": data})
+
+
+def _parse_dashboard_date(value: str | None) -> date | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value).date()
+    except (TypeError, ValueError):
+        return None
+
+
+def _parse_dashboard_filters(request):
+    start_date = _parse_dashboard_date(request.GET.get("start_date"))
+    end_date = _parse_dashboard_date(request.GET.get("end_date"))
+    welder_ids: list[int] = []
+    for raw in request.GET.getlist("welder_id"):
+        try:
+            welder_ids.append(int(raw))
+        except (TypeError, ValueError):
+            continue
+    filters = {
+        "start_date": start_date,
+        "end_date": end_date,
+    }
+    if welder_ids:
+        filters["welder_ids"] = welder_ids
+    stencil_id = request.GET.get("stencil_id")
+    if stencil_id:
+        filters["stencil_id"] = stencil_id
+    heat_number = request.GET.get("heat_number")
+    if heat_number:
+        filters["heat_number"] = heat_number
+    pipe_size = request.GET.get("pipe_size")
+    if pipe_size:
+        filters["pipe_size"] = pipe_size
+    od_value = request.GET.get("od")
+    if od_value:
+        try:
+            filters["od"] = Decimal(od_value)
+        except (TypeError, InvalidOperation):
+            pass
+    wps_id = request.GET.get("wps_id")
+    if wps_id:
+        try:
+            filters["wps_id"] = int(wps_id)
+        except (TypeError, ValueError):
+            pass
+    return filters
+
+
+def _jsonify(value):
+    if isinstance(value, Decimal):
+        return float(value)
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {key: _jsonify(val) for key, val in value.items()}
+    if isinstance(value, list):
+        return [_jsonify(item) for item in value]
+    from .analytics import WeldLengthInfo  # local import to avoid circular
+
+    if isinstance(value, WeldLengthInfo):
+        return {
+            "weld_id": value.weld_id,
+            "length": float(value.length),
+            "estimated": value.estimated,
+            "source": value.source,
+            "basis": value.basis,
+        }
+    return value
+
+
+def _build_csv_response(dataset: str, analytics: dict) -> HttpResponse:
+    response = HttpResponse(content_type="text/csv")
+    response["Content-Disposition"] = f"attachment; filename=dashboard-{dataset}.csv"
+    writer = csv.writer(response)
+    if dataset == "daily_production":
+        writer.writerow(["date", "weld_inches", "weld_count"])
+        for entry in analytics.get("daily_production", []):
+            writer.writerow(
+                [
+                    (entry["date"].isoformat() if entry["date"] else ""),
+                    entry["weld_inches"],
+                    entry["weld_count"],
+                ]
+            )
+    elif dataset == "repair_rate":
+        writer.writerow(["date", "repairs", "weld_inches", "rate_per_1000_inches"])
+        for entry in analytics.get("repair_rate_series", []):
+            writer.writerow(
+                [
+                    entry["date"].isoformat(),
+                    entry["repairs"],
+                    entry["weld_inches"],
+                    entry["rate_per_1000_inches"],
+                ]
+            )
+    else:
+        writer.writerow(["date", "weld_inches"])
+        for entry in analytics.get(dataset, []):
+            writer.writerow(
+                [
+                    entry.get("date").isoformat() if entry.get("date") else "",
+                    entry.get("weld_inches"),
+                ]
+            )
+    return response
+
+
+@require_membership("GUEST")
+def weld_dashboard_analytics(request, org_slug, project_slug):
+    project = get_project_for_request(request, request.org, project_slug)
+    forbidden = _require_project_membership(request, project)
+    if forbidden:
+        return forbidden
+    filters = _parse_dashboard_filters(request)
+    analytics = build_dashboard_analytics(project, filters)
+    dataset = request.GET.get("dataset", "daily_production")
+    if request.GET.get("format") == "csv":
+        return _build_csv_response(dataset, analytics)
+    payload = {
+        key: _jsonify(value)
+        for key, value in analytics.items()
+        if key != "length_info"
+    }
+    return JsonResponse(payload, safe=False)
+
+
+@require_membership("GUEST")
+def weld_dashboard_drilldown(request, org_slug, project_slug):
+    project = get_project_for_request(request, request.org, project_slug)
+    forbidden = _require_project_membership(request, project)
+    if forbidden:
+        return forbidden
+    dimension = request.GET.get("dimension")
+    key = request.GET.get("key")
+    if not dimension or not key:
+        return HttpResponseBadRequest("dimension and key are required")
+    filters = _parse_dashboard_filters(request)
+    rows = build_drilldown(project, filters, dimension, key)
+    if request.GET.get("format") == "csv":
+        response = HttpResponse(content_type="text/csv")
+        response["Content-Disposition"] = "attachment; filename=repair-drilldown.csv"
+        writer = csv.writer(response)
+        writer.writerow(
+            [
+                "weld_id",
+                "weld_date",
+                "weld_length_inches",
+                "length_estimated",
+                "length_basis",
+                "welder",
+                "stencil",
+                "heat_number",
+                "pipe_size",
+                "od",
+                "wps",
+            ]
+        )
+        for row in rows:
+            writer.writerow(
+                [
+                    row["weld_id"],
+                    row["weld_date"].isoformat() if row["weld_date"] else "",
+                    row["weld_length_inches"],
+                    row["length_estimated"],
+                    row["length_basis"],
+                    row["welder"],
+                    row["stencil"],
+                    row["heat_number"],
+                    row["pipe_size"],
+                    row["od"],
+                    row["wps"],
+                ]
+            )
+        return response
+    return JsonResponse([_jsonify(row) for row in rows], safe=False)

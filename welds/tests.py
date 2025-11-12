@@ -11,7 +11,16 @@ from drive.models import FileNode, Folder
 from organizations.models import Membership, Organization
 from projects.models import Project, ProjectMember
 
-from .models import MaterialHeat, NDERig, Welder, Weld, WeldEvent, WeldHistory
+from .analytics import build_dashboard_analytics
+from .models import (
+    MaterialHeat,
+    NDERig,
+    Welder,
+    Weld,
+    WeldEvent,
+    WeldHistory,
+    WeldRepair,
+)
 from .services import build_weld_dashboard_chart_payload, get_project_weld_kpis
 from .views import _migrations_required_message
 
@@ -901,3 +910,161 @@ class WeldEventAuditTests(WeldLogAPITests):
             ["", "Inspector approved"],
         )
 
+
+
+class DashboardAnalyticsTests(TestCase):
+    def setUp(self):
+        User = get_user_model()
+        self.user = User.objects.create_user(
+            email="analytics@example.com",
+            password="pass1234",
+        )
+        self.org = Organization.objects.create(
+            name="AnalyticsOrg",
+            slug="analytics-org",
+            owner=self.user,
+        )
+        Membership.objects.create(
+            org=self.org,
+            user=self.user,
+            role=Membership.Role.ADMIN,
+        )
+        self.project = Project.objects.create(
+            org=self.org,
+            name="Pipeline Metrics",
+            slug="pipeline-metrics",
+            created_by=self.user,
+            is_archived=False,
+        )
+        ProjectMember.objects.create(
+            project=self.project,
+            user=self.user,
+            role=ProjectMember.Role.MEMBER,
+        )
+        self.welder = Welder.objects.create(
+            org=self.org,
+            name="Wendy Welder",
+            stencil="WW1",
+        )
+        self.wps_folder = Folder.objects.get(
+            org=self.org,
+            project=self.project,
+            name="WPS",
+        )
+        self.wps_document = FileNode.objects.create(
+            org=self.org,
+            project=self.project,
+            folder=self.wps_folder,
+            name="WPS-ANALYTICS-001.pdf",
+            doc_type=FileNode.DocType.WPS,
+        )
+
+    def _create_weld(self, weld_id: str, weld_date: date, length_inches: Decimal | None = None) -> Weld:
+        return Weld.objects.create(
+            project=self.project,
+            weld_id=weld_id,
+            weld_date=weld_date,
+            weld_length_inches=length_inches,
+            primary_welder=self.welder,
+            primary_stencil=self.welder.stencil,
+        )
+
+    def test_daily_production_uses_weld_inches(self):
+        for idx in range(3):
+            self._create_weld(f"W36-{idx}", date(2024, 2, 1), Decimal("36"))
+        for idx in range(5):
+            self._create_weld(f"W02-{idx}", date(2024, 2, 1), Decimal("2"))
+
+        analytics = build_dashboard_analytics(self.project, {})
+        daily = analytics["daily_production"]
+        self.assertEqual(len(daily), 1)
+        self.assertEqual(daily[0]["weld_inches"], Decimal("118"))
+        welder_series = analytics["welder_series"].get(self.welder.id)
+        self.assertIsNotNone(welder_series)
+        self.assertEqual(welder_series[-1]["cumulative_inches"], Decimal("118"))
+
+    def test_planned_curve_generation(self):
+        self.project.planned_welds_per_workday = Decimal("50")
+        self.project.workdays_per_week = 5
+        self.project.project_total_weld_inches = Decimal("60000")
+        self.project.planned_start_date = date(2024, 1, 1)
+        self.project.save()
+
+        for idx in range(5):
+            self._create_weld(f"Seed-{idx}", date(2023, 12, 20), Decimal("12"))
+
+        analytics = build_dashboard_analytics(self.project, {})
+        planner = analytics["planner_inputs"]
+        self.assertEqual(planner["planned_daily_weld_inches"], Decimal("600"))
+        planned_series = analytics["planned_series"]
+        self.assertTrue(planned_series)
+        self.assertEqual(planned_series[0]["weld_inches"], Decimal("600"))
+        self.assertEqual(planned_series[-1]["weld_inches"], Decimal("60000"))
+
+    def test_normalized_repair_rate(self):
+        weld = self._create_weld("W5000", date(2024, 3, 10), Decimal("5000"))
+        for idx in range(10):
+            WeldRepair.objects.create(
+                weld=weld,
+                repair_date=date(2024, 3, 11),
+                repair_cause="POROSITY",
+            )
+
+        analytics = build_dashboard_analytics(self.project, {})
+        self.assertEqual(analytics["normalized_repair_rate"], Decimal("2"))
+        rate_series = analytics["repair_rate_series"]
+        self.assertEqual(rate_series[0]["rate_per_1000_inches"], Decimal("2"))
+
+    def test_repair_clustering_pair_metrics(self):
+        weld = self._create_weld("CLUST-01", date(2024, 5, 1), Decimal("50"))
+        weld.heat_number = "HEAT-001"
+        weld.pipe_size = "12\""
+        weld.od = Decimal("12.750")
+        weld.wps_document = self.wps_document
+        weld.save(update_fields=["heat_number", "pipe_size", "od", "wps_document"])
+
+        WeldRepair.objects.create(
+            weld=weld,
+            repair_date=date(2024, 5, 2),
+            repair_cause="INCLUSION",
+        )
+        WeldRepair.objects.create(
+            weld=weld,
+            repair_date=date(2024, 5, 3),
+            repair_cause="SLAG",
+        )
+
+        analytics = build_dashboard_analytics(self.project, {})
+        heat_cluster = analytics["clustering"]["heat_number"][0]
+        self.assertEqual(heat_cluster["weld_inches"], Decimal("50"))
+        pair_heat_wps = analytics["pair_clustering"]["heat_wps"][0]
+        self.assertEqual(pair_heat_wps["count"], 2)
+        self.assertEqual(pair_heat_wps["weld_inches"], Decimal("50"))
+        self.assertEqual(
+            pair_heat_wps["repair_rate_per_1000_inches"],
+            Decimal("40"),
+        )
+        heatmap_entry = analytics["heatmap"][0]
+        self.assertEqual(heatmap_entry["weld_inches"], Decimal("50"))
+        self.assertEqual(
+            heatmap_entry["repair_rate_per_1000_inches"],
+            Decimal("40"),
+        )
+        pair_pipe_od = analytics["pair_clustering"]["pipe_od"][0]
+        self.assertEqual(pair_pipe_od["count"], 2)
+        self.assertEqual(pair_pipe_od["weld_inches"], Decimal("50"))
+
+    def test_length_fallback_marks_estimates(self):
+        weld = Weld.objects.create(
+            project=self.project,
+            weld_id="W-OD",
+            weld_date=date(2024, 4, 1),
+            material1_outer_diameter_in=Decimal("10"),
+            primary_welder=self.welder,
+            primary_stencil=self.welder.stencil,
+        )
+
+        analytics = build_dashboard_analytics(self.project, {})
+        length_info = analytics["length_info"][weld.id]
+        self.assertTrue(length_info.estimated)
+        self.assertEqual(length_info.source, Weld.WeldLengthSource.OUTER_DIAMETER)

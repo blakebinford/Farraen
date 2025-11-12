@@ -166,6 +166,14 @@ class NDERig(models.Model):
 
 
 class Weld(models.Model):
+    class WeldLengthSource(models.TextChoices):
+        MEASURED = "MEASURED", "Measured"
+        STITCH = "STITCH", "Derived from stitch length"
+        STENCIL_AVERAGE = "STENCIL_AVG", "Stencil average"
+        PROJECT_AVERAGE = "PROJECT_AVG", "Project average"
+        OUTER_DIAMETER = "OD_PI", "Outer diameter circumference"
+        MANUAL = "MANUAL", "Manual entry"
+
     class WeldType(models.TextChoices):
         GENERIC = "GENERIC", "Basic / Generic"
         BUTT = "BUTT", "Butt weld"
@@ -203,6 +211,32 @@ class Weld(models.Model):
         "projects.Project",
         on_delete=models.CASCADE,
         related_name="welds",
+    )
+    primary_welder = models.ForeignKey(
+        "welds.Welder",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="primary_welds",
+    )
+    primary_stencil = models.CharField(max_length=64, blank=True)
+    weld_length_inches = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Canonical measured length of the weld in inches.",
+    )
+    weld_length_source = models.CharField(
+        max_length=32,
+        choices=WeldLengthSource.choices,
+        blank=True,
+        help_text="Source used to derive the weld length value.",
+    )
+    weld_length_basis = models.CharField(
+        max_length=255,
+        blank=True,
+        help_text="Additional notes describing how weld length was derived.",
     )
     weld_id = models.CharField(max_length=100)
     nde_number = models.CharField(max_length=120, blank=True)
@@ -252,7 +286,29 @@ class Weld(models.Model):
         verbose_name="weld type",
         help_text="Primary weld type for this joint",
     )
+    weld_date = models.DateField(
+        null=True,
+        blank=True,
+        help_text="Normalized weld date used for production reporting.",
+    )
     date_welded = models.DateField(null=True, blank=True)
+    heat_number = models.CharField(max_length=128, blank=True)
+    pipe_size = models.CharField(max_length=64, blank=True)
+    od = models.DecimalField(
+        max_digits=8,
+        decimal_places=3,
+        null=True,
+        blank=True,
+        help_text="Outer diameter in inches.",
+    )
+    wps_document = models.ForeignKey(
+        FileNode,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="welds",
+        limit_choices_to={"doc_type": FileNode.DocType.WPS},
+    )
     welder_stencil_root_hotpass = models.CharField(max_length=255, blank=True)
     welder_stencil_fill = models.CharField(max_length=255, blank=True)
     welder_stencil_cap = models.CharField(max_length=255, blank=True)
@@ -299,9 +355,36 @@ class Weld(models.Model):
     class Meta:
         ordering = ["weld_id", "id"]
         unique_together = [("project", "weld_id")]
+        indexes = [
+            models.Index(fields=["project", "weld_length_inches"]),
+            models.Index(fields=["project", "weld_date"]),
+            models.Index(fields=["heat_number"]),
+            models.Index(fields=["pipe_size"]),
+            models.Index(fields=["od"]),
+            models.Index(fields=["wps_document"]),
+            models.Index(fields=["primary_welder"]),
+            models.Index(fields=["primary_stencil"]),
+        ]
 
     def __str__(self) -> str:
         return f"{self.project}::{self.weld_id}"
+
+    def save(self, *args, **kwargs):
+        if self.weld_date is None and self.date_welded is not None:
+            self.weld_date = self.date_welded
+        if not self.primary_stencil and self.primary_welder_id:
+            self.primary_stencil = self.primary_welder.stencil
+        if not self.heat_number and self.material1_heat_id:
+            self.heat_number = self.material1_heat.heat_number
+        if not self.pipe_size and self.material1_description:
+            self.pipe_size = self.material1_description
+        if self.od is None:
+            outer_diameter = self._select_outer_diameter()
+            if outer_diameter is not None:
+                self.od = outer_diameter
+        if not self.wps_document and self.material1_heat_id:
+            self.wps_document = self.material1_heat.wps_document
+        super().save(*args, **kwargs)
 
     def _select_outer_diameter(self):
         candidates = [
@@ -321,10 +404,40 @@ class Weld(models.Model):
 
     @property
     def weld_inches(self) -> Decimal:
+        if self.weld_length_inches is not None:
+            return Decimal(self.weld_length_inches)
         outer_diameter = self._select_outer_diameter()
-        if outer_diameter is None:
-            return Decimal("0")
-        return outer_diameter * Decimal("3.14")
+        if outer_diameter is not None:
+            return outer_diameter * Decimal("3.14")
+        return Decimal("0")
+
+
+class WeldRepair(models.Model):
+    weld = models.ForeignKey(
+        "Weld",
+        on_delete=models.CASCADE,
+        related_name="repairs",
+    )
+    repair_date = models.DateField()
+    repair_cause = models.CharField(max_length=255, blank=True)
+    notes = models.TextField(blank=True)
+    metadata = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-repair_date", "-id"]
+        indexes = [
+            models.Index(fields=["repair_date"]),
+            models.Index(fields=["weld", "repair_date"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"Repair {self.pk} for {self.weld_id_display}"
+
+    @property
+    def weld_id_display(self) -> str:
+        return getattr(self.weld, "weld_id", "#")
 
 
 class WeldHistory(models.Model):

@@ -368,6 +368,60 @@
     white-space: nowrap;
   }
 
+  #weldHistoryModal .modal-body {
+    font-size: 0.95rem;
+  }
+
+  .weld-history-summary dt {
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    color: #64748b;
+  }
+
+  .weld-history-summary dd {
+    margin-bottom: 0.5rem;
+  }
+
+  .weld-history-events {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .weld-history-event {
+    border: 1px solid rgba(15, 23, 42, 0.12);
+    border-radius: 0.5rem;
+    padding: 0.75rem;
+    background-color: #f8fafc;
+  }
+
+  .weld-history-event h6 {
+    font-size: 0.95rem;
+    margin-bottom: 0.35rem;
+  }
+
+  .weld-history-change {
+    border-radius: 0.35rem;
+    background-color: #ffffff;
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    padding: 0.5rem 0.75rem;
+    font-size: 0.85rem;
+  }
+
+  .weld-history-change + .weld-history-change {
+    margin-top: 0.5rem;
+  }
+
+  .weld-history-empty {
+    border-radius: 0.35rem;
+    background-color: rgba(148, 163, 184, 0.15);
+    padding: 0.75rem;
+    color: #475569;
+    font-size: 0.9rem;
+    text-align: center;
+  }
+
 </style>
 
 {% endblock %}
@@ -402,6 +456,31 @@
         </div>
         <div id="weld-log-grid" aria-live="polite"></div>
         <div id="weld-log-status" class="small text-muted mt-2" role="status" aria-live="polite"></div>
+      </div>
+    </div>
+    <div class="modal fade" id="weldHistoryModal" tabindex="-1" aria-hidden="true" aria-labelledby="weldHistoryModalLabel">
+      <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title" id="weldHistoryModalLabel">Weld History</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body">
+            <div id="weld-history-loading" class="d-flex align-items-center gap-2" role="status" aria-live="polite">
+              <div class="spinner-border spinner-border-sm" role="presentation"></div>
+              <span>Loading weld history…</span>
+            </div>
+            <div id="weld-history-error" class="alert alert-danger d-none mt-2" role="alert"></div>
+            <div id="weld-history-content" class="d-none">
+              <div id="weld-history-summary" class="weld-history-summary mb-3"></div>
+              <div id="weld-history-events" class="weld-history-events"></div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-outline-secondary" id="weld-history-open-advanced">Open detailed history</button>
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+          </div>
+        </div>
       </div>
     </div>
     <div class="modal fade" id="weld-history-modal" tabindex="-1" aria-hidden="true" aria-labelledby="weld-history-modal-title">
@@ -495,6 +574,15 @@
       const rollbackUrlTemplate = "{{ weld_history_rollback_url_template }}";
       const canRollback = {{ can_rollback_welds|yesno:"true,false" }};
       const Modal = window.bootstrap ? window.bootstrap.Modal : null;
+      const auditModalEl = document.getElementById("weldHistoryModal");
+      const auditModal = Modal && auditModalEl ? new Modal(auditModalEl, { focus: true }) : null;
+      const auditModalLabel = document.getElementById("weldHistoryModalLabel");
+      const auditLoadingEl = document.getElementById("weld-history-loading");
+      const auditErrorEl = document.getElementById("weld-history-error");
+      const auditContentEl = document.getElementById("weld-history-content");
+      const auditSummaryEl = document.getElementById("weld-history-summary");
+      const auditEventsEl = document.getElementById("weld-history-events");
+      const auditOpenAdvancedBtn = document.getElementById("weld-history-open-advanced");
       const detailModalEl = document.getElementById("weld-history-modal");
       const rollbackModalEl = document.getElementById("weld-rollback-modal");
       const detailModal = Modal && detailModalEl ? new Modal(detailModalEl, { focus: true }) : null;
@@ -512,6 +600,27 @@
       let pendingRollbackEntry = null;
       let rollbackRequiresConfirm = false;
       let rollbackConflictState = null;
+
+      if (auditModalEl) {
+        auditModalEl.addEventListener("hidden.bs.modal", () => {
+          resetAuditModalState();
+        });
+      }
+
+      if (auditOpenAdvancedBtn) {
+        if (!detailModal) {
+          auditOpenAdvancedBtn.classList.add("d-none");
+        }
+        auditOpenAdvancedBtn.addEventListener("click", () => {
+          if (!lastAuditWeldPayload) {
+            return;
+          }
+          if (auditModal) {
+            auditModal.hide();
+          }
+          openWeldDetail(lastAuditWeldPayload);
+        });
+      }
 
       if (rollbackModalEl) {
         rollbackModalEl.addEventListener("hidden.bs.modal", () => {

@@ -1,0 +1,145 @@
+{% load static %}
+<!doctype html>
+<html lang="en" data-bs-theme="light">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Ferraen • Operate with clarity.</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Sora:wght@500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" />
+  <link rel="stylesheet" href="{% static 'ferraen.theme.css' %}" />
+</head>
+<body>
+  <div class="app-shell" data-sidebar="expanded" data-sidebar-open="false">
+    <aside class="sidebar elev-2" aria-label="Primary navigation">
+      <div class="d-flex flex-column gap-4 align-items-stretch w-100">
+        <button class="btn btn-icon sidebar-toggle" type="button" data-sidebar-toggle aria-controls="ferraen-sidebar">
+          <i class="bi bi-layout-sidebar-inset"></i>
+          <span>Collapse</span>
+        </button>
+        <a class="brand-mark text-decoration-none" href="#">
+          <svg width="28" height="28" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-hidden="true">
+            <path d="M4 10.8C4 6.477 7.477 3 11.8 3h8.4C24.523 3 28 6.477 28 10.8v10.4C28 25.523 24.523 29 20.2 29h-8.4C7.477 29 4 25.523 4 21.2V10.8Z" fill="url(#grad)"/>
+            <path d="M10.5 21h11a1.5 1.5 0 0 0 1.45-1.085l1.5-5.5A1.5 1.5 0 0 0 23.999 13h-5.21a1.5 1.5 0 0 1-1.07-.442l-1.738-1.737a1.5 1.5 0 0 0-1.06-.44H9.5a1.5 1.5 0 0 0-1.447 1.134l-1.5 6A1.5 1.5 0 0 0 8.01 19.5h4.28a1.5 1.5 0 0 1 0 3Z" fill="rgba(255,255,255,0.9)"/>
+            <defs>
+              <linearGradient id="grad" x1="6" y1="6" x2="26" y2="26" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#4B6BFB" />
+                <stop offset="1" stop-color="#22D3EE" />
+              </linearGradient>
+            </defs>
+          </svg>
+          <span>Ferraen</span>
+        </a>
+        <nav id="ferraen-sidebar" class="sidebar-nav" role="navigation">
+          <a class="nav-link active" href="#">
+            <i class="bi bi-speedometer2"></i><span>Dashboard</span>
+          </a>
+          <a class="nav-link" href="#">
+            <i class="bi bi-diagram-3"></i><span>Workflows</span>
+          </a>
+          <a class="nav-link" href="#">
+            <i class="bi bi-graph-up"></i><span>Insights</span>
+          </a>
+          <a class="nav-link" href="#">
+            <i class="bi bi-journal-text"></i><span>Resources</span>
+          </a>
+          <a class="nav-link" href="#">
+            <i class="bi bi-gear"></i><span>Settings</span>
+          </a>
+        </nav>
+        <div class="sidebar-footer small" role="contentinfo">
+          <div class="fw-semibold">Status</div>
+          <div class="d-flex align-items-center gap-2">
+            <span class="badge-status" data-status="active">Operational</span>
+          </div>
+        </div>
+      </div>
+    </aside>
+    <div class="d-flex flex-column flex-grow-1">
+      <header class="app-header">
+        <div class="d-flex align-items-center gap-2">
+          <button class="btn btn-icon d-lg-none" type="button" data-sidebar-drawer aria-label="Toggle navigation">
+            <i class="bi bi-list"></i>
+          </button>
+          <div class="section-label mb-0 d-none d-lg-block">Operate with clarity</div>
+        </div>
+        <div class="header-search">
+          <label class="search-control" aria-label="Search or open command palette">
+            <i class="bi bi-search"></i>
+            <input type="search" placeholder="Search projects, workflows, docs..." />
+            <kbd>⌘K</kbd>
+          </label>
+        </div>
+        <div class="d-flex align-items-center gap-2">
+          <button class="btn btn-outline-brand d-none d-md-inline-flex">
+            <i class="bi bi-lightning-charge"></i>
+            <span>New Action</span>
+          </button>
+          <button class="theme-toggle-btn" type="button" data-theme-toggle aria-pressed="false">
+            <i class="bi bi-moon-stars"></i>
+            <span data-theme-label>Light</span>
+          </button>
+          <button class="btn btn-icon" type="button" aria-label="Notifications">
+            <i class="bi bi-bell"></i>
+          </button>
+          <button class="btn btn-icon" type="button" aria-haspopup="menu" aria-expanded="false">
+            <img src="https://i.pravatar.cc/40?img=24" alt="Ada Lovelace" width="32" height="32" class="rounded-circle" loading="lazy" />
+          </button>
+        </div>
+      </header>
+      <main class="app-main">
+        <div class="main-inner">
+          {% block page_content %}{% endblock %}
+        </div>
+      </main>
+      <footer class="app-footer">
+        <div class="d-flex flex-wrap justify-content-between gap-2">
+          <span>© {% now "Y" %} Ferraen Labs. All rights reserved.</span>
+          <div class="d-flex gap-3">
+            <a class="text-decoration-none" href="#">Status</a>
+            <a class="text-decoration-none" href="#">Privacy</a>
+            <a class="text-decoration-none" href="#">Docs</a>
+          </div>
+        </div>
+      </footer>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+  <script defer src="{% static 'ferraen.theme.js' %}"></script>
+  <script>
+    (function () {
+      const shell = document.querySelector('.app-shell');
+      const toggle = document.querySelector('[data-sidebar-toggle]');
+      const drawer = document.querySelector('[data-sidebar-drawer]');
+      const sidebar = document.querySelector('.sidebar');
+
+      function collapseSidebar() {
+        const isCollapsed = shell.getAttribute('data-sidebar') === 'collapsed';
+        shell.setAttribute('data-sidebar', isCollapsed ? 'expanded' : 'collapsed');
+        toggle?.setAttribute('aria-expanded', String(!isCollapsed));
+      }
+
+      toggle?.addEventListener('click', collapseSidebar);
+
+      drawer?.addEventListener('click', () => {
+        const isOpen = shell.getAttribute('data-sidebar-open') === 'true';
+        shell.setAttribute('data-sidebar-open', String(!isOpen));
+        drawer.setAttribute('aria-expanded', String(!isOpen));
+      });
+
+      document.addEventListener('keydown', (event) => {
+        if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+          event.preventDefault();
+          const searchInput = document.querySelector('.search-control input');
+          searchInput?.focus();
+        }
+      });
+    })();
+  </script>
+  {% block extra_scripts %}{% endblock %}
+</body>
+</html>

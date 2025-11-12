@@ -1,0 +1,235 @@
+{% extends "ferraen/base_shell.html" %}
+{% block page_content %}
+<section class="d-flex flex-column gap-4">
+  <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between">
+    <div>
+      <div class="section-label">Today</div>
+      <h1 class="h2 fw-semibold mb-0">Operational overview</h1>
+    </div>
+    <div class="d-flex gap-2">
+      <button class="btn btn-outline-brand">
+        <i class="bi bi-cloud-arrow-down"></i>
+        Export report
+      </button>
+      <button class="btn btn-brand">
+        <i class="bi bi-plus-circle"></i>
+        New workflow
+      </button>
+    </div>
+  </div>
+
+  <div class="dashboard-kpis">
+    <div class="kpi-card elev-2 hover-lift">
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <span class="section-label">Active Workspaces</span>
+        <span class="badge-soft">+8.4%</span>
+      </div>
+      <div class="kpi-value">128</div>
+      <p class="mb-0 text-secondary">Teams engaged in the last 24 hours</p>
+    </div>
+    <div class="kpi-card elev-2 hover-lift">
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <span class="section-label">Throughput</span>
+        <span class="badge-soft">+4.1%</span>
+      </div>
+      <div class="kpi-value">5.2k</div>
+      <p class="mb-0 text-secondary">Tasks completed in the last cycle</p>
+    </div>
+    <div class="kpi-card elev-2 hover-lift">
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <span class="section-label">Queue Latency</span>
+        <span class="badge-soft text-danger">-12%</span>
+      </div>
+      <div class="kpi-value">1.8m</div>
+      <p class="mb-0 text-secondary">Median wait time across pipelines</p>
+    </div>
+    <div class="kpi-card elev-2 hover-lift">
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <span class="section-label">SLA Met</span>
+        <span class="badge-soft">99.2%</span>
+      </div>
+      <div class="kpi-value">On track</div>
+      <p class="mb-0 text-secondary">Across 32 critical services</p>
+    </div>
+  </div>
+
+  <div class="dashboard-grid">
+    <div class="card p-4 card-chart">
+      <div class="d-flex justify-content-between align-items-start mb-3">
+        <div>
+          <h2 class="h5 fw-semibold mb-1">Throughput velocity</h2>
+          <p class="mb-0 text-secondary">Rolling 7-day volume of tasks closed</p>
+        </div>
+        <div class="d-flex gap-2">
+          <button class="btn btn-sm btn-outline-brand">Last 7 days</button>
+          <button class="btn btn-sm btn-outline-secondary">Last 30 days</button>
+        </div>
+      </div>
+      <canvas id="throughputChart" role="img" aria-label="Line chart showing throughput velocity"></canvas>
+    </div>
+
+    <div class="card p-4">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2 class="h5 fw-semibold mb-0">Recent activity</h2>
+        <a class="text-decoration-none" href="#">View all</a>
+      </div>
+      <div class="activity-list">
+        <article class="activity-item">
+          <div class="activity-icon"><i class="bi bi-diagram-3"></i></div>
+          <div>
+            <div class="d-flex align-items-center gap-2 mb-1">
+              <h3 class="h6 fw-semibold mb-0">Workflow “Northwind onboarding” published</h3>
+              <span class="badge-status" data-status="active">Live</span>
+            </div>
+            <p class="mb-0 text-secondary">Deployed by Olivia Chen • 12 minutes ago</p>
+          </div>
+        </article>
+        <article class="activity-item">
+          <div class="activity-icon"><i class="bi bi-exclamation-triangle"></i></div>
+          <div>
+            <div class="d-flex align-items-center gap-2 mb-1">
+              <h3 class="h6 fw-semibold mb-0">Latency anomaly detected</h3>
+              <span class="badge-status" data-status="critical">Critical</span>
+            </div>
+            <p class="mb-0 text-secondary">Queue Gamma breached 3m threshold • 28 minutes ago</p>
+          </div>
+        </article>
+        <article class="activity-item">
+          <div class="activity-icon"><i class="bi bi-people"></i></div>
+          <div>
+            <div class="d-flex align-items-center gap-2 mb-1">
+              <h3 class="h6 fw-semibold mb-0">New workspace onboarded</h3>
+              <span class="badge-status" data-status="active">Active</span>
+            </div>
+            <p class="mb-0 text-secondary">Atlas Yard automation team • 1 hour ago</p>
+          </div>
+        </article>
+      </div>
+    </div>
+
+    <div class="card p-4">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2 class="h5 fw-semibold mb-0">Upcoming reviews</h2>
+        <button class="btn btn-sm btn-outline-brand">Schedule</button>
+      </div>
+      <ul class="timeline list-unstyled mb-0">
+        <li class="timeline-item">
+          <div class="timeline-marker"></div>
+          <div>
+            <div class="d-flex justify-content-between align-items-center">
+              <h3 class="h6 fw-semibold mb-1">Production change window</h3>
+              <span class="text-secondary small">09:00</span>
+            </div>
+            <p class="mb-0 text-secondary">Deploying backlog reduction routine for Queue Delta</p>
+          </div>
+        </li>
+        <li class="timeline-item">
+          <div class="timeline-marker"></div>
+          <div>
+            <div class="d-flex justify-content-between align-items-center">
+              <h3 class="h6 fw-semibold mb-1">SLA audit sync</h3>
+              <span class="text-secondary small">13:30</span>
+            </div>
+            <p class="mb-0 text-secondary">Cross-functional review with Apex Labs leads</p>
+          </div>
+        </li>
+        <li class="timeline-item">
+          <div class="timeline-marker"></div>
+          <div>
+            <div class="d-flex justify-content-between align-items-center">
+              <h3 class="h6 fw-semibold mb-1">Exec briefing prep</h3>
+              <span class="text-secondary small">16:00</span>
+            </div>
+            <p class="mb-0 text-secondary">Finalize deck and automation roadmap for Q4</p>
+          </div>
+        </li>
+      </ul>
+    </div>
+  </div>
+</section>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" integrity="sha384-Hn9ZEcU9LuELyhlHLLJoPLD114F8CbnMD4HzyBbs6k8ZZrVSu2CevulaHYodNs/" crossorigin="anonymous" defer></script>
+<script>
+  document.addEventListener('DOMContentLoaded', function () {
+    const ctx = document.getElementById('throughputChart');
+    if (!ctx) return;
+
+    const gradient = ctx.getContext('2d').createLinearGradient(0, 0, 0, 240);
+    gradient.addColorStop(0, 'rgba(75, 107, 251, 0.4)');
+    gradient.addColorStop(1, 'rgba(75, 107, 251, 0.05)');
+
+    new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+        datasets: [{
+          label: 'Completed tasks',
+          data: [620, 680, 720, 690, 780, 840, 910],
+          fill: true,
+          tension: 0.45,
+          borderColor: 'rgba(75, 107, 251, 1)',
+          backgroundColor: gradient,
+          borderWidth: 2,
+          pointRadius: 0,
+          pointHoverRadius: 4,
+          pointHoverBackgroundColor: 'rgba(34, 211, 238, 1)',
+        }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            display: false,
+          },
+          tooltip: {
+            backgroundColor: 'rgba(18, 21, 27, 0.9)',
+            borderColor: 'rgba(123, 148, 255, 0.3)',
+            borderWidth: 1,
+            padding: 12,
+            titleFont: {
+              family: 'Sora',
+              size: 14,
+              weight: 600,
+            },
+            bodyFont: {
+              family: 'Inter',
+              size: 13,
+            },
+          },
+        },
+        scales: {
+          x: {
+            grid: {
+              display: false,
+            },
+            ticks: {
+              font: {
+                family: 'Inter',
+                weight: 600,
+              },
+              color: getComputedStyle(document.documentElement).getPropertyValue('--text-dim') || '#475467',
+            },
+          },
+          y: {
+            grid: {
+              color: 'rgba(75, 107, 251, 0.08)',
+              drawBorder: false,
+            },
+            ticks: {
+              font: {
+                family: 'Inter',
+                weight: 600,
+              },
+              color: getComputedStyle(document.documentElement).getPropertyValue('--text-dim') || '#475467',
+              callback: (value) => `${value.toLocaleString()} ops`,
+            },
+          },
+        },
+      },
+    });
+  });
+</script>
+{% endblock %}

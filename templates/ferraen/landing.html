@@ -1,0 +1,131 @@
+{% extends "ferraen/base_shell.html" %}
+{% block page_content %}
+<section class="hero text-white hover-lift">
+  <div class="hero-content">
+    <div class="d-flex flex-column gap-4">
+      <span class="hero-badge"><i class="bi bi-stars"></i> Modern industrial intelligence</span>
+      <div class="d-flex flex-column gap-3">
+        <h1 class="display-4 fw-semibold">Ferraen. <br />Operate with clarity.</h1>
+        <p class="lead text-white-50">Coordinate complex operations with a command center that feels effortless. Unify workflows, insights, and execution under a single, expressive interface.</p>
+      </div>
+      <div class="d-flex flex-wrap gap-2">
+        <a class="btn btn-brand btn-lg" href="#">
+          <i class="bi bi-rocket-takeoff"></i>
+          Start free trial
+        </a>
+        <a class="btn btn-outline-light btn-lg" href="#">
+          <i class="bi bi-play-circle"></i>
+          Watch product tour
+        </a>
+      </div>
+      <div class="trust-strip">
+        <span>Trusted by operators at</span>
+        <span>Apex Labs</span>
+        <span>Northwind</span>
+        <span>Nova Rail</span>
+        <span>Atlas Yard</span>
+      </div>
+    </div>
+    <div class="hero-visual">
+      <img src="https://images.unsplash.com/photo-1581093458791-9f99e75f0c81?auto=format&fit=crop&w=720&q=80" alt="Ferraen interface preview" loading="lazy" width="640" height="420" />
+    </div>
+  </div>
+</section>
+
+<section class="cta-panel mt-5">
+  <div class="row g-4 align-items-center">
+    <div class="col-lg-5">
+      <h2 class="h2 fw-semibold">Precision tooling for teams that build the future.</h2>
+      <p class="mb-0">Designed for high-performing operations teams that need a command surface as adaptive as they are. Ferraen gives you composable workflows, zero-lag insights, and automation that just works.</p>
+    </div>
+    <div class="col-lg-7">
+      <div class="features-grid">
+        <article class="feature-card">
+          <div class="d-flex align-items-center gap-3 mb-3">
+            <i class="bi bi-cpu"></i>
+            <h3 class="h5 fw-semibold mb-0">Operational AI copilots</h3>
+          </div>
+          <p class="mb-0 text-secondary">Auto-classify tickets, surface anomalies, and suggest next actions with context-aware assistance tuned for industrial workflows.</p>
+        </article>
+        <article class="feature-card">
+          <div class="d-flex align-items-center gap-3 mb-3">
+            <i class="bi bi-diagram-3"></i>
+            <h3 class="h5 fw-semibold mb-0">Workflow orchestration</h3>
+          </div>
+          <p class="mb-0 text-secondary">Compose and automate complex processes with visual builders, guardrails, and granular permissions built-in.</p>
+        </article>
+        <article class="feature-card">
+          <div class="d-flex align-items-center gap-3 mb-3">
+            <i class="bi bi-speedometer"></i>
+            <h3 class="h5 fw-semibold mb-0">Real-time telemetry</h3>
+          </div>
+          <p class="mb-0 text-secondary">Stay ahead of SLA drift with latency heatmaps, predictive alerts, and prioritized action queues.</p>
+        </article>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="mt-5">
+  <div class="row g-4 align-items-center">
+    <div class="col-lg-6">
+      <div class="card card-glass p-4 h-100">
+        <h2 class="h4 fw-semibold mb-4">How teams adopt Ferraen</h2>
+        <ol class="list-unstyled d-grid gap-3 mb-0">
+          <li class="d-flex align-items-start gap-3">
+            <span class="badge-soft">1</span>
+            <div>
+              <h3 class="h6 fw-semibold mb-1">Connect your sources</h3>
+              <p class="mb-0 text-secondary">Sync ticketing, telemetry, and scheduling platforms in minutes with guided connectors.</p>
+            </div>
+          </li>
+          <li class="d-flex align-items-start gap-3">
+            <span class="badge-soft">2</span>
+            <div>
+              <h3 class="h6 fw-semibold mb-1">Craft bespoke workflows</h3>
+              <p class="mb-0 text-secondary">Drag-and-drop workflow nodes, set service policies, and test before publishing.</p>
+            </div>
+          </li>
+          <li class="d-flex align-items-start gap-3">
+            <span class="badge-soft">3</span>
+            <div>
+              <h3 class="h6 fw-semibold mb-1">Empower your crews</h3>
+              <p class="mb-0 text-secondary">Give operators a command center with live insights, automation, and guided next steps.</p>
+            </div>
+          </li>
+        </ol>
+      </div>
+    </div>
+    <div class="col-lg-6">
+      <div class="card p-4 h-100">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <h2 class="h5 fw-semibold mb-0">Theme token preview</h2>
+          <span class="badge-soft">Design system</span>
+        </div>
+        <div class="token-preview">
+          <div class="token-swatch">
+            <div class="swatch" style="background: var(--color-primary);"></div>
+            <span class="fw-semibold">Primary</span>
+            <span class="text-secondary">--color-primary</span>
+          </div>
+          <div class="token-swatch">
+            <div class="swatch" style="background: var(--color-accent);"></div>
+            <span class="fw-semibold">Accent</span>
+            <span class="text-secondary">--color-accent</span>
+          </div>
+          <div class="token-swatch">
+            <div class="swatch" style="background: var(--surface);"></div>
+            <span class="fw-semibold">Surface</span>
+            <span class="text-secondary">--surface</span>
+          </div>
+          <div class="token-swatch">
+            <div class="swatch" style="background: var(--app-bg);"></div>
+            <span class="fw-semibold">App background</span>
+            <span class="text-secondary">--app-bg</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+{% endblock %}

@@ -1,6 +1,8 @@
+import json
+
 from django.contrib import admin
 
-from .models import MaterialHeat, NDERig, Welder, Weld, WeldHistory
+from .models import MaterialHeat, NDERig, Welder, Weld, WeldEvent, WeldHistory
 
 
 @admin.register(MaterialHeat)
@@ -92,3 +94,39 @@ class WeldHistoryAdmin(admin.ModelAdmin):
     list_filter = ("change_type", "created_at")
     search_fields = ("weld__weld_id", "reason", "changed_fields")
     ordering = ("-created_at",)
+
+
+@admin.register(WeldEvent)
+class WeldEventAdmin(admin.ModelAdmin):
+    list_display = (
+        "weld",
+        "action",
+        "actor",
+        "created_at",
+    )
+    list_filter = ("action", "created_at")
+    search_fields = ("weld__weld_id", "actor__email", "actor__username")
+    readonly_fields = (
+        "weld",
+        "action",
+        "actor",
+        "created_at",
+        "changes_pretty",
+        "ip_address",
+        "user_agent",
+    )
+    fields = (
+        "weld",
+        "action",
+        "actor",
+        "created_at",
+        "changes_pretty",
+        "ip_address",
+        "user_agent",
+    )
+    ordering = ("-created_at",)
+
+    def changes_pretty(self, obj):
+        return json.dumps(obj.changes or {}, indent=2, sort_keys=True)
+
+    changes_pretty.short_description = "Changes"

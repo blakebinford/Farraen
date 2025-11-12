@@ -3,6 +3,7 @@ from decimal import Decimal
 
 from django.conf import settings
 from django.db import models
+from django.utils import timezone
 
 from drive.models import FileNode, Folder
 
@@ -366,3 +367,40 @@ class WeldHistory(models.Model):
     @property
     def weld_id_display(self) -> str:
         return getattr(self.weld, "weld_id", "#")
+
+
+class WeldEvent(models.Model):
+    class Action(models.TextChoices):
+        CREATE = "CREATE", "Create"
+        UPDATE = "UPDATE", "Update"
+        DELETE = "DELETE", "Delete"
+
+    weld = models.ForeignKey(
+        "Weld",
+        on_delete=models.CASCADE,
+        related_name="events",
+    )
+    action = models.CharField(max_length=16, choices=Action.choices)
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="weld_events",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    changes = models.JSONField(default=dict)
+    ip_address = models.CharField(max_length=45, blank=True)
+    user_agent = models.CharField(max_length=512, blank=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        indexes = [
+            models.Index(fields=["weld", "-created_at"]),
+        ]
+
+    def __str__(self) -> str:
+        weld_id = getattr(self.weld, "weld_id", "#")
+        timestamp = timezone.localtime(self.created_at) if self.created_at else None
+        formatted_ts = timestamp.strftime("%Y-%m-%d %H:%M:%S") if timestamp else ""
+        return f"{weld_id} – {self.action} {formatted_ts}".strip()

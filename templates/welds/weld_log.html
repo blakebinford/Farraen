@@ -2460,6 +2460,10 @@
             headerSort: true,
             editor: "input",
             validator: ["required"],
+            headerFilter: "input",
+            headerFilterPlaceholder: "Search…",
+            headerFilterLiveFilter: true,    // filter as you type
+            headerFilterFunc: "like",  
             formatter(cell) {
               const value = cell.getValue() || "";
               if (!value) {

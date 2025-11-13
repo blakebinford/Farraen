@@ -1905,6 +1905,125 @@ def _parse_dashboard_filters(request):
     return filters
 
 
+def _extract_json_body(request):
+    if not request.body:
+        return None
+    try:
+        return json.loads(request.body)
+    except (TypeError, json.JSONDecodeError):
+        return None
+
+
+def _normalize_weld_id_values(value):
+    if value is None or isinstance(value, bool):
+        return []
+    if isinstance(value, (list, tuple)):
+        normalized: list = []
+        for item in value:
+            normalized.extend(_normalize_weld_id_values(item))
+        return normalized
+    if isinstance(value, (int,)):
+        return [int(value)]
+    if isinstance(value, float):
+        if value.is_integer():
+            return [int(value)]
+        return [str(value)]
+    if isinstance(value, Decimal):
+        if value == value.to_integral_value():
+            return [int(value)]
+        return [format(value, "f").rstrip("0").rstrip(".")]
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return []
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError:
+            parsed = None
+        if isinstance(parsed, (list, tuple)):
+            return _normalize_weld_id_values(list(parsed))
+        if isinstance(parsed, (int, float, bool)):
+            return _normalize_weld_id_values(parsed)
+        if isinstance(parsed, str):
+            text = parsed.strip()
+            if not text:
+                return []
+        if "," in text:
+            parts = [part.strip() for part in text.split(",") if part.strip()]
+            return _normalize_weld_id_values(parts)
+        return [text]
+    text = str(value).strip()
+    if not text:
+        return []
+    try:
+        return [int(text)]
+    except (TypeError, ValueError):
+        return [text]
+
+
+def _split_weld_selection(values: list):
+    pk_ids: set[int] = set()
+    weld_ids: set[str] = set()
+    for item in values:
+        if item is None or isinstance(item, bool):
+            continue
+        if isinstance(item, int):
+            pk_ids.add(int(item))
+            continue
+        if isinstance(item, float):
+            if item.is_integer():
+                pk_ids.add(int(item))
+            else:
+                weld_ids.add(str(item))
+            continue
+        if isinstance(item, Decimal):
+            if item == item.to_integral_value():
+                pk_ids.add(int(item))
+            else:
+                weld_ids.add(format(item, "f").rstrip("0").rstrip("."))
+            continue
+        text = str(item).strip()
+        if not text:
+            continue
+        try:
+            pk_ids.add(int(text))
+        except ValueError:
+            weld_ids.add(text)
+    return pk_ids, weld_ids
+
+
+def _parse_weld_selection(request, *, body_data=None):
+    sources: dict[str, object] = {}
+    collected: list = []
+    if isinstance(body_data, dict):
+        for key in ("weld_ids", "weldIds"):
+            if key in body_data:
+                sources[f"json.{key}"] = body_data[key]
+                collected.append(body_data[key])
+    elif isinstance(body_data, (list, tuple)):
+        sources["json.array"] = list(body_data)
+        collected.append(list(body_data))
+
+    for param in ("weld_ids", "weld_ids[]", "weldIds"):
+        values = request.GET.getlist(param)
+        if values:
+            sources[f"GET[{param}]"] = values
+            collected.append(values)
+    if request.method != "GET":
+        for param in ("weld_ids", "weld_ids[]", "weldIds"):
+            values = request.POST.getlist(param)
+            if values:
+                sources[f"POST[{param}]"] = values
+                collected.append(values)
+
+    normalized: list = []
+    for value in collected:
+        normalized.extend(_normalize_weld_id_values(value))
+
+    pk_ids, weld_ids = _split_weld_selection(normalized)
+    return pk_ids, weld_ids, sources, normalized
+
+
 def _jsonify(value):
     if isinstance(value, Decimal):
         return float(value)
@@ -1989,12 +2108,36 @@ def weld_dashboard_drilldown(request, org_slug, project_slug):
     forbidden = _require_project_membership(request, project)
     if forbidden:
         return forbidden
-    dimension = request.GET.get("dimension")
-    key = request.GET.get("key")
+    body_data = _extract_json_body(request)
+    dimension = request.GET.get("dimension") or request.POST.get("dimension")
+    if not dimension and isinstance(body_data, dict):
+        dimension = body_data.get("dimension")
+    key = request.GET.get("key") or request.POST.get("key")
+    if not key and isinstance(body_data, dict):
+        key = body_data.get("key")
     if not dimension or not key:
         return HttpResponseBadRequest("dimension and key are required")
     filters = _parse_dashboard_filters(request)
-    rows = build_drilldown(project, filters, dimension, key)
+    pk_ids, weld_ids, sources, normalized_values = _parse_weld_selection(
+        request, body_data=body_data
+    )
+    selection = None
+    if pk_ids or weld_ids:
+        selection = {"pk_ids": pk_ids, "weld_ids": weld_ids}
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug(
+            "Parsed weld drilldown selection",
+            extra={
+                "project_id": project.id,
+                "dimension": dimension,
+                "key": key,
+                "raw_weld_id_sources": sources,
+                "normalized_weld_id_values": normalized_values,
+                "pk_ids": sorted(pk_ids),
+                "weld_ids": sorted(weld_ids),
+            },
+        )
+    rows = build_drilldown(project, filters, dimension, key, selection=selection)
     if request.GET.get("format") == "csv":
         response = HttpResponse(content_type="text/csv")
         response["Content-Disposition"] = "attachment; filename=repair-drilldown.csv"

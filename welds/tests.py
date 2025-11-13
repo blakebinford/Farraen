@@ -1364,3 +1364,158 @@ class WeldRepairAPITests(TestCase):
         self.assertEqual(list_response.status_code, 200)
         self.assertEqual(list_response.json()["total_rows"], 1)
 
+
+class WeldDashboardDrilldownSelectionTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        User = get_user_model()
+        cls.user = User.objects.create_user(
+            email="dashboard@example.com",
+            password="pass1234",
+        )
+        cls.org = Organization.objects.create(
+            name="Acme Pipeline",
+            slug="acme-pipeline",
+            owner=cls.user,
+        )
+        Membership.objects.create(
+            org=cls.org,
+            user=cls.user,
+            role=Membership.Role.ADMIN,
+        )
+        cls.project = Project.objects.create(
+            org=cls.org,
+            name="Pipeline A",
+            slug="pipeline-a",
+            created_by=cls.user,
+            status=Project.Status.ACTIVE,
+        )
+        ProjectMember.objects.create(
+            project=cls.project,
+            user=cls.user,
+            role=ProjectMember.Role.PROJECT_MANAGER,
+        )
+        cls.other_project = Project.objects.create(
+            org=cls.org,
+            name="Pipeline B",
+            slug="pipeline-b",
+            created_by=cls.user,
+            status=Project.Status.ACTIVE,
+        )
+        cls.weld_a = Weld.objects.create(
+            project=cls.project,
+            weld_id="W-001",
+            heat_number="H-100",
+            weld_length_inches=Decimal("10.0"),
+            weld_date=date(2023, 1, 1),
+        )
+        cls.weld_b = Weld.objects.create(
+            project=cls.project,
+            weld_id="W-002",
+            heat_number="H-100",
+            weld_length_inches=Decimal("12.0"),
+            weld_date=date(2023, 1, 2),
+        )
+        cls.weld_c = Weld.objects.create(
+            project=cls.project,
+            weld_id="W-003",
+            heat_number="H-100",
+            weld_length_inches=Decimal("14.0"),
+            weld_date=date(2023, 1, 3),
+        )
+        cls.cross_project_weld = Weld.objects.create(
+            project=cls.other_project,
+            weld_id="W-900",
+            heat_number="H-100",
+            weld_length_inches=Decimal("16.0"),
+            weld_date=date(2023, 1, 4),
+        )
+
+    def setUp(self):
+        self.client.force_login(self.user)
+
+    def _url(self):
+        return reverse(
+            "welds:weld_dashboard_drilldown",
+            kwargs={
+                "org_slug": self.org.slug,
+                "project_slug": self.project.slug,
+            },
+        )
+
+    def _assert_weld_ids(self, response, expected_ids):
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(len(data), len(expected_ids))
+        self.assertEqual({row["weld_id"] for row in data}, set(expected_ids))
+
+    def test_filters_with_json_pk_selection(self):
+        payload = {
+            "dimension": "heat_number",
+            "key": "H-100",
+            "weld_ids": [self.weld_a.pk, self.weld_b.pk],
+        }
+        response = self.client.post(
+            self._url(),
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+        self._assert_weld_ids(response, {self.weld_a.weld_id, self.weld_b.weld_id})
+
+    def test_filters_with_json_business_ids(self):
+        response = self.client.get(
+            self._url(),
+            {
+                "dimension": "heat_number",
+                "key": "H-100",
+                "weld_ids": json.dumps([self.weld_a.weld_id, self.weld_b.weld_id]),
+            },
+        )
+        self._assert_weld_ids(response, {self.weld_a.weld_id, self.weld_b.weld_id})
+
+    def test_filters_with_comma_separated_ids(self):
+        response = self.client.get(
+            self._url(),
+            {
+                "dimension": "heat_number",
+                "key": "H-100",
+                "weld_ids": f"{self.weld_a.pk},{self.weld_b.pk}",
+            },
+        )
+        self._assert_weld_ids(response, {self.weld_a.weld_id, self.weld_b.weld_id})
+
+    def test_filters_with_repeated_query_params(self):
+        response = self.client.get(
+            self._url(),
+            {
+                "dimension": "heat_number",
+                "key": "H-100",
+                "weld_ids[]": [self.weld_a.weld_id, self.weld_b.weld_id],
+            },
+        )
+        self._assert_weld_ids(response, {self.weld_a.weld_id, self.weld_b.weld_id})
+
+    def test_returns_full_set_when_selection_missing(self):
+        response = self.client.get(
+            self._url(),
+            {"dimension": "heat_number", "key": "H-100"},
+        )
+        self._assert_weld_ids(
+            response,
+            {
+                self.weld_a.weld_id,
+                self.weld_b.weld_id,
+                self.weld_c.weld_id,
+            },
+        )
+
+    def test_ignores_cross_project_ids(self):
+        response = self.client.get(
+            self._url(),
+            {
+                "dimension": "heat_number",
+                "key": "H-100",
+                "weld_ids": f"{self.weld_a.pk},{self.cross_project_weld.pk}",
+            },
+        )
+        self._assert_weld_ids(response, {self.weld_a.weld_id})

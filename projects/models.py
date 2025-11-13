@@ -120,12 +120,21 @@ class Project(models.Model):
         on_delete=models.SET_NULL,
         related_name="+",
     )
+    # TODO(2025-01-01): Remove planned_welds_per_workday once all clients have
+    # migrated to planned_weld_inches_per_workday. Keep for legacy dashboards.
     planned_welds_per_workday = models.DecimalField(
         max_digits=10,
         decimal_places=2,
         null=True,
         blank=True,
-        help_text="Planned weld count per productive workday.",
+        help_text="Deprecated: planned weld count per productive workday.",
+    )
+    planned_weld_inches_per_workday = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Planned weld inches per productive workday.",
     )
     workdays_per_week = models.PositiveIntegerField(
         null=True,

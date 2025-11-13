@@ -1776,8 +1776,11 @@ def _parse_dashboard_date(value: str | None) -> date | None:
 def _parse_dashboard_filters(request):
     start_date = _parse_dashboard_date(request.GET.get("start_date"))
     end_date = _parse_dashboard_date(request.GET.get("end_date"))
+    raw_welder_ids = request.GET.getlist("welder_ids") or request.GET.getlist(
+        "welder_id"
+    )
     welder_ids: list[int] = []
-    for raw in request.GET.getlist("welder_id"):
+    for raw in raw_welder_ids:
         try:
             welder_ids.append(int(raw))
         except (TypeError, ValueError):

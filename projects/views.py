@@ -1,5 +1,5 @@
 from datetime import date, datetime
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
@@ -14,7 +14,11 @@ from django.views.generic import TemplateView
 
 from organizations.decorators import require_membership
 
-from welds.analytics import WeldLengthInfo, build_dashboard_analytics
+from welds.analytics import (
+    WeldLengthInfo,
+    _collect_length_statistics,
+    build_dashboard_analytics,
+)
 from welds.services import (
     build_weld_dashboard_chart_payload,
     get_project_weld_kpis,
@@ -157,8 +161,38 @@ class ProjectWeldDashboardView(TemplateView):
             except (TypeError, ValueError):
                 return None
 
-        planned_per_day = _parse_decimal("planned_welds_per_workday")
-        updates["planned_welds_per_workday"] = planned_per_day
+        planned_inches = _parse_decimal("planned_weld_inches_per_workday")
+        legacy_planned_welds = _parse_decimal("planned_welds_per_workday")
+
+        if planned_inches is None and legacy_planned_welds is not None:
+            # Backward compatibility: translate legacy weld-count planning to
+            # weld inches using the current project average weld length.
+            welds = list(
+                Weld.objects.filter(project=project)
+                .select_related("primary_welder")
+                .only(
+                    "weld_length_inches",
+                    "primary_stencil",
+                    "welder_stencil_root_hotpass",
+                    "welder_stencil_fill",
+                    "welder_stencil_cap",
+                    "welder_stencil_repair",
+                    "primary_welder__stencil",
+                )
+            )
+            project_average, *_ = _collect_length_statistics(welds)
+            if project_average and project_average > 0:
+                planned_inches = (
+                    legacy_planned_welds * project_average
+                ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+        if planned_inches is not None:
+            planned_inches = planned_inches.quantize(
+                Decimal("0.01"), rounding=ROUND_HALF_UP
+            )
+
+        updates["planned_weld_inches_per_workday"] = planned_inches
+        updates["planned_welds_per_workday"] = legacy_planned_welds
 
         total_weld_inches = _parse_decimal("project_total_weld_inches")
         updates["project_total_weld_inches"] = total_weld_inches

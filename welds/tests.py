@@ -959,14 +959,22 @@ class DashboardAnalyticsTests(TestCase):
             doc_type=FileNode.DocType.WPS,
         )
 
-    def _create_weld(self, weld_id: str, weld_date: date, length_inches: Decimal | None = None) -> Weld:
+    def _create_weld(
+        self,
+        weld_id: str,
+        weld_date: date,
+        length_inches: Decimal | None = None,
+        *,
+        welder: Welder | None = None,
+    ) -> Weld:
+        assigned_welder = welder or self.welder
         return Weld.objects.create(
             project=self.project,
             weld_id=weld_id,
             weld_date=weld_date,
             weld_length_inches=length_inches,
-            primary_welder=self.welder,
-            primary_stencil=self.welder.stencil,
+            primary_welder=assigned_welder,
+            primary_stencil=assigned_welder.stencil if assigned_welder else None,
         )
 
     def test_daily_production_uses_weld_inches(self):
@@ -982,6 +990,10 @@ class DashboardAnalyticsTests(TestCase):
         welder_series = analytics["welder_series"].get(self.welder.id)
         self.assertIsNotNone(welder_series)
         self.assertEqual(welder_series[-1]["cumulative_inches"], Decimal("118"))
+        all_daily = analytics["all_welders_daily"]
+        self.assertEqual(all_daily[0]["weld_inches_total"], Decimal("118.00"))
+        median_series = analytics["welder_median_daily"]
+        self.assertEqual(median_series[0]["median_daily_inches"], Decimal("118.00"))
 
     def test_planned_curve_generation(self):
         self.project.planned_welds_per_workday = Decimal("50")
@@ -995,11 +1007,16 @@ class DashboardAnalyticsTests(TestCase):
 
         analytics = build_dashboard_analytics(self.project, {})
         planner = analytics["planner_inputs"]
-        self.assertEqual(planner["planned_daily_weld_inches"], Decimal("600"))
+        self.assertEqual(planner["planned_daily_weld_inches"], Decimal("600.00"))
+        self.assertEqual(
+            planner["basis"],
+            "Converted from planned weld count × project average weld length",
+        )
+        self.assertIsNone(planner["planned_weld_inches_per_workday"])
         planned_series = analytics["planned_series"]
         self.assertTrue(planned_series)
-        self.assertEqual(planned_series[0]["weld_inches"], Decimal("600"))
-        self.assertEqual(planned_series[-1]["weld_inches"], Decimal("60000"))
+        self.assertEqual(planned_series[0]["weld_inches"], Decimal("600.00"))
+        self.assertEqual(planned_series[-1]["weld_inches"], Decimal("60000.00"))
 
     def test_normalized_repair_rate(self):
         weld = self._create_weld("W5000", date(2024, 3, 10), Decimal("5000"))
@@ -1011,9 +1028,11 @@ class DashboardAnalyticsTests(TestCase):
             )
 
         analytics = build_dashboard_analytics(self.project, {})
-        self.assertEqual(analytics["normalized_repair_rate"], Decimal("2"))
+        self.assertEqual(analytics["normalized_repair_rate"], Decimal("2.00"))
         rate_series = analytics["repair_rate_series"]
-        self.assertEqual(rate_series[0]["rate_per_1000_inches"], Decimal("2"))
+        self.assertEqual(rate_series[0]["rate_per_1000_inches"], Decimal("2.00"))
+        self.assertEqual(rate_series[0]["rolling_rate_7d"], Decimal("2.00"))
+        self.assertFalse(rate_series[0]["weld_inches_zero"])
 
     def test_repair_clustering_pair_metrics(self):
         weld = self._create_weld("CLUST-01", date(2024, 5, 1), Decimal("50"))
@@ -1036,23 +1055,23 @@ class DashboardAnalyticsTests(TestCase):
 
         analytics = build_dashboard_analytics(self.project, {})
         heat_cluster = analytics["clustering"]["heat_number"][0]
-        self.assertEqual(heat_cluster["weld_inches"], Decimal("50"))
+        self.assertEqual(heat_cluster["weld_inches"], Decimal("50.00"))
         pair_heat_wps = analytics["pair_clustering"]["heat_wps"][0]
         self.assertEqual(pair_heat_wps["count"], 2)
-        self.assertEqual(pair_heat_wps["weld_inches"], Decimal("50"))
+        self.assertEqual(pair_heat_wps["weld_inches"], Decimal("50.00"))
         self.assertEqual(
             pair_heat_wps["repair_rate_per_1000_inches"],
-            Decimal("40"),
+            Decimal("40.00"),
         )
         heatmap_entry = analytics["heatmap"][0]
-        self.assertEqual(heatmap_entry["weld_inches"], Decimal("50"))
+        self.assertEqual(heatmap_entry["weld_inches"], Decimal("50.00"))
         self.assertEqual(
             heatmap_entry["repair_rate_per_1000_inches"],
-            Decimal("40"),
+            Decimal("40.00"),
         )
         pair_pipe_od = analytics["pair_clustering"]["pipe_od"][0]
         self.assertEqual(pair_pipe_od["count"], 2)
-        self.assertEqual(pair_pipe_od["weld_inches"], Decimal("50"))
+        self.assertEqual(pair_pipe_od["weld_inches"], Decimal("50.00"))
 
     def test_length_fallback_marks_estimates(self):
         weld = Weld.objects.create(
@@ -1068,3 +1087,65 @@ class DashboardAnalyticsTests(TestCase):
         length_info = analytics["length_info"][weld.id]
         self.assertTrue(length_info.estimated)
         self.assertEqual(length_info.source, Weld.WeldLengthSource.OUTER_DIAMETER)
+
+    def test_planner_prefers_explicit_inches(self):
+        self.project.planned_weld_inches_per_workday = Decimal("750")
+        self.project.planned_welds_per_workday = Decimal("10")
+        self.project.project_total_weld_inches = Decimal("30000")
+        self.project.planned_start_date = date(2024, 2, 1)
+        self.project.save()
+
+        self._create_weld("Explicit-01", date(2024, 1, 5), Decimal("20"))
+
+        analytics = build_dashboard_analytics(self.project, {})
+        planner = analytics["planner_inputs"]
+        self.assertEqual(planner["planned_weld_inches_per_workday"], Decimal("750"))
+        self.assertEqual(planner["planned_daily_weld_inches"], Decimal("750.00"))
+        self.assertEqual(
+            planner["basis"], "User-defined planned weld inches per workday"
+        )
+
+    def test_repair_rate_zero_weld_inches_flagged(self):
+        weld = self._create_weld("ZERO-LEN", date(2024, 6, 1), Decimal("0"))
+        WeldRepair.objects.create(
+            weld=weld,
+            repair_date=date(2024, 6, 2),
+            repair_cause="POROSITY",
+        )
+
+        analytics = build_dashboard_analytics(self.project, {})
+        series = analytics["repair_rate_series"]
+        self.assertTrue(series[0]["weld_inches_zero"])
+        self.assertEqual(series[0]["rate_per_1000_inches"], Decimal("1000.00"))
+
+    def test_clustering_threshold_skips_singletons(self):
+        weld = self._create_weld("SINGLE-01", date(2024, 7, 1), Decimal("25"))
+        weld.heat_number = "ONE-OFF"
+        weld.save(update_fields=["heat_number"])
+        WeldRepair.objects.create(
+            weld=weld,
+            repair_date=date(2024, 7, 2),
+            repair_cause="SLAG",
+        )
+
+        analytics = build_dashboard_analytics(self.project, {})
+        self.assertFalse(analytics["clustering"]["heat_number"])
+
+    def test_welder_series_median_multiple_welders(self):
+        welder_two = Welder.objects.create(
+            org=self.org,
+            name="Bobby Welder",
+            stencil="BW2",
+        )
+        self._create_weld("MW-1", date(2024, 8, 1), Decimal("40"), welder=self.welder)
+        self._create_weld("MW-2", date(2024, 8, 1), Decimal("20"), welder=welder_two)
+        self._create_weld("MW-3", date(2024, 8, 2), Decimal("10"), welder=self.welder)
+        self._create_weld("MW-4", date(2024, 8, 2), Decimal("30"), welder=welder_two)
+
+        analytics = build_dashboard_analytics(self.project, {})
+        median_lookup = {
+            entry["date"]: entry["median_daily_inches"]
+            for entry in analytics["welder_median_daily"]
+        }
+        self.assertEqual(median_lookup[date(2024, 8, 1)], Decimal("30.00"))
+        self.assertEqual(median_lookup[date(2024, 8, 2)], Decimal("20.00"))

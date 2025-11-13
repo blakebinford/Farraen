@@ -1,12 +1,98 @@
 {% extends "base.html" %}
 {% block content %}
 <h1 class="h5 mb-3">New Project</h1>
-{% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
 <form method="post" class="card card-body">
   {% csrf_token %}
-  <input class="form-control mb-2" type="text" name="name" placeholder="Project name" required>
-  <div>
-    <button class="btn btn-primary">Create</button>
+  {% if form.non_field_errors %}
+    <div class="alert alert-danger">
+      {% for error in form.non_field_errors %}{{ error }}{% endfor %}
+    </div>
+  {% endif %}
+  <div class="row g-3">
+    <div class="col-md-6">
+      <label class="form-label">Name</label>
+      {{ form.name }}
+      {{ form.name.errors }}
+    </div>
+    <div class="col-md-6">
+      <label class="form-label">Project code</label>
+      {{ form.project_code }}
+      {{ form.project_code.errors }}
+    </div>
+    <div class="col-12">
+      <label class="form-label">Description</label>
+      {{ form.description }}
+      {{ form.description.errors }}
+    </div>
+    <div class="col-md-6">
+      <label class="form-label">Planned start date</label>
+      {{ form.planned_start_date }}
+      {{ form.planned_start_date.errors }}
+    </div>
+    <div class="col-md-6">
+      <label class="form-label">Planned end date</label>
+      {{ form.planned_end_date }}
+      {{ form.planned_end_date.errors }}
+    </div>
+    <div class="col-md-6">
+      <label class="form-label">Client</label>
+      {{ form.client_name }}
+      {{ form.client_name.errors }}
+    </div>
+    <div class="col-md-6">
+      <label class="form-label">External ID</label>
+      {{ form.external_id }}
+      {{ form.external_id.errors }}
+    </div>
+    <div class="col-12">
+      <label class="form-label">Site address</label>
+      {{ form.site_address }}
+      {{ form.site_address.errors }}
+    </div>
+    <div class="col-md-6">
+      <label class="form-label">Latitude</label>
+      {{ form.site_latitude }}
+      {{ form.site_latitude.errors }}
+    </div>
+    <div class="col-md-6">
+      <label class="form-label">Longitude</label>
+      {{ form.site_longitude }}
+      {{ form.site_longitude.errors }}
+    </div>
+    <div class="col-md-6">
+      <label class="form-label">Project manager</label>
+      {{ form.project_manager }}
+      {{ form.project_manager.errors }}
+    </div>
+    <div class="col-md-6">
+      <label class="form-label">Superintendent</label>
+      {{ form.superintendent }}
+      {{ form.superintendent.errors }}
+    </div>
+    <div class="col-md-6">
+      <label class="form-label">Quality manager</label>
+      {{ form.quality_manager }}
+      {{ form.quality_manager.errors }}
+    </div>
+    <div class="col-md-6">
+      <label class="form-label">Status</label>
+      {{ form.status }}
+      {{ form.status.errors }}
+    </div>
+    <div class="col-md-6">
+      <label class="form-label">Quality techs</label>
+      {{ form.quality_techs }}
+      {{ form.quality_techs.errors }}
+      <div class="form-text">Hold Ctrl/Cmd to select multiple.</div>
+    </div>
+    <div class="col-md-6">
+      <label class="form-label">Tags</label>
+      {{ form.tags }}
+      {{ form.tags.errors }}
+    </div>
+  </div>
+  <div class="mt-4 d-flex gap-2">
+    <button class="btn btn-primary" type="submit">Create</button>
     <a class="btn btn-outline-secondary" href="{% url 'projects:project_list' org.slug %}">Cancel</a>
   </div>
 </form>

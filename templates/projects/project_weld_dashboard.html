@@ -24,6 +24,12 @@
   </div>
 </div>
 
+{% if project_is_archived %}
+  <div class="alert alert-warning">
+    This project is archived and locked. No changes may be made until it is unarchived by an administrator.
+  </div>
+{% endif %}
+
 {% if weld_kpis.overall.total_welds %}
   <div class="row row-cols-1 row-cols-sm-2 row-cols-xl-5 g-3 mb-4">
     <div class="col">
@@ -77,6 +83,7 @@
     <div class="card-body">
       <form method="post" class="row g-3 align-items-end">
         {% csrf_token %}
+        <fieldset class="row g-3 align-items-end" {% if project_is_archived %}disabled{% endif %}>
         <div class="col-md-3">
           <label class="form-label small text-uppercase" for="id_planned_welds_per_workday">Planned welds per workday</label>
           <input type="number" step="0.01" class="form-control" id="id_planned_welds_per_workday" name="planned_welds_per_workday" value="{{ project.planned_welds_per_workday|default_if_none:'' }}" placeholder="e.g. 50">
@@ -97,6 +104,10 @@
           <button type="submit" class="btn btn-primary">Save planner inputs</button>
           <div class="text-muted small" id="plannerAverageNote"></div>
         </div>
+        </fieldset>
+        {% if project_is_archived %}
+          <div class="text-muted small">Planner inputs are read-only while the project is archived.</div>
+        {% endif %}
       </form>
     </div>
   </div>

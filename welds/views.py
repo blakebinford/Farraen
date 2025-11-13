@@ -4,6 +4,7 @@ import logging
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 
+from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
 from django.db import connection, transaction, IntegrityError
 from django.db.models import Q
@@ -15,7 +16,11 @@ from django.views.decorators.http import require_http_methods
 
 from organizations.decorators import require_membership
 from projects.models import ProjectMember
-from projects.utils import get_project_for_request, user_has_project_access
+from projects.utils import (
+    assert_project_not_archived,
+    get_project_for_request,
+    user_has_project_access,
+)
 
 from .analytics import build_dashboard_analytics, build_drilldown
 from .models import MaterialHeat, NDERig, Welder, Weld, WeldEvent, WeldHistory
@@ -57,6 +62,11 @@ def _migrations_required_message(missing_labels):
 def _require_project_membership(request, project):
     if not user_has_project_access(request.user, project):
         return HttpResponseForbidden("No project access")
+    if request.method not in ("GET", "HEAD", "OPTIONS"):
+        try:
+            assert_project_not_archived(project)
+        except PermissionDenied:
+            return HttpResponseForbidden("This project is archived and locked.")
     return None
 
 
@@ -66,7 +76,7 @@ def _user_can_rollback(user, project) -> bool:
     membership = ProjectMember.objects.filter(project=project, user=user).first()
     if not membership:
         return False
-    return membership.role == ProjectMember.Role.MANAGER
+    return membership.role in ProjectMember.Role.managerial_roles()
 
 
 def _decimal_to_str(value):

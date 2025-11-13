@@ -1,12 +1,14 @@
 import json
 import mimetypes
 import os
+from datetime import timedelta
 
 from django.conf import settings
 from django.contrib import messages
 from django.urls import reverse
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
+from django.db.models import Q
 from django.utils.text import slugify
 from django.views.decorators.http import require_POST
 from django.http import (
@@ -60,6 +62,9 @@ def project_drive_root(request, org_slug, project_slug):
     if forbidden:
         return forbidden
 
+    active_filter = (request.GET.get("filter") or "").strip().lower()
+    active_doc_types = [value.upper() for value in request.GET.getlist("doc_type") if value]
+
     roots = (
         project.folders
         .filter(parent__isnull=True, is_archived=False)
@@ -80,6 +85,8 @@ def project_drive_root(request, org_slug, project_slug):
             "roots": roots,
             "folder_tree": folder_tree,
             "breadcrumb": [],
+            "active_filter": active_filter,
+            "active_doc_types": active_doc_types,
         },
     )
 
@@ -107,6 +114,44 @@ def folder_view(request, org_slug, project_slug, folder_id):
         .order_by("doc_type", "number", "name")
     )
 
+    active_filter = (request.GET.get("filter") or "").strip().lower()
+
+    doc_types = request.GET.getlist("doc_type")
+    if not doc_types and request.GET.get("doc_type"):
+        doc_types = [request.GET.get("doc_type")]
+    doc_types = [value.upper() for value in doc_types if value]
+    if doc_types:
+        files = files.filter(doc_type__in=doc_types)
+
+    needs_distinct = False
+
+    if active_filter == "trash":
+        files = files.filter(is_archived=True)
+    else:
+        files = files.filter(is_archived=False)
+
+    if active_filter == "checkedout":
+        files = files.filter(checked_out_by__isnull=False)
+    elif active_filter == "recent":
+        cutoff = timezone.now() - timedelta(days=30)
+        files = files.filter(
+            Q(latest_version__created_at__gte=cutoff)
+            | Q(versions__created_at__gte=cutoff)
+        )
+        needs_distinct = True
+    elif active_filter == "starred":
+        if hasattr(FileNode, "stars"):
+            files = files.filter(stars__user=request.user)
+            needs_distinct = True
+        else:
+            files = files.none()
+    elif active_filter == "trash":
+        # already filtered above, keep archived ordering consistent
+        files = files.order_by("name")
+
+    if needs_distinct:
+        files = files.distinct()
+
     folder_tree = (
         Folder.objects.filter(org=org, project=project, is_archived=False)
         .order_by("path")
@@ -125,6 +170,8 @@ def folder_view(request, org_slug, project_slug, folder_id):
         "max_upload_mb": getattr(settings, "MAX_UPLOAD_SIZE_MB", 50),
         "allowed_types": allowed_list,
         "allowed_types_json": json.dumps(allowed_list),
+        "active_filter": active_filter,
+        "active_doc_types": doc_types,
         "upload_url": reverse(
             "drive_upload",
             kwargs={

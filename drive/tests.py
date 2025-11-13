@@ -2,6 +2,9 @@ from django.test import TestCase
 from django.urls import reverse
 from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.utils import timezone
+from datetime import timedelta
 
 from organizations.models import Organization, Membership
 from projects.models import Project, ProjectMember
@@ -62,6 +65,51 @@ class DriveUIViewTests(TestCase):
         self.assertContains(response, "drive-grid-view")
         self.assertContains(response, "drive-drawer-host")
 
+    def test_upload_button_uses_modal(self):
+        response = self.client.get(self._folder_url())
+        self.assertEqual(response.status_code, 200)
+        upload_url = reverse(
+            "drive_upload",
+            kwargs={
+                "org_slug": self.org.slug,
+                "project_slug": self.project.slug,
+                "folder_id": self.folder.id,
+            },
+        )
+        self.assertNotContains(response, f'href="{upload_url}"')
+        self.assertContains(response, "data-bs-target=\"#drive-upload-modal\"")
+        self.assertContains(response, f'action="{upload_url}"')
+
+    def test_upload_creates_version_and_event(self):
+        upload_url = reverse(
+            "drive_upload",
+            kwargs={
+                "org_slug": self.org.slug,
+                "project_slug": self.project.slug,
+                "folder_id": self.folder.id,
+            },
+        )
+        payload = {
+            "file": SimpleUploadedFile(
+                "report.pdf", b"%PDF-1.4 test", content_type="application/pdf"
+            ),
+            "note": "Test upload",
+        }
+        response = self.client.post(upload_url, payload)
+        self.assertEqual(response.status_code, 302)
+
+        node = FileNode.objects.get(folder=self.folder, name="report.pdf")
+        version = node.latest_version
+        self.assertIsNotNone(version)
+        self.assertEqual(version.version, 1)
+        self.assertTrue(
+            FileEvent.objects.filter(
+                file_node=node,
+                action=FileEvent.Action.UPLOAD,
+                version=version,
+            ).exists()
+        )
+
     def test_file_detail_drawer_endpoint(self):
         response = self.client.get(self._drawer_url())
         self.assertEqual(response.status_code, 200)
@@ -104,3 +152,148 @@ class DriveUIViewTests(TestCase):
         self.node.refresh_from_db()
         self.assertEqual(self.node.checked_out_by_id, self.user.id)
         self.assertTrue(FileEvent.objects.filter(file_node=self.node, action=FileEvent.Action.CHECKOUT).exists())
+
+    def test_left_nav_scopes_to_project_top_level(self):
+        other_project = Project.objects.create(
+            org=self.org,
+            name="Tunnel",
+            slug="tunnel",
+            created_by=self.user,
+        )
+        ProjectMember.objects.create(project=other_project, user=self.user)
+        other_folder = Folder.objects.create(
+            org=self.org,
+            project=other_project,
+            name="Specs",
+            created_by=self.user,
+        )
+
+        legacy_folder = Folder.objects.create(
+            org=self.org,
+            project=self.project,
+            name="Legacy",
+            created_by=self.user,
+        )
+
+        archived_root = Folder.objects.create(
+            org=self.org,
+            project=self.project,
+            name=self.project.name,
+            created_by=self.user,
+        )
+        archived_root.is_archived = True
+        archived_root.save(update_fields=["is_archived"])
+
+        response = self.client.get(self._folder_url())
+        self.assertEqual(response.status_code, 200)
+        tree = list(response.context["folder_tree"])
+        ids = {folder.id for folder in tree}
+        self.assertIn(self.folder.id, ids)
+        self.assertIn(legacy_folder.id, ids)
+        self.assertNotIn(other_folder.id, ids)
+        self.assertNotIn(archived_root.id, ids)
+        self.assertTrue(all(folder.project_id == self.project.id for folder in tree))
+        self.assertTrue(all(not folder.is_archived for folder in tree))
+
+    def test_doc_type_quick_filter(self):
+        other = FileNode.objects.create(
+            org=self.org,
+            project=self.project,
+            folder=self.folder,
+            name="B-002.pdf",
+            doc_type="WPS",
+            created_by=self.user,
+        )
+        other_version = FileVersion.objects.create(
+            file_node=other,
+            version=1,
+            blob=ContentFile(b"wps", name="b-002.pdf"),
+            size=3,
+            content_type="application/pdf",
+            uploaded_by=self.user,
+        )
+        other.latest_version = other_version
+        other.save(update_fields=["latest_version", "size"])
+
+        response = self.client.get(self._folder_url(), {"doc_type": "MTR"})
+        self.assertEqual(response.status_code, 200)
+        files = list(response.context["files"])
+        self.assertEqual([self.node.id], [f.id for f in files])
+
+    def test_checked_out_quick_filter(self):
+        other = FileNode.objects.create(
+            org=self.org,
+            project=self.project,
+            folder=self.folder,
+            name="B-003.pdf",
+            doc_type="MTR",
+            created_by=self.user,
+        )
+        FileVersion.objects.create(
+            file_node=other,
+            version=1,
+            blob=ContentFile(b"mtr", name="b-003.pdf"),
+            size=3,
+            content_type="application/pdf",
+            uploaded_by=self.user,
+        )
+        self.node.checked_out_by = self.user
+        self.node.checked_out_at = timezone.now()
+        self.node.save(update_fields=["checked_out_by", "checked_out_at"])
+
+        response = self.client.get(self._folder_url(), {"filter": "checkedout"})
+        self.assertEqual(response.status_code, 200)
+        files = list(response.context["files"])
+        self.assertEqual([self.node.id], [f.id for f in files])
+
+    def test_trash_quick_filter(self):
+        other = FileNode.objects.create(
+            org=self.org,
+            project=self.project,
+            folder=self.folder,
+            name="B-004.pdf",
+            doc_type="MTR",
+            created_by=self.user,
+        )
+        FileVersion.objects.create(
+            file_node=other,
+            version=1,
+            blob=ContentFile(b"mtr", name="b-004.pdf"),
+            size=3,
+            content_type="application/pdf",
+            uploaded_by=self.user,
+        )
+
+        self.node.is_archived = True
+        self.node.save(update_fields=["is_archived"])
+
+        response = self.client.get(self._folder_url(), {"filter": "trash"})
+        self.assertEqual(response.status_code, 200)
+        files = list(response.context["files"])
+        self.assertEqual([self.node.id], [f.id for f in files])
+
+    def test_recent_quick_filter(self):
+        old = FileNode.objects.create(
+            org=self.org,
+            project=self.project,
+            folder=self.folder,
+            name="B-005.pdf",
+            doc_type="MTR",
+            created_by=self.user,
+        )
+        old_version = FileVersion.objects.create(
+            file_node=old,
+            version=1,
+            blob=ContentFile(b"old", name="b-005.pdf"),
+            size=3,
+            content_type="application/pdf",
+            uploaded_by=self.user,
+        )
+        FileVersion.objects.filter(pk=old_version.pk).update(
+            created_at=timezone.now() - timedelta(days=45)
+        )
+
+        response = self.client.get(self._folder_url(), {"filter": "recent"})
+        self.assertEqual(response.status_code, 200)
+        files = list(response.context["files"])
+        self.assertEqual([self.node.id], [f.id for f in files])

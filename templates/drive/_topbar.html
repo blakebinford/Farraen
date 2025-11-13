@@ -30,7 +30,12 @@
       <a class="btn btn-outline-secondary" href="{% url 'drive_folder_create' org.slug project.slug folder.id %}">New folder</a>
     {% endif %}
     {% if upload_url %}
-      <a class="btn btn-primary" href="{{ upload_url }}">Upload</a>
+      <button type="button"
+              class="btn btn-primary"
+              data-bs-toggle="modal"
+              data-bs-target="#drive-upload-modal">
+        Upload
+      </button>
     {% endif %}
     <div class="btn-group drive-view-toggle" role="group" aria-label="Change layout">
       <button type="button" class="btn btn-outline-secondary active" data-drive-toggle="list">List</button>

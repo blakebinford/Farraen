@@ -38,14 +38,14 @@
   <div>
     <h2 class="h6 text-uppercase text-muted">Quick filters</h2>
     <div class="drive-filter-chips">
-      <a class="drive-chip" href="?filter=recent">Recent</a>
-      <a class="drive-chip" href="?filter=checkedout">Checked-out</a>
-      <a class="drive-chip" href="?filter=starred">Starred</a>
-      <a class="drive-chip" href="?doc_type=MTR">MTR</a>
-      <a class="drive-chip" href="?doc_type=WPS">WPS</a>
-      <a class="drive-chip" href="?doc_type=NDE">NDE</a>
-      <a class="drive-chip" href="?doc_type=INSPECTOR">Inspector</a>
-      <a class="drive-chip" href="?filter=trash">Archive</a>
+      <a class="drive-chip{% if active_filter == 'recent' %} is-active{% endif %}" href="?filter=recent">Recent</a>
+      <a class="drive-chip{% if active_filter == 'checkedout' %} is-active{% endif %}" href="?filter=checkedout">Checked-out</a>
+      <a class="drive-chip{% if active_filter == 'starred' %} is-active{% endif %}" href="?filter=starred">Starred</a>
+      <a class="drive-chip{% if 'MTR' in active_doc_types %} is-active{% endif %}" href="?doc_type=MTR">MTR</a>
+      <a class="drive-chip{% if 'WPS' in active_doc_types %} is-active{% endif %}" href="?doc_type=WPS">WPS</a>
+      <a class="drive-chip{% if 'NDE' in active_doc_types %} is-active{% endif %}" href="?doc_type=NDE">NDE</a>
+      <a class="drive-chip{% if 'INSPECTOR' in active_doc_types %} is-active{% endif %}" href="?doc_type=INSPECTOR">Inspector</a>
+      <a class="drive-chip{% if active_filter == 'trash' %} is-active{% endif %}" href="?filter=trash">Archive</a>
     </div>
   </div>
 </nav>

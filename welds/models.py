@@ -3,6 +3,7 @@ from decimal import Decimal
 
 from django.conf import settings
 from django.db import models
+from django.db.models import Count, Max, Sum
 from django.utils import timezone
 
 from drive.models import FileNode, Folder
@@ -412,32 +413,300 @@ class Weld(models.Model):
         return Decimal("0")
 
 
+class WeldInspection(models.Model):
+    class Result(models.TextChoices):
+        ACCEPTED = "ACCEPTED", "Accepted"
+        REPAIR = "REPAIR", "Requires Repair"
+        REJECTED = "REJECTED", "Rejected"
+
+    weld = models.ForeignKey(
+        "Weld",
+        on_delete=models.CASCADE,
+        related_name="inspections",
+    )
+    inspection_date = models.DateField(null=True, blank=True)
+    nde_type = models.CharField(max_length=32, blank=True)
+    nde_rig = models.CharField(max_length=128, blank=True)
+    report_reference = models.CharField(max_length=255, blank=True)
+    result = models.CharField(
+        max_length=16,
+        choices=Result.choices,
+        default=Result.ACCEPTED,
+    )
+    requires_repair = models.BooleanField(default=False)
+    defect_code = models.CharField(max_length=64, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-inspection_date", "-id"]
+        indexes = [
+            models.Index(fields=["weld", "inspection_date"]),
+            models.Index(fields=["result"]),
+        ]
+
+    def __str__(self) -> str:
+        weld_id = getattr(self.weld, "weld_id", "#")
+        return f"Inspection {self.pk} for {weld_id}"
+
+
 class WeldRepair(models.Model):
+    class Status(models.TextChoices):
+        OPEN = "OPEN", "Open"
+        IN_PROGRESS = "IN_PROGRESS", "In Progress"
+        CLOSED = "CLOSED", "Closed"
+
     weld = models.ForeignKey(
         "Weld",
         on_delete=models.CASCADE,
         related_name="repairs",
     )
-    repair_date = models.DateField()
-    repair_cause = models.CharField(max_length=255, blank=True)
-    notes = models.TextField(blank=True)
-    metadata = models.JSONField(default=dict, blank=True)
+    repair_sequence = models.PositiveIntegerField(default=1)
+    status = models.CharField(
+        max_length=16,
+        choices=Status.choices,
+        default=Status.OPEN,
+    )
+    flagged_at = models.DateField(null=True, blank=True)
+    original_ndereport_ref = models.CharField(max_length=255, null=True, blank=True)
+    original_nderig = models.CharField(max_length=128, null=True, blank=True)
+    defect_code_snapshot = models.CharField(max_length=64, null=True, blank=True)
+    nde_type = models.CharField(max_length=32, null=True, blank=True)
+    manual_flag = models.BooleanField(default=False)
+    repair_date = models.DateField(null=True, blank=True)
+    repair_stencil = models.CharField(max_length=32, null=True, blank=True)
+    reinspection_nderig = models.CharField(max_length=128, null=True, blank=True)
+    reinspection_result = models.CharField(max_length=16, null=True, blank=True)
+    reinspection_passed_at = models.DateField(null=True, blank=True)
+    last_reinspection_report_ref = models.CharField(max_length=255, null=True, blank=True)
+    assigned_to = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="assigned_repairs",
+    )
+    comments = models.TextField(null=True, blank=True)
+    attempt_count = models.PositiveIntegerField(default=0)
+    total_inches_repaired = models.DecimalField(
+        max_digits=10, decimal_places=2, default=Decimal("0.00")
+    )
+    last_attempt_date = models.DateField(null=True, blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="created_repairs",
+    )
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="updated_repairs",
+    )
+    closed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="closed_repairs",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    closed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
-        ordering = ["-repair_date", "-id"]
+        ordering = ["-flagged_at", "-id"]
         indexes = [
-            models.Index(fields=["repair_date"]),
-            models.Index(fields=["weld", "repair_date"]),
+            models.Index(fields=["weld", "status"]),
+            models.Index(fields=["status"]),
+            models.Index(fields=["flagged_at"]),
+            models.Index(fields=["reinspection_passed_at"]),
         ]
 
     def __str__(self) -> str:
-        return f"Repair {self.pk} for {self.weld_id_display}"
+        weld_id = getattr(self.weld, "weld_id", "#")
+        return f"Repair {self.pk} ({weld_id})"
 
     @property
     def weld_id_display(self) -> str:
         return getattr(self.weld, "weld_id", "#")
+
+    @property
+    def is_closed(self) -> bool:
+        return self.status == self.Status.CLOSED
+
+    def refresh_attempt_metrics(self):
+        aggregates = self.attempts.aggregate(
+            count=Count("id"),
+            total=Sum("inches_repaired"),
+            last=Max("performed_at"),
+        )
+        attempt_count = aggregates.get("count") or 0
+        total_inches = aggregates.get("total") or Decimal("0.00")
+        last_attempt = aggregates.get("last")
+        update_fields = [
+            "attempt_count",
+            "total_inches_repaired",
+            "last_attempt_date",
+            "repair_date",
+        ]
+        self.attempt_count = attempt_count
+        self.total_inches_repaired = total_inches
+        self.last_attempt_date = last_attempt
+        if last_attempt:
+            self.repair_date = last_attempt
+        self.save(update_fields=update_fields)
+
+    def refresh_reinspection_state(self):
+        latest = self.reinspections.order_by("-reinspection_date", "-id").first()
+        if not latest:
+            return
+        self.reinspection_nderig = latest.reinspection_nderig
+        self.reinspection_result = latest.reinspection_result
+        self.last_reinspection_report_ref = latest.reinspection_ndereport_ref
+        if latest.reinspection_result == Reinspection.Result.PASS:
+            self.status = self.Status.CLOSED
+            self.reinspection_passed_at = latest.reinspection_date
+            if latest.created_by_id and not self.closed_by_id:
+                self.closed_by_id = latest.created_by_id
+            if not self.closed_at:
+                self.closed_at = timezone.now()
+        self.save(
+            update_fields=[
+                "reinspection_nderig",
+                "reinspection_result",
+                "last_reinspection_report_ref",
+                "status",
+                "reinspection_passed_at",
+                "closed_by",
+                "closed_at",
+            ]
+        )
+
+    def close(self, *, closed_by=None, closed_at=None, result="PASS"):
+        if self.is_closed:
+            if closed_by and not self.closed_by_id:
+                self.closed_by = closed_by
+                self.save(update_fields=["closed_by"])
+            return
+        self.status = self.Status.CLOSED
+        self.reinspection_result = result
+        self.reinspection_passed_at = self.reinspection_passed_at or (
+            closed_at.date() if isinstance(closed_at, timezone.datetime) else closed_at
+        )
+        self.closed_at = closed_at or timezone.now()
+        if closed_by:
+            self.closed_by = closed_by
+        self.save(
+            update_fields=[
+                "status",
+                "reinspection_result",
+                "reinspection_passed_at",
+                "closed_at",
+                "closed_by",
+            ]
+        )
+
+
+class RepairAttempt(models.Model):
+    class Outcome(models.TextChoices):
+        PASS = "PASS", "Pass"
+        FAIL = "FAIL", "Fail"
+        CANCELLED = "CANCELLED", "Cancelled"
+
+    repair = models.ForeignKey(
+        WeldRepair,
+        on_delete=models.CASCADE,
+        related_name="attempts",
+    )
+    attempt_no = models.PositiveIntegerField(blank=True, null=True)
+    performed_at = models.DateField()
+    wps_document = models.ForeignKey(
+        FileNode,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="repair_attempts",
+        limit_choices_to={"doc_type": FileNode.DocType.WPS},
+    )
+    welder_stencil = models.CharField(max_length=64)
+    inches_repaired = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True
+    )
+    outcome = models.CharField(max_length=16, choices=Outcome.choices)
+    notes = models.TextField(blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="repair_attempts",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["attempt_no", "id"]
+        indexes = [
+            models.Index(fields=["repair", "attempt_no"]),
+        ]
+
+    def save(self, *args, **kwargs):
+        is_new = self.pk is None
+        if is_new and not self.attempt_no:
+            last_attempt = (
+                type(self)
+                .objects.filter(repair=self.repair)
+                .order_by("-attempt_no")
+                .values_list("attempt_no", flat=True)
+                .first()
+            )
+            self.attempt_no = (last_attempt or 0) + 1
+        super().save(*args, **kwargs)
+        if is_new:
+            self.repair.refresh_attempt_metrics()
+
+
+class Reinspection(models.Model):
+    class Result(models.TextChoices):
+        PASS = "PASS", "Pass"
+        FAIL = "FAIL", "Fail"
+        HOLD = "HOLD", "Hold"
+
+    repair = models.ForeignKey(
+        WeldRepair,
+        on_delete=models.CASCADE,
+        related_name="reinspections",
+    )
+    reinspection_date = models.DateField()
+    reinspection_nderig = models.CharField(max_length=128)
+    reinspection_ndereport_ref = models.CharField(max_length=255)
+    reinspection_result = models.CharField(max_length=16, choices=Result.choices)
+    inspector = models.CharField(max_length=255, blank=True)
+    notes = models.TextField(blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="repair_reinspections",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-reinspection_date", "-id"]
+        indexes = [
+            models.Index(fields=["repair", "reinspection_date"]),
+            models.Index(fields=["reinspection_result"]),
+        ]
+
+    def save(self, *args, **kwargs):
+        is_new = self.pk is None
+        super().save(*args, **kwargs)
+        if is_new:
+            self.repair.refresh_reinspection_state()
 
 
 class WeldHistory(models.Model):

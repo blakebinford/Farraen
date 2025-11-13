@@ -250,7 +250,12 @@ def build_dashboard_analytics(project, filters: dict) -> dict:
             "material2_heat",
             "wps_document",
         )
-        .prefetch_related(Prefetch("repairs", queryset=WeldRepair.objects.order_by("repair_date")))
+        .prefetch_related(
+            Prefetch(
+                "repairs",
+                queryset=WeldRepair.objects.order_by("flagged_at", "id"),
+            )
+        )
         .order_by("weld_date", "pk")
     )
 
@@ -477,9 +482,15 @@ def build_dashboard_analytics(project, filters: dict) -> dict:
     # Repairs
     repair_qs = WeldRepair.objects.filter(weld__in=[weld.pk for weld in welds])
     if start_date:
-        repair_qs = repair_qs.filter(repair_date__gte=start_date)
+        repair_qs = repair_qs.filter(
+            Q(flagged_at__gte=start_date)
+            | (Q(flagged_at__isnull=True) & Q(repair_date__gte=start_date))
+        )
     if end_date:
-        repair_qs = repair_qs.filter(repair_date__lte=end_date)
+        repair_qs = repair_qs.filter(
+            Q(flagged_at__lte=end_date)
+            | (Q(flagged_at__isnull=True) & Q(repair_date__lte=end_date))
+        )
     repairs = list(repair_qs.select_related("weld", "weld__primary_welder"))
 
     repairs_by_day: dict[date, dict[str, Decimal]] = defaultdict(
@@ -490,10 +501,12 @@ def build_dashboard_analytics(project, filters: dict) -> dict:
         weld = repair.weld
         info = length_info.get(weld.pk)
         length = info.length if info else DecimalZero
-        weld_date = weld.weld_date or weld.date_welded or repair.repair_date
-        entry = repairs_by_day[weld_date]
+        event_date = repair.flagged_at or repair.repair_date
+        if event_date is None:
+            event_date = weld.weld_date or weld.date_welded
+        entry = repairs_by_day[event_date]
         entry["repairs"] += 1
-        key = (weld_date, weld.pk)
+        key = (event_date, weld.pk)
         if key not in weld_length_counted:
             entry["weld_inches"] += length
             weld_length_counted.add(key)

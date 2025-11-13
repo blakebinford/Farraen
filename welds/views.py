@@ -1,9 +1,10 @@
 import csv
 import json
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 
+from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
 from django.db import connection, transaction, IntegrityError
@@ -14,16 +15,35 @@ from django.urls import reverse
 from django.utils.dateparse import parse_date
 from django.views.decorators.http import require_http_methods
 
+from django.middleware.csrf import get_token
+
 from organizations.decorators import require_membership
-from projects.models import ProjectMember
+from projects.models import Project, ProjectMember
 from projects.utils import (
     assert_project_not_archived,
     get_project_for_request,
     user_has_project_access,
 )
 
+from drive.models import FileNode
+
 from .analytics import build_dashboard_analytics, build_drilldown
-from .models import MaterialHeat, NDERig, Welder, Weld, WeldEvent, WeldHistory
+from .models import (
+    MaterialHeat,
+    NDERig,
+    RepairAttempt,
+    Reinspection,
+    Weld,
+    WeldEvent,
+    WeldHistory,
+    WeldInspection,
+    WeldRepair,
+    Welder,
+)
+from .services import close_repairs_for_weld, mark_repair_for_weld
+
+
+User = get_user_model()
 
 
 logger = logging.getLogger(__name__)
@@ -538,6 +558,76 @@ def weld_log(request, org_slug, project_slug):
 
     status = 503 if setup_error else 200
     return render(request, "welds/weld_log.html", context, status=status)
+
+
+@require_membership("GUEST")
+def repair_log(request, org_slug, project_slug):
+    project = get_project_for_request(request, request.org, project_slug)
+    forbidden = _require_project_membership(request, project)
+    if forbidden:
+        return forbidden
+
+    project_repairs_url = reverse(
+        "welds:project_repairs",
+        kwargs={"org_slug": request.org.slug, "project_id": project.id},
+    )
+    repair_update_template = reverse(
+        "welds:update_repair",
+        kwargs={"org_slug": request.org.slug, "repair_id": 0},
+    ).replace("/0/", "/{id}/")
+    attempt_template = reverse(
+        "welds:repair_add_attempt",
+        kwargs={"org_slug": request.org.slug, "repair_id": 0},
+    ).replace("/0/", "/{id}/")
+    reinspection_template = reverse(
+        "welds:repair_add_reinspection",
+        kwargs={"org_slug": request.org.slug, "repair_id": 0},
+    ).replace("/0/", "/{id}/")
+    close_template = reverse(
+        "welds:repair_close",
+        kwargs={"org_slug": request.org.slug, "repair_id": 0},
+    ).replace("/0/", "/{id}/")
+
+    assigned_options = []
+    memberships = (
+        ProjectMember.objects.filter(project=project)
+        .select_related("user")
+        .order_by("user__username")
+    )
+    for membership in memberships:
+        if not membership.user_id:
+            continue
+        assigned_options.append(
+            {
+                "value": membership.user_id,
+                "label": _format_user_display(membership.user),
+            }
+        )
+
+    config = {
+        "projectRepairsUrl": project_repairs_url,
+        "repairUpdateUrlTemplate": repair_update_template,
+        "attemptCreateUrlTemplate": attempt_template,
+        "reinspectionCreateUrlTemplate": reinspection_template,
+        "repairCloseUrlTemplate": close_template,
+        "assignedOptions": assigned_options,
+        "csrfToken": get_token(request),
+        "perPage": 25,
+        "editableFields": [
+            "repair_stencil",
+            "repair_date",
+            "nde_type",
+            "comments",
+            "assigned_to_id",
+        ],
+    }
+
+    context = {
+        "org": request.org,
+        "project": project,
+        "repair_log_config": config,
+    }
+    return render(request, "welds/repair_log.html", context)
 
 
 @require_membership("GUEST")
@@ -1939,6 +2029,485 @@ def weld_dashboard_drilldown(request, org_slug, project_slug):
                     row["od"],
                     row["wps"],
                 ]
-            )
+        )
         return response
     return JsonResponse([_jsonify(row) for row in rows], safe=False)
+
+
+def _serialize_attempt(attempt: RepairAttempt) -> dict:
+    return {
+        "id": attempt.id,
+        "attempt_no": attempt.attempt_no,
+        "performed_at": attempt.performed_at.isoformat()
+        if attempt.performed_at
+        else "",
+        "wps_document_id": attempt.wps_document_id,
+        "wps_document_name": getattr(attempt.wps_document, "name", ""),
+        "welder_stencil": attempt.welder_stencil,
+        "inches_repaired": _decimal_to_str(attempt.inches_repaired),
+        "outcome": attempt.outcome,
+        "notes": attempt.notes,
+        "created_by_id": attempt.created_by_id,
+        "created_by_name": _format_user_display(attempt.created_by),
+        "created_at": attempt.created_at.isoformat() if attempt.created_at else "",
+    }
+
+
+def _serialize_reinspection(reinspection: Reinspection) -> dict:
+    return {
+        "id": reinspection.id,
+        "reinspection_date": reinspection.reinspection_date.isoformat()
+        if reinspection.reinspection_date
+        else "",
+        "reinspection_nderig": reinspection.reinspection_nderig,
+        "reinspection_ndereport_ref": reinspection.reinspection_ndereport_ref,
+        "reinspection_result": reinspection.reinspection_result,
+        "inspector": reinspection.inspector,
+        "notes": reinspection.notes,
+        "created_by_id": reinspection.created_by_id,
+        "created_by_name": _format_user_display(reinspection.created_by),
+        "created_at": reinspection.created_at.isoformat() if reinspection.created_at else "",
+    }
+
+
+def _serialize_repair(repair: WeldRepair, *, include_children: bool = False) -> dict:
+    weld = repair.weld
+    payload = {
+        "id": repair.id,
+        "weld_id": weld.id,
+        "weld_identifier": weld.weld_id,
+        "project_id": weld.project_id,
+        "repair_sequence": repair.repair_sequence,
+        "status": repair.status,
+        "flagged_at": repair.flagged_at.isoformat() if repair.flagged_at else "",
+        "manual_flag": repair.manual_flag,
+        "original_ndereport_ref": repair.original_ndereport_ref or "",
+        "original_nderig": repair.original_nderig or "",
+        "defect_code_snapshot": repair.defect_code_snapshot or "",
+        "nde_type": repair.nde_type or "",
+        "repair_date": repair.repair_date.isoformat() if repair.repair_date else "",
+        "repair_stencil": repair.repair_stencil or "",
+        "reinspection_nderig": repair.reinspection_nderig or "",
+        "reinspection_result": repair.reinspection_result or "",
+        "reinspection_passed_at": repair.reinspection_passed_at.isoformat()
+        if repair.reinspection_passed_at
+        else "",
+        "last_reinspection_report_ref": repair.last_reinspection_report_ref or "",
+        "attempt_count": repair.attempt_count,
+        "total_inches_repaired": _decimal_to_str(repair.total_inches_repaired),
+        "last_attempt_date": repair.last_attempt_date.isoformat()
+        if repair.last_attempt_date
+        else "",
+        "assigned_to_id": repair.assigned_to_id,
+        "assigned_to_name": _format_user_display(repair.assigned_to),
+        "comments": repair.comments or "",
+        "created_at": repair.created_at.isoformat() if repair.created_at else "",
+        "created_by_id": repair.created_by_id,
+        "created_by_name": _format_user_display(repair.created_by),
+        "updated_at": repair.updated_at.isoformat() if repair.updated_at else "",
+        "updated_by_id": repair.updated_by_id,
+        "updated_by_name": _format_user_display(repair.updated_by),
+        "closed_at": repair.closed_at.isoformat() if repair.closed_at else "",
+        "closed_by_id": repair.closed_by_id,
+        "closed_by_name": _format_user_display(repair.closed_by),
+        "weld_wps_document_id": weld.wps_document_id,
+        "weld_wps_document_name": getattr(weld.wps_document, "name", ""),
+        "weld_disposition": weld.disposition,
+    }
+    if include_children:
+        payload["attempts"] = [_serialize_attempt(attempt) for attempt in repair.attempts.all()]
+        payload["reinspections"] = [
+            _serialize_reinspection(entry) for entry in repair.reinspections.all()
+        ]
+    return payload
+
+
+def _parse_optional_decimal(value) -> Decimal | None:
+    if value in (None, ""):
+        return None
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        raise ValueError("Invalid decimal value") from exc
+
+
+def _load_json_body(request):
+    if not request.body:
+        return {}
+    try:
+        return json.loads(request.body.decode("utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError("Invalid JSON body") from exc
+
+
+def _ensure_repair_access(request, repair: WeldRepair):
+    project = repair.weld.project
+    forbidden = _require_project_membership(request, project)
+    if forbidden:
+        return forbidden
+    return None
+
+
+@require_http_methods(["POST"])
+def mark_weld_for_repair(request, org_slug, weld_id: int):
+    """Create or retrieve the active repair case for a weld.
+
+    This endpoint mirrors the behaviour of :func:`services.mark_repair_for_weld`
+    and returns a serialized repair payload suitable for the weld and repair
+    log grids. The request body is optional JSON allowing callers to override
+    snapshot metadata such as ``flagged_at`` or ``original_ndereport_ref``.
+    """
+    weld = get_object_or_404(Weld.objects.select_related("project"), pk=weld_id)
+    forbidden = _require_project_membership(request, weld.project)
+    if forbidden:
+        return forbidden
+
+    try:
+        payload = _load_json_body(request)
+    except ValueError:
+        return HttpResponseBadRequest("Invalid JSON body")
+
+    flagged_at = parse_date(payload.get("flagged_at")) if payload.get("flagged_at") else None
+    original_ndereport_ref = payload.get("original_ndereport_ref")
+    original_nderig = payload.get("original_nderig")
+    defect_code = payload.get("defect_code_snapshot") or payload.get("defect_code")
+    nde_type = payload.get("nde_type")
+    manual_flag = payload.get("manual_flag")
+    if manual_flag is None:
+        manual_flag = True
+
+    actor = request.user if getattr(request.user, "is_authenticated", False) else None
+    repair, created = mark_repair_for_weld(
+        weld,
+        flagged_at=flagged_at,
+        original_ndereport_ref=original_ndereport_ref,
+        original_nderig=original_nderig,
+        defect_code=defect_code,
+        nde_type=nde_type,
+        manual_flag=manual_flag,
+        created_by=actor,
+    )
+
+    status_code = 201 if created else 200
+    include_children = "expand" in request.GET and "attempts" in request.GET.get("expand", "")
+    return JsonResponse(
+        {
+            "repair": _serialize_repair(repair, include_children=include_children),
+            "created": created,
+        },
+        status=status_code,
+    )
+
+
+@require_http_methods(["GET"])
+def project_repairs(request, org_slug, project_id: int):
+    project = get_object_or_404(Project, pk=project_id)
+    forbidden = _require_project_membership(request, project)
+    if forbidden:
+        return forbidden
+
+    repair_qs = (
+        WeldRepair.objects.filter(weld__project=project)
+        .select_related("weld", "weld__wps_document", "assigned_to", "created_by", "updated_by", "closed_by")
+        .prefetch_related("attempts", "reinspections")
+    )
+
+    status_filter = request.GET.get("status")
+    if status_filter:
+        repair_qs = repair_qs.filter(status=status_filter)
+
+    assigned_to = request.GET.get("assigned_to")
+    if assigned_to:
+        repair_qs = repair_qs.filter(assigned_to_id=assigned_to)
+
+    weld_identifier = request.GET.get("weld_id")
+    if weld_identifier:
+        repair_qs = repair_qs.filter(weld__weld_id=weld_identifier)
+
+    welder_filter = request.GET.get("welder_stencil")
+    if welder_filter:
+        repair_qs = repair_qs.filter(
+            Q(weld__primary_stencil__iexact=welder_filter)
+            | Q(weld__welder_stencil_repair__icontains=welder_filter)
+        )
+
+    flagged_gte = request.GET.get("flagged_at__gte")
+    if flagged_gte:
+        flagged_date = parse_date(flagged_gte)
+        if flagged_date:
+            repair_qs = repair_qs.filter(flagged_at__gte=flagged_date)
+
+    flagged_lte = request.GET.get("flagged_at__lte")
+    if flagged_lte:
+        flagged_date = parse_date(flagged_lte)
+        if flagged_date:
+            repair_qs = repair_qs.filter(flagged_at__lte=flagged_date)
+
+    original_nderig = request.GET.get("original_nderig")
+    if original_nderig:
+        repair_qs = repair_qs.filter(original_nderig=original_nderig)
+
+    open_gt_days = request.GET.get("open_gt_days")
+    if open_gt_days:
+        try:
+            days = int(open_gt_days)
+        except (TypeError, ValueError):
+            days = None
+        if days:
+            cutoff = date.today() - timedelta(days=days)
+            repair_qs = repair_qs.filter(
+                Q(reinspection_passed_at__isnull=True)
+                & (Q(flagged_at__lte=cutoff) | Q(flagged_at__isnull=True))
+            )
+
+    sort_param = request.GET.get("sort")
+    allowed_sort_fields = {
+        "flagged_at",
+        "repair_date",
+        "status",
+        "attempt_count",
+        "total_inches_repaired",
+        "reinspection_passed_at",
+    }
+    if sort_param:
+        orderings: list[str] = []
+        for raw_field in sort_param.split(","):
+            field = raw_field.strip()
+            if not field:
+                continue
+            desc = field.startswith("-")
+            base = field[1:] if desc else field
+            if base in allowed_sort_fields:
+                orderings.append(field)
+        if orderings:
+            repair_qs = repair_qs.order_by(*orderings)
+    else:
+        repair_qs = repair_qs.order_by("-flagged_at", "-id")
+
+    per_page = int(request.GET.get("per_page", 25) or 25)
+    page_number = int(request.GET.get("page", 1) or 1)
+    paginator = Paginator(repair_qs, per_page)
+    page_obj = paginator.get_page(page_number)
+
+    expand = request.GET.get("expand", "")
+    include_attempts = "attempts" in expand
+    include_reinspections = "reinspections" in expand
+
+    repairs_payload = []
+    for repair in page_obj.object_list:
+        payload = _serialize_repair(
+            repair,
+            include_children=include_attempts or include_reinspections,
+        )
+        if include_attempts and "attempts" not in payload:
+            payload["attempts"] = [_serialize_attempt(attempt) for attempt in repair.attempts.all()]
+        if include_reinspections and "reinspections" not in payload:
+            payload["reinspections"] = [
+                _serialize_reinspection(entry) for entry in repair.reinspections.all()
+            ]
+        repairs_payload.append(payload)
+
+    return JsonResponse(
+        {
+            "data": repairs_payload,
+            "page": page_obj.number,
+            "total_pages": paginator.num_pages,
+            "total_rows": paginator.count,
+        }
+    )
+
+
+@require_http_methods(["PATCH"])
+def update_repair(request, org_slug, repair_id: int):
+    repair = get_object_or_404(
+        WeldRepair.objects.select_related("weld", "weld__project", "assigned_to"),
+        pk=repair_id,
+    )
+    forbidden = _ensure_repair_access(request, repair)
+    if forbidden:
+        return forbidden
+
+    try:
+        payload = _load_json_body(request)
+    except ValueError:
+        return HttpResponseBadRequest("Invalid JSON body")
+
+    allowed_fields = {
+        "assigned_to_id",
+        "repair_stencil",
+        "repair_date",
+        "nde_type",
+        "original_nderig",
+        "comments",
+        "status",
+    }
+
+    updates = {}
+    for key, value in payload.items():
+        if key not in allowed_fields:
+            continue
+        updates[key] = value
+
+    actor = request.user if getattr(request.user, "is_authenticated", False) else None
+
+    if "assigned_to_id" in updates:
+        assigned_to_id = updates["assigned_to_id"]
+        if assigned_to_id:
+            assigned_user = get_object_or_404(User, pk=assigned_to_id)
+        else:
+            assigned_user = None
+        repair.assigned_to = assigned_user
+
+    if "repair_stencil" in updates:
+        repair.repair_stencil = updates["repair_stencil"] or ""
+
+    if "repair_date" in updates:
+        repair.repair_date = (
+            parse_date(updates["repair_date"])
+            if updates["repair_date"]
+            else None
+        )
+
+    if "nde_type" in updates:
+        repair.nde_type = updates["nde_type"] or ""
+
+    if "original_nderig" in updates:
+        repair.original_nderig = updates["original_nderig"] or ""
+
+    if "comments" in updates:
+        repair.comments = updates["comments"] or ""
+
+    if "status" in updates and updates["status"]:
+        status_value = updates["status"]
+        if status_value == WeldRepair.Status.CLOSED:
+            repair.close(closed_by=actor)
+        else:
+            repair.status = status_value
+
+    repair.updated_by = actor
+    repair.save()
+
+    include_children = "expand" in request.GET and "attempts" in request.GET.get("expand", "")
+    return JsonResponse({"repair": _serialize_repair(repair, include_children=include_children)})
+
+
+@require_http_methods(["POST"])
+def create_repair_attempt(request, org_slug, repair_id: int):
+    repair = get_object_or_404(
+        WeldRepair.objects.select_related("weld", "weld__project"), pk=repair_id
+    )
+    forbidden = _ensure_repair_access(request, repair)
+    if forbidden:
+        return forbidden
+
+    try:
+        payload = _load_json_body(request)
+    except ValueError:
+        return HttpResponseBadRequest("Invalid JSON body")
+
+    performed_at = parse_date(payload.get("performed_at")) if payload.get("performed_at") else None
+    if not performed_at:
+        return HttpResponseBadRequest("performed_at is required")
+
+    wps_document = None
+    if payload.get("wps_document_id"):
+        wps_document = get_object_or_404(FileNode, pk=payload["wps_document_id"])
+
+    inches_value = None
+    if "inches_repaired" in payload:
+        try:
+            inches_value = _parse_optional_decimal(payload.get("inches_repaired"))
+        except ValueError:
+            return HttpResponseBadRequest("Invalid inches_repaired value")
+
+    actor = request.user if getattr(request.user, "is_authenticated", False) else None
+    attempt = RepairAttempt.objects.create(
+        repair=repair,
+        performed_at=performed_at,
+        wps_document=wps_document,
+        welder_stencil=payload.get("welder_stencil", ""),
+        inches_repaired=inches_value,
+        outcome=payload.get("outcome", RepairAttempt.Outcome.FAIL),
+        notes=payload.get("notes", ""),
+        created_by=actor,
+    )
+
+    repair.refresh_from_db()
+    return JsonResponse(
+        {
+            "attempt": _serialize_attempt(attempt),
+            "repair": _serialize_repair(repair, include_children=True),
+        },
+        status=201,
+    )
+
+
+@require_http_methods(["POST"])
+def create_repair_reinspection(request, org_slug, repair_id: int):
+    repair = get_object_or_404(
+        WeldRepair.objects.select_related("weld", "weld__project"), pk=repair_id
+    )
+    forbidden = _ensure_repair_access(request, repair)
+    if forbidden:
+        return forbidden
+
+    try:
+        payload = _load_json_body(request)
+    except ValueError:
+        return HttpResponseBadRequest("Invalid JSON body")
+
+    reinspection_date = (
+        parse_date(payload.get("reinspection_date"))
+        if payload.get("reinspection_date")
+        else None
+    )
+    if not reinspection_date:
+        return HttpResponseBadRequest("reinspection_date is required")
+
+    result = payload.get("reinspection_result") or Reinspection.Result.FAIL
+    actor = request.user if getattr(request.user, "is_authenticated", False) else None
+    entry = Reinspection.objects.create(
+        repair=repair,
+        reinspection_date=reinspection_date,
+        reinspection_nderig=payload.get("reinspection_nderig", ""),
+        reinspection_ndereport_ref=payload.get("reinspection_ndereport_ref", ""),
+        reinspection_result=result,
+        inspector=payload.get("inspector", ""),
+        notes=payload.get("notes", ""),
+        created_by=actor,
+    )
+
+    repair.refresh_from_db()
+    return JsonResponse(
+        {
+            "reinspection": _serialize_reinspection(entry),
+            "repair": _serialize_repair(repair, include_children=True),
+        },
+        status=201,
+    )
+
+
+@require_http_methods(["POST"])
+def close_repair(request, org_slug, repair_id: int):
+    repair = get_object_or_404(
+        WeldRepair.objects.select_related("weld", "weld__project"), pk=repair_id
+    )
+    forbidden = _ensure_repair_access(request, repair)
+    if forbidden:
+        return forbidden
+
+    actor = request.user if getattr(request.user, "is_authenticated", False) else None
+    try:
+        payload = _load_json_body(request)
+    except ValueError:
+        payload = {}
+
+    closed_at = None
+    if payload.get("closed_at"):
+        parsed = parse_date(payload.get("closed_at"))
+        if parsed:
+            closed_at = datetime.combine(parsed, datetime.min.time())
+
+    repair.close(closed_by=actor, closed_at=closed_at)
+    repair.refresh_from_db()
+    return JsonResponse({"repair": _serialize_repair(repair, include_children=True)})

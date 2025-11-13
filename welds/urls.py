@@ -15,6 +15,11 @@ urlpatterns = [
         name="weld_log",
     ),
     path(
+        "projects/<slug:project_slug>/repair-log/",
+        views.repair_log,
+        name="repair_log",
+    ),
+    path(
         "projects/<slug:project_slug>/weld-log/data/",
         views.weld_log_data,
         name="weld_log_data",
@@ -68,5 +73,35 @@ urlpatterns = [
         "projects/<slug:project_slug>/weld-log/welds/history/<int:history_id>/rollback/",
         views.weld_history_rollback,
         name="weld_history_rollback",
+    ),
+    path(
+        "welds/<int:weld_id>/mark_repair/",
+        views.mark_weld_for_repair,
+        name="mark_weld_for_repair",
+    ),
+    path(
+        "projects/<int:project_id>/repairs/",
+        views.project_repairs,
+        name="project_repairs",
+    ),
+    path(
+        "repairs/<int:repair_id>/",
+        views.update_repair,
+        name="update_repair",
+    ),
+    path(
+        "repairs/<int:repair_id>/attempts/",
+        views.create_repair_attempt,
+        name="repair_add_attempt",
+    ),
+    path(
+        "repairs/<int:repair_id>/reinspections/",
+        views.create_repair_reinspection,
+        name="repair_add_reinspection",
+    ),
+    path(
+        "repairs/<int:repair_id>/close/",
+        views.close_repair,
+        name="repair_close",
     ),
 ]

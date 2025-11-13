@@ -4,10 +4,12 @@ from decimal import Decimal, InvalidOperation
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
+from django.db.models import Count, Max, Q
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils.decorators import method_decorator
 from django.utils.dateparse import parse_date
+from django.views import View
 from django.views.generic import TemplateView
 
 from organizations.decorators import require_membership
@@ -18,7 +20,7 @@ from welds.services import (
     get_project_weld_kpis,
 )
 
-from .forms import ProjectForm
+from .forms import ProjectForm, ProjectInfoForm, ProjectStatusForm
 from .models import Project, ProjectMember
 from .utils import (
     assert_project_not_archived,
@@ -26,6 +28,7 @@ from .utils import (
     get_project_for_request,
     user_has_project_access,
 )
+from welds.models import Weld
 
 @login_required
 @require_membership("GUEST")
@@ -221,3 +224,225 @@ class ProjectWeldDashboardView(TemplateView):
             }
         )
         return context
+
+
+@method_decorator(require_membership("GUEST"), name="dispatch")
+class ProjectDashboardView(View):
+    template_name = "projects/project_dashboard.html"
+
+    STATUS_BADGES = {
+        Project.Status.PLANNED: "bg-info text-dark",
+        Project.Status.ACTIVE: "bg-success",
+        Project.Status.ON_HOLD: "bg-warning text-dark",
+        Project.Status.COMPLETED: "bg-primary",
+        Project.Status.CANCELLED: "bg-danger",
+        Project.Status.ARCHIVED: "bg-secondary",
+    }
+
+    def dispatch(self, request, *args, **kwargs):
+        self.project = get_project_for_request(
+            request, request.org, kwargs.get("project_slug")
+        )
+        if not user_has_project_access(request.user, self.project):
+            raise PermissionDenied("You do not have access to this project.")
+        self.membership = (
+            ProjectMember.objects.filter(
+                project=self.project, user=request.user
+            )
+            .only("role")
+            .first()
+        )
+        self.membership_role = getattr(self.membership, "role", None)
+        self.can_edit_project = self._determine_can_edit_project(request.user)
+        self.can_edit_status = self._determine_can_edit_status(request.user)
+        return super().dispatch(request, *args, **kwargs)
+
+    def _determine_can_edit_project(self, user):
+        if not user.is_authenticated:
+            return False
+        if user.is_superuser or user.has_perm("projects.change_project"):
+            return True
+        if self.project.status == Project.Status.ARCHIVED:
+            return False
+        if self.membership_role in ProjectMember.Role.managerial_roles():
+            return True
+        return False
+
+    def _determine_can_edit_status(self, user):
+        if not user.is_authenticated:
+            return False
+        if user.is_superuser or user.has_perm("projects.change_project_status"):
+            return True
+        if self.membership_role == ProjectMember.Role.QUALITY_MANAGER:
+            return True
+        return False
+
+    def get(self, request, *args, **kwargs):
+        context = self._build_context(request)
+        return render(request, self.template_name, context)
+
+    def post(self, request, *args, **kwargs):
+        form_type = request.POST.get("form")
+        info_form = None
+        status_form = None
+        show_edit_panel = True
+
+        if form_type == "project-info":
+            if not self.can_edit_project:
+                raise PermissionDenied("You do not have permission to edit this project.")
+            if self.project.status == Project.Status.ARCHIVED:
+                messages.error(
+                    request,
+                    "Archived projects are read-only. Contact an administrator to unarchive.",
+                )
+                return redirect(
+                    "projects:project_dashboard",
+                    org_slug=request.org.slug,
+                    project_slug=self.project.slug,
+                )
+            info_form = ProjectInfoForm(request.POST, instance=self.project)
+            if info_form.is_valid():
+                project = info_form.save(commit=False)
+                project.updated_by = request.user
+                project.save()
+                messages.success(request, "Project details updated.")
+                return redirect(
+                    "projects:project_dashboard",
+                    org_slug=request.org.slug,
+                    project_slug=self.project.slug,
+                )
+        elif form_type == "project-status":
+            if not self.can_edit_status:
+                raise PermissionDenied(
+                    "You do not have permission to change the project status."
+                )
+            status_form = ProjectStatusForm(request.POST, instance=self.project)
+            if status_form.is_valid():
+                new_status = status_form.cleaned_data["status"]
+                allow_archived_change = False
+                if (
+                    self.project.status == Project.Status.ARCHIVED
+                    and new_status != Project.Status.ARCHIVED
+                ):
+                    if request.user.has_perm("projects.can_unarchive_project") or request.user.is_superuser:
+                        allow_archived_change = True
+                    else:
+                        status_form.add_error(
+                            "status",
+                            "You do not have permission to unarchive this project.",
+                        )
+                if not status_form.errors:
+                    project = status_form.save(commit=False)
+                    project.updated_by = request.user
+                    try:
+                        project.save(allow_archived_change=allow_archived_change)
+                    except PermissionDenied as exc:
+                        status_form.add_error(None, str(exc))
+                    else:
+                        messages.success(request, "Project status updated.")
+                        return redirect(
+                            "projects:project_dashboard",
+                            org_slug=request.org.slug,
+                            project_slug=self.project.slug,
+                        )
+        else:
+            return redirect(
+                "projects:project_dashboard",
+                org_slug=request.org.slug,
+                project_slug=self.project.slug,
+            )
+
+        context = self._build_context(
+            request,
+            info_form=info_form,
+            status_form=status_form,
+            show_edit_panel=show_edit_panel,
+        )
+        return render(request, self.template_name, context)
+
+    def _build_context(self, request, info_form=None, status_form=None, show_edit_panel=False):
+        if info_form is None and self.can_edit_project:
+            info_form = ProjectInfoForm(instance=self.project)
+        if status_form is None and self.can_edit_status:
+            status_form = ProjectStatusForm(instance=self.project)
+
+        metrics = self._collect_metrics()
+        recent_welds = self._recent_activity()
+        status_badge_class = self.STATUS_BADGES.get(
+            self.project.status, "bg-secondary"
+        )
+
+        return {
+            "org": request.org,
+            "project": self.project,
+            "metrics": metrics,
+            "recent_welds": recent_welds,
+            "status_badge_class": status_badge_class,
+            "can_edit_project": self.can_edit_project,
+            "can_edit_status": self.can_edit_status,
+            "info_form": info_form,
+            "status_form": status_form,
+            "show_edit_panel": show_edit_panel,
+        }
+
+    def _collect_metrics(self):
+        welds = Weld.objects.filter(project=self.project)
+        aggregates = welds.aggregate(
+            total=Count("id"),
+            accepted=Count("id", filter=Q(disposition=Weld.Disposition.ACCEPTED)),
+            pending=Count("id", filter=Q(disposition=Weld.Disposition.PENDING)),
+            repair=Count("id", filter=Q(disposition=Weld.Disposition.REPAIR)),
+            cut_out=Count("id", filter=Q(disposition=Weld.Disposition.CUT_OUT)),
+            with_docs=Count(
+                "id",
+                filter=
+                Q(material1_heat__mtr_document__isnull=False)
+                | Q(material2_heat__mtr_document__isnull=False),
+            ),
+            last_updated=Max("updated_at"),
+            last_created=Max("created_at"),
+            last_weld_date=Max("date_welded"),
+        )
+
+        total = aggregates.get("total") or 0
+        accepted = aggregates.get("accepted") or 0
+        pending = aggregates.get("pending") or 0
+        rejected = (aggregates.get("repair") or 0) + (aggregates.get("cut_out") or 0)
+        with_docs = aggregates.get("with_docs") or 0
+        missing_docs = max(total - with_docs, 0)
+
+        coverage_percent = Decimal("0")
+        accepted_percent = Decimal("0")
+        rejected_percent = Decimal("0")
+        if total:
+            coverage_percent = (Decimal(with_docs) / Decimal(total)) * Decimal("100")
+            accepted_percent = (Decimal(accepted) / Decimal(total)) * Decimal("100")
+            rejected_percent = (Decimal(rejected) / Decimal(total)) * Decimal("100")
+
+        last_activity_candidates = [
+            aggregates.get("last_updated"),
+            aggregates.get("last_created"),
+        ]
+        last_activity_candidates = [value for value in last_activity_candidates if value]
+        last_activity = max(last_activity_candidates) if last_activity_candidates else None
+
+        return {
+            "total_welds": total,
+            "accepted_welds": accepted,
+            "pending_welds": pending,
+            "rejected_welds": rejected,
+            "accepted_percent": accepted_percent,
+            "rejected_percent": rejected_percent,
+            "docs_with_mtr": with_docs,
+            "docs_missing": missing_docs,
+            "docs_coverage_percent": coverage_percent,
+            "last_weld_activity": last_activity,
+            "last_weld_date": aggregates.get("last_weld_date"),
+        }
+
+    def _recent_activity(self):
+        return list(
+            Weld.objects.filter(project=self.project)
+            .select_related("primary_welder")
+            .order_by("-created_at")[:5]
+        )

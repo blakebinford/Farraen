@@ -17,13 +17,16 @@
   {% for p in projects %}
     <li class="list-group-item d-flex justify-content-between align-items-center {% if p.status == 'ARCHIVED' %}list-group-item-secondary{% endif %}">
       <div>
-        <div class="fw-semibold">{{ p.name }}</div>
+        <div class="fw-semibold">
+          <a class="text-decoration-none" href="{% url 'projects:project_dashboard' org.slug p.slug %}">{{ p.name }}</a>
+        </div>
         <div class="small text-muted">
           {{ p.get_status_display }}{% if p.project_code %} · {{ p.project_code }}{% endif %}
           {% if p.status == 'ARCHIVED' %}<span class="badge bg-secondary ms-1">Archived</span>{% endif %}
         </div>
       </div>
       <div class="btn-group" role="group">
+        <a class="btn btn-outline-primary btn-sm" href="{% url 'projects:project_dashboard' org.slug p.slug %}">Dashboard</a>
         <a class="btn btn-outline-primary btn-sm" href="{% url 'welds:weld_log' org.slug p.slug %}">Weld Log</a>
         <a class="btn btn-outline-primary btn-sm" href="{% url 'projects:weld_dashboard' org.slug p.slug %}">KPI Dashboard</a>
         <a class="btn btn-outline-secondary btn-sm" href="{% url 'project_drive_root' org.slug p.slug %}">Open Drive</a>

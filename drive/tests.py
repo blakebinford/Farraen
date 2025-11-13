@@ -297,3 +297,117 @@ class DriveUIViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         files = list(response.context["files"])
         self.assertEqual([self.node.id], [f.id for f in files])
+
+    def test_recently_viewed_context_unique_and_ordered(self):
+        nodes = []
+        for idx in range(6):
+            node = FileNode.objects.create(
+                org=self.org,
+                project=self.project,
+                folder=self.folder,
+                name=f"Doc-{idx}.pdf",
+                created_by=self.user,
+            )
+            nodes.append(node)
+
+        now = timezone.now()
+        for idx, node in enumerate(nodes):
+            FileEvent.objects.create(
+                org=self.org,
+                file_node=node,
+                actor=self.user,
+                action=FileEvent.Action.VIEW,
+                at=now - timedelta(minutes=idx + 1),
+            )
+
+        FileEvent.objects.create(
+            org=self.org,
+            file_node=nodes[2],
+            actor=self.user,
+            action=FileEvent.Action.VIEW,
+            at=now - timedelta(seconds=30),
+        )
+
+        archived = FileNode.objects.create(
+            org=self.org,
+            project=self.project,
+            folder=self.folder,
+            name="Archived.pdf",
+            created_by=self.user,
+            is_archived=True,
+        )
+        FileEvent.objects.create(
+            org=self.org,
+            file_node=archived,
+            actor=self.user,
+            action=FileEvent.Action.VIEW,
+            at=now - timedelta(seconds=10),
+        )
+
+        other_project = Project.objects.create(
+            org=self.org,
+            name="Other",
+            slug="other",
+            created_by=self.user,
+        )
+        other_folder = Folder.objects.create(
+            org=self.org,
+            project=other_project,
+            name="Specs",
+            created_by=self.user,
+        )
+        other_node = FileNode.objects.create(
+            org=self.org,
+            project=other_project,
+            folder=other_folder,
+            name="Other.pdf",
+            created_by=self.user,
+        )
+        FileEvent.objects.create(
+            org=self.org,
+            file_node=other_node,
+            actor=self.user,
+            action=FileEvent.Action.VIEW,
+            at=now - timedelta(seconds=5),
+        )
+
+        response = self.client.get(self._folder_url())
+        self.assertEqual(response.status_code, 200)
+
+        recent = response.context["recently_viewed"]
+        self.assertEqual(len(recent), 5)
+        recent_ids = [item["node"].id for item in recent]
+        expected_order = [
+            nodes[2].id,
+            nodes[0].id,
+            nodes[1].id,
+            nodes[3].id,
+            nodes[4].id,
+        ]
+        self.assertEqual(recent_ids, expected_order)
+        self.assertTrue(all("last_at" in item for item in recent))
+
+    def test_recently_viewed_left_nav_rendering(self):
+        FileEvent.objects.create(
+            org=self.org,
+            file_node=self.node,
+            actor=self.user,
+            action=FileEvent.Action.VIEW,
+            at=timezone.now(),
+        )
+
+        response = self.client.get(self._folder_url())
+        self.assertEqual(response.status_code, 200)
+        drawer_url = reverse("drive_file_drawer", kwargs={
+            "org_slug": self.org.slug,
+            "project_slug": self.project.slug,
+            "file_id": self.node.id,
+        })
+        self.assertContains(response, "Recently viewed")
+        self.assertContains(response, drawer_url)
+        self.assertContains(response, self.node.name)
+
+    def test_recently_viewed_empty_state(self):
+        response = self.client.get(self._folder_url())
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "No recent documents.")

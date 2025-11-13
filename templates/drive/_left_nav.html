@@ -1,4 +1,4 @@
-{% load static %}
+{% load static humanize %}
 <nav class="drive-left-nav" aria-label="Project folders">
   <div class="drive-left-nav__project">
     <a href="{% url 'project_drive_root' org.slug project.slug %}" class="text-decoration-none">{{ project.name }}</a>
@@ -35,17 +35,35 @@
     </ul>
   </div>
 
-  <div>
-    <h2 class="h6 text-uppercase text-muted">Quick filters</h2>
-    <div class="drive-filter-chips">
-      <a class="drive-chip{% if active_filter == 'recent' %} is-active{% endif %}" href="?filter=recent">Recent</a>
-      <a class="drive-chip{% if active_filter == 'checkedout' %} is-active{% endif %}" href="?filter=checkedout">Checked-out</a>
-      <a class="drive-chip{% if active_filter == 'starred' %} is-active{% endif %}" href="?filter=starred">Starred</a>
-      <a class="drive-chip{% if 'MTR' in active_doc_types %} is-active{% endif %}" href="?doc_type=MTR">MTR</a>
-      <a class="drive-chip{% if 'WPS' in active_doc_types %} is-active{% endif %}" href="?doc_type=WPS">WPS</a>
-      <a class="drive-chip{% if 'NDE' in active_doc_types %} is-active{% endif %}" href="?doc_type=NDE">NDE</a>
-      <a class="drive-chip{% if 'INSPECTOR' in active_doc_types %} is-active{% endif %}" href="?doc_type=INSPECTOR">Inspector</a>
-      <a class="drive-chip{% if active_filter == 'trash' %} is-active{% endif %}" href="?filter=trash">Archive</a>
-    </div>
+  <div class="mb-4">
+    <h2 class="h6 text-uppercase text-muted">Recently viewed</h2>
+    {% if recently_viewed %}
+      <ul class="list-unstyled drive-recently-viewed mb-0">
+        {% for item in recently_viewed %}
+          <li class="drive-recently-viewed__item">
+            <article class="drive-recently-viewed__card d-flex align-items-start justify-content-between gap-3 py-2 px-2 rounded" role="button" tabindex="0"
+                     data-drive-card data-detail-url="{% url 'drive_file_drawer' org.slug project.slug item.node.id %}">
+              <div class="flex-grow-1">
+                <div class="fw-semibold text-truncate">
+                  <a href="{% url 'drive_file' org.slug project.slug item.node.id %}" class="text-decoration-none text-reset">{{ item.node.name }}</a>
+                </div>
+                <div class="text-muted small text-truncate">
+                  {% if item.node.latest_version %}
+                    v{{ item.node.version }} · {{ item.node.latest_version.size|default:item.node.size|filesizeformat }}
+                  {% else %}
+                    v{{ item.node.version }}
+                  {% endif %}
+                </div>
+              </div>
+              <div class="text-muted small text-nowrap">
+                {{ item.last_at|naturaltime }}
+              </div>
+            </article>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="text-muted small mb-0">No recent documents.</p>
+    {% endif %}
   </div>
 </nav>

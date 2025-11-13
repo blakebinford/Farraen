@@ -64,6 +64,9 @@ class DriveUIViewTests(TestCase):
         self.assertContains(response, "drive-topbar")
         self.assertContains(response, "drive-grid-view")
         self.assertContains(response, "drive-drawer-host")
+        self.assertContains(response, "static/css/main.css")
+        self.assertContains(response, "bootstrap-icons")
+        self.assertContains(response, "site-topbar")
 
     def test_upload_button_uses_modal(self):
         response = self.client.get(self._folder_url())
@@ -115,6 +118,7 @@ class DriveUIViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "drive-drawer__header")
         self.assertContains(response, "Versions")
+        self.assertContains(response, "drive-preview")
 
     def test_file_detail_page_standalone(self):
         detail_url = reverse("drive_file", kwargs={

@@ -1,0 +1,21 @@
+{
+  "name": "farraen",
+  "version": "1.0.0",
+  "description": "Build assets for the WeldLog Bronze & Midnight theme",
+  "scripts": {
+    "build:sass": "sass static/scss/main.scss:static/css/main.css --no-source-map --style=compressed",
+    "watch:sass": "sass --watch static/scss/main.scss:static/css/main.css --style=expanded"
+  },
+  "keywords": [
+    "weldlog",
+    "theme"
+  ],
+  "author": "",
+  "license": "MIT",
+  "type": "commonjs",
+  "devDependencies": {
+    "bootstrap": "^5.3.3",
+    "bootstrap-icons": "^1.11.3",
+    "sass": "^1.72.0"
+  }
+}

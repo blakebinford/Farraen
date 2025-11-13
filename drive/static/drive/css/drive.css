@@ -1,14 +1,14 @@
 :root {
-  --drive-bg: #f5f6fa;
-  --drive-border: #dbe1f3;
-  --drive-text-muted: #6b7280;
-  --drive-surface: #ffffff;
+  --drive-bg: var(--bg);
+  --drive-border: var(--border);
+  --drive-text-muted: var(--muted);
+  --drive-surface: var(--surface);
   --drive-rail-width: 260px;
   --drive-drawer-width: 420px;
 }
 
 .drive-shell {
-  background: var(--drive-bg);
+  background: transparent;
   min-height: calc(100vh - 120px);
 }
 

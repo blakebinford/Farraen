@@ -1,8 +1,9 @@
 {% load drive_extras %}
+<div class="drive-preview">
 {% if node.latest_version %}
   {% with ct=node.latest_version.content_type|default:"" %}
     {% if ct|slice:":15" == "application/pdf" %}
-      <iframe class="w-100 border rounded" style="height:60vh"
+      <iframe class="w-100 border-0 rounded" style="height:60vh"
               src="{% url 'drive_file_stream' org.slug project.slug node.id %}#view=FitH"
               title="PDF preview"></iframe>
     {% elif "wordprocessingml" in ct %}
@@ -107,3 +108,4 @@
 {% else %}
   <p class="text-muted">No versions available.</p>
 {% endif %}
+</div>

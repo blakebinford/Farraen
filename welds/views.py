@@ -2108,73 +2108,169 @@ def weld_dashboard_drilldown(request, org_slug, project_slug):
     forbidden = _require_project_membership(request, project)
     if forbidden:
         return forbidden
+
     body_data = _extract_json_body(request)
-    dimension = request.GET.get("dimension") or request.POST.get("dimension")
-    if not dimension and isinstance(body_data, dict):
-        dimension = body_data.get("dimension")
+    cluster_type = request.GET.get("dimension") or request.POST.get("dimension")
+    if not cluster_type and isinstance(body_data, dict):
+        cluster_type = body_data.get("dimension") or body_data.get("cluster_type")
+    if not cluster_type:
+        return HttpResponseBadRequest("dimension is required")
+
+    raw_cluster_keys = request.GET.get("cluster_keys") or request.POST.get("cluster_keys")
+    if not raw_cluster_keys and isinstance(body_data, dict):
+        raw_cluster_keys = body_data.get("cluster_keys") or body_data.get("cluster_filters")
+
     key = request.GET.get("key") or request.POST.get("key")
     if not key and isinstance(body_data, dict):
         key = body_data.get("key")
-    if not dimension or not key:
-        return HttpResponseBadRequest("dimension and key are required")
+
+    cluster_filters: dict = {}
+    if isinstance(raw_cluster_keys, str):
+        try:
+            cluster_filters = json.loads(raw_cluster_keys) or {}
+        except json.JSONDecodeError:
+            cluster_filters = {}
+    elif isinstance(raw_cluster_keys, dict):
+        cluster_filters = raw_cluster_keys
+    if not cluster_filters and key:
+        cluster_filters = {cluster_type: key}
+
+    def _parse_int_param(name: str, default: int) -> int:
+        value = request.GET.get(name) or request.POST.get(name)
+        if value is None and isinstance(body_data, dict):
+            value = body_data.get(name)
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default
+
+    page = _parse_int_param("page", 1)
+    page_size = _parse_int_param("page_size", 50)
+    sort = request.GET.get("sort") or request.POST.get("sort")
+    if not sort and isinstance(body_data, dict):
+        sort = body_data.get("sort")
+
     filters = _parse_dashboard_filters(request)
-    pk_ids, weld_ids, sources, normalized_values = _parse_weld_selection(
-        request, body_data=body_data
-    )
-    selection = None
-    if pk_ids or weld_ids:
-        selection = {"pk_ids": pk_ids, "weld_ids": weld_ids}
+
     if logger.isEnabledFor(logging.DEBUG):
         logger.debug(
-            "Parsed weld drilldown selection",
+            "Parsed drilldown request",
             extra={
                 "project_id": project.id,
-                "dimension": dimension,
-                "key": key,
-                "raw_weld_id_sources": sources,
-                "normalized_weld_id_values": normalized_values,
-                "pk_ids": sorted(pk_ids),
-                "weld_ids": sorted(weld_ids),
+                "cluster_type": cluster_type,
+                "cluster_filters": cluster_filters,
+                "page": page,
+                "page_size": page_size,
+                "sort": sort,
             },
         )
-    rows = build_drilldown(project, filters, dimension, key, selection=selection)
+
+    result = build_drilldown(
+        project,
+        filters,
+        cluster_type,
+        cluster_filters,
+        page=page,
+        page_size=page_size,
+        sort=sort,
+    )
+
+    def _serialize_row(row: dict) -> dict:
+        flagged_at = row.get("flagged_at")
+        repair_date = row.get("repair_date")
+        weld_inches = row.get("weld_inches")
+        wall_norm = row.get("wall_thickness_norm")
+        if isinstance(weld_inches, Decimal):
+            weld_inches = float(weld_inches)
+        if isinstance(wall_norm, Decimal):
+            wall_norm = format(wall_norm, ".3f")
+        return {
+            "id": row.get("id"),
+            "weld_pk": row.get("weld_pk"),
+            "weld_id": row.get("weld_id"),
+            "flagged_at": flagged_at.isoformat() if flagged_at else None,
+            "repair_date": repair_date.isoformat() if repair_date else None,
+            "repair_stencil": row.get("repair_stencil"),
+            "welder_name": row.get("welder_name"),
+            "welder_stencil": row.get("welder_stencil"),
+            "nominal_od": row.get("nominal_od"),
+            "wall_thickness_norm": wall_norm,
+            "weld_inches": weld_inches,
+            "length_estimated": row.get("length_estimated"),
+            "length_basis": row.get("length_basis"),
+            "nde_rig": row.get("nde_rig"),
+            "defect_code_snapshot": row.get("defect_code_snapshot"),
+            "attempt_count": row.get("attempt_count"),
+            "comments": row.get("comments"),
+            "status": row.get("status"),
+        }
+
     if request.GET.get("format") == "csv":
+        csv_result = build_drilldown(
+            project,
+            filters,
+            cluster_type,
+            cluster_filters,
+            page=1,
+            page_size=None,
+            sort=sort,
+        )
         response = HttpResponse(content_type="text/csv")
         response["Content-Disposition"] = "attachment; filename=repair-drilldown.csv"
         writer = csv.writer(response)
         writer.writerow(
             [
+                "repair_id",
                 "weld_id",
-                "weld_date",
-                "weld_length_inches",
+                "flagged_at",
+                "repair_date",
+                "nominal_od",
+                "wall_thickness",
+                "weld_inches",
                 "length_estimated",
                 "length_basis",
-                "welder",
-                "stencil",
-                "heat_number",
-                "pipe_size",
-                "od",
-                "wps",
+                "primary_welder",
+                "welder_stencil",
+                "repair_stencil",
+                "nde_rig",
+                "defect_code",
+                "attempt_count",
+                "status",
+                "comments",
             ]
         )
-        for row in rows:
+        for row in csv_result["results"]:
+            serialized = _serialize_row(row)
             writer.writerow(
                 [
-                    row["weld_id"],
-                    row["weld_date"].isoformat() if row["weld_date"] else "",
-                    row["weld_length_inches"],
-                    row["length_estimated"],
-                    row["length_basis"],
-                    row["welder"],
-                    row["stencil"],
-                    row["heat_number"],
-                    row["pipe_size"],
-                    row["od"],
-                    row["wps"],
+                    serialized["id"],
+                    serialized["weld_id"],
+                    serialized["flagged_at"] or "",
+                    serialized["repair_date"] or "",
+                    serialized["nominal_od"] or "",
+                    serialized["wall_thickness_norm"] or "",
+                    serialized["weld_inches"],
+                    serialized["length_estimated"],
+                    serialized["length_basis"] or "",
+                    serialized["welder_name"] or "",
+                    serialized["welder_stencil"] or "",
+                    serialized["repair_stencil"] or "",
+                    serialized["nde_rig"] or "",
+                    serialized["defect_code_snapshot"] or "",
+                    serialized["attempt_count"],
+                    serialized["status"],
+                    serialized["comments"] or "",
                 ]
-        )
+            )
         return response
-    return JsonResponse([_jsonify(row) for row in rows], safe=False)
+
+    payload = {
+        "results": [_serialize_row(row) for row in result["results"]],
+        "total_count": result["total_count"],
+        "page": result["page"],
+        "page_size": result["page_size"],
+    }
+    return JsonResponse(payload)
 
 
 def _serialize_attempt(attempt: RepairAttempt) -> dict:

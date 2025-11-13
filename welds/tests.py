@@ -1,5 +1,5 @@
 import json
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from unittest.mock import patch
 
@@ -11,9 +11,10 @@ from drive.models import FileNode, Folder
 from organizations.models import Membership, Organization
 from projects.models import Project, ProjectMember
 
-from .analytics import build_dashboard_analytics
+from .analytics import build_dashboard_analytics, build_drilldown
 from .models import (
     MaterialHeat,
+    NominalPipeOD,
     NDERig,
     RepairAttempt,
     Reinspection,
@@ -961,6 +962,18 @@ class DashboardAnalyticsTests(TestCase):
             name="WPS-ANALYTICS-001.pdf",
             doc_type=FileNode.DocType.WPS,
         )
+        self.nde_rig = NDERig.objects.create(
+            org=self.org,
+            project=self.project,
+            name="Rig-Alpha",
+        )
+        self.nde_rig.refresh_from_db()
+        NominalPipeOD.objects.create(
+            org=self.org,
+            label='12"',
+            actual_od=Decimal("12.7500"),
+            tolerance=Decimal("0.100"),
+        )
 
     def _create_weld(
         self,
@@ -1043,30 +1056,34 @@ class DashboardAnalyticsTests(TestCase):
         weld.heat_number = "HEAT-001"
         weld.pipe_size = "12\""
         weld.od = Decimal("12.750")
+        weld.material1_wall_thickness_in = Decimal("0.375")
+        weld.nde_rig = self.nde_rig
         weld.wps_document = self.wps_document
-        weld.save(update_fields=["heat_number", "pipe_size", "od", "wps_document"])
+        weld.save()
 
         WeldRepair.objects.create(
             weld=weld,
             flagged_at=date(2024, 5, 2),
             repair_date=date(2024, 5, 2),
             defect_code_snapshot="INCLUSION",
+            original_nderig=self.nde_rig.name,
         )
         WeldRepair.objects.create(
             weld=weld,
             flagged_at=date(2024, 5, 3),
             repair_date=date(2024, 5, 3),
             defect_code_snapshot="SLAG",
+            original_nderig=self.nde_rig.name,
         )
 
         analytics = build_dashboard_analytics(self.project, {})
         heat_cluster = analytics["clustering"]["heat_number"][0]
         self.assertEqual(heat_cluster["weld_inches"], Decimal("50.00"))
-        pair_heat_wps = analytics["pair_clustering"]["heat_wps"][0]
-        self.assertEqual(pair_heat_wps["count"], 2)
-        self.assertEqual(pair_heat_wps["weld_inches"], Decimal("50.00"))
+        nominal_cluster = analytics["clustering"]["nominal_od_wall"][0]
+        self.assertEqual(nominal_cluster["count"], 2)
+        self.assertEqual(nominal_cluster["weld_inches"], Decimal("50.00"))
         self.assertEqual(
-            pair_heat_wps["repair_rate_per_1000_inches"],
+            nominal_cluster["repair_rate_per_1000_inches"],
             Decimal("40.00"),
         )
         heatmap_entry = analytics["heatmap"][0]
@@ -1075,9 +1092,13 @@ class DashboardAnalyticsTests(TestCase):
             heatmap_entry["repair_rate_per_1000_inches"],
             Decimal("40.00"),
         )
-        pair_pipe_od = analytics["pair_clustering"]["pipe_od"][0]
-        self.assertEqual(pair_pipe_od["count"], 2)
-        self.assertEqual(pair_pipe_od["weld_inches"], Decimal("50.00"))
+        welder_wps = analytics["pair_clustering"]["welder_wps"][0]
+        self.assertEqual(welder_wps["count"], 2)
+        self.assertEqual(welder_wps["weld_inches"], Decimal("50.00"))
+        nde_welder = analytics["pair_clustering"]["nde_welder"][0]
+        self.assertEqual(nde_welder["count"], 2)
+        nde_nominal = analytics["pair_clustering"]["nde_nominal"][0]
+        self.assertEqual(nde_nominal["count"], 2)
 
     def test_length_fallback_marks_estimates(self):
         weld = Weld.objects.create(
@@ -1419,7 +1440,7 @@ class WeldDashboardDrilldownSelectionTests(TestCase):
         cls.weld_c = Weld.objects.create(
             project=cls.project,
             weld_id="W-003",
-            heat_number="H-100",
+            heat_number="H-200",
             weld_length_inches=Decimal("14.0"),
             weld_date=date(2023, 1, 3),
         )
@@ -1429,6 +1450,26 @@ class WeldDashboardDrilldownSelectionTests(TestCase):
             heat_number="H-100",
             weld_length_inches=Decimal("16.0"),
             weld_date=date(2023, 1, 4),
+        )
+        cls.repair_a = WeldRepair.objects.create(
+            weld=cls.weld_a,
+            flagged_at=date(2023, 1, 5),
+            repair_stencil="R1",
+        )
+        cls.repair_b = WeldRepair.objects.create(
+            weld=cls.weld_b,
+            flagged_at=date(2023, 1, 6),
+            repair_stencil="R2",
+        )
+        cls.repair_c = WeldRepair.objects.create(
+            weld=cls.weld_c,
+            flagged_at=date(2023, 1, 7),
+            repair_stencil="R3",
+        )
+        cls.cross_repair = WeldRepair.objects.create(
+            weld=cls.cross_project_weld,
+            flagged_at=date(2023, 1, 8),
+            repair_stencil="RX",
         )
 
     def setUp(self):
@@ -1443,79 +1484,316 @@ class WeldDashboardDrilldownSelectionTests(TestCase):
             },
         )
 
-    def _assert_weld_ids(self, response, expected_ids):
+    def _assert_repair_weld_ids(self, response, expected_weld_ids):
         self.assertEqual(response.status_code, 200)
-        data = response.json()
-        self.assertEqual(len(data), len(expected_ids))
-        self.assertEqual({row["weld_id"] for row in data}, set(expected_ids))
+        payload = response.json()
+        self.assertEqual(payload["total_count"], len(expected_weld_ids))
+        self.assertEqual(
+            {row["weld_id"] for row in payload["results"]},
+            set(expected_weld_ids),
+        )
 
-    def test_filters_with_json_pk_selection(self):
+    def test_accepts_cluster_keys_in_json_body(self):
         payload = {
             "dimension": "heat_number",
-            "key": "H-100",
-            "weld_ids": [self.weld_a.pk, self.weld_b.pk],
+            "cluster_keys": {"heat_number": "H-100"},
         }
         response = self.client.post(
             self._url(),
             data=json.dumps(payload),
             content_type="application/json",
         )
-        self._assert_weld_ids(response, {self.weld_a.weld_id, self.weld_b.weld_id})
+        self._assert_repair_weld_ids(
+            response, {self.weld_a.weld_id, self.weld_b.weld_id}
+        )
 
-    def test_filters_with_json_business_ids(self):
+    def test_accepts_cluster_keys_as_query_string(self):
         response = self.client.get(
             self._url(),
             {
                 "dimension": "heat_number",
-                "key": "H-100",
-                "weld_ids": json.dumps([self.weld_a.weld_id, self.weld_b.weld_id]),
+                "cluster_keys": json.dumps({"heat_number": "H-100"}),
             },
         )
-        self._assert_weld_ids(response, {self.weld_a.weld_id, self.weld_b.weld_id})
-
-    def test_filters_with_comma_separated_ids(self):
-        response = self.client.get(
-            self._url(),
-            {
-                "dimension": "heat_number",
-                "key": "H-100",
-                "weld_ids": f"{self.weld_a.pk},{self.weld_b.pk}",
-            },
+        self._assert_repair_weld_ids(
+            response, {self.weld_a.weld_id, self.weld_b.weld_id}
         )
-        self._assert_weld_ids(response, {self.weld_a.weld_id, self.weld_b.weld_id})
 
-    def test_filters_with_repeated_query_params(self):
-        response = self.client.get(
-            self._url(),
-            {
-                "dimension": "heat_number",
-                "key": "H-100",
-                "weld_ids[]": [self.weld_a.weld_id, self.weld_b.weld_id],
-            },
-        )
-        self._assert_weld_ids(response, {self.weld_a.weld_id, self.weld_b.weld_id})
-
-    def test_returns_full_set_when_selection_missing(self):
+    def test_falls_back_to_key_parameter(self):
         response = self.client.get(
             self._url(),
             {"dimension": "heat_number", "key": "H-100"},
         )
-        self._assert_weld_ids(
-            response,
-            {
-                self.weld_a.weld_id,
-                self.weld_b.weld_id,
-                self.weld_c.weld_id,
-            },
+        self._assert_repair_weld_ids(
+            response, {self.weld_a.weld_id, self.weld_b.weld_id}
         )
 
-    def test_ignores_cross_project_ids(self):
+    def test_returns_empty_results_when_cluster_missing(self):
+        response = self.client.get(self._url(), {"dimension": "heat_number"})
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["total_count"], 0)
+
+    def test_ignores_repairs_from_other_projects(self):
         response = self.client.get(
             self._url(),
-            {
-                "dimension": "heat_number",
-                "key": "H-100",
-                "weld_ids": f"{self.weld_a.pk},{self.cross_project_weld.pk}",
+            {"dimension": "heat_number", "key": "H-100"},
+        )
+        ids = {row["weld_id"] for row in response.json()["results"]}
+        self.assertNotIn(self.cross_project_weld.weld_id, ids)
+
+
+class WeldDashboardAnalyticsTests(TestCase):
+    def setUp(self):
+        User = get_user_model()
+        self.user = User.objects.create_user(
+            email="analytics@example.com",
+            password="pass1234",
+        )
+        self.org = Organization.objects.create(
+            name="Acme", slug="acme-analytics", owner=self.user
+        )
+        Membership.objects.create(
+            org=self.org,
+            user=self.user,
+            role=Membership.Role.ADMIN,
+        )
+        self.project = Project.objects.create(
+            org=self.org,
+            name="Pipeline B",
+            slug="pipeline-b",
+            created_by=self.user,
+            status=Project.Status.ACTIVE,
+        )
+        ProjectMember.objects.create(
+            project=self.project,
+            user=self.user,
+            role=ProjectMember.Role.MEMBER,
+        )
+        self.client.force_login(self.user)
+
+        self.welder = Welder.objects.create(
+            org=self.org,
+            name="Alice Welder",
+            stencil="A100",
+        )
+        self.second_welder = Welder.objects.create(
+            org=self.org,
+            name="Bob Welder",
+            stencil="B200",
+        )
+        self.nde_rig = NDERig.objects.create(
+            org=self.org,
+            project=self.project,
+            name="Rig-1",
+        )
+        self.nde_rig.refresh_from_db()
+
+        NominalPipeOD.objects.create(
+            org=self.org,
+            label='6"',
+            actual_od=Decimal("6.6250"),
+            tolerance=Decimal("0.100"),
+        )
+        NominalPipeOD.objects.create(
+            org=self.org,
+            label='10"',
+            actual_od=Decimal("10.7500"),
+            tolerance=Decimal("0.100"),
+        )
+
+        self.start_date = date(2024, 1, 1)
+        self.end_date = date(2024, 1, 31)
+
+    def _create_weld(
+        self,
+        weld_id: str,
+        od: Decimal,
+        wall: Decimal,
+        length: Decimal,
+        *,
+        welder: Welder | None = None,
+    ) -> Weld:
+        weld = Weld.objects.create(
+            project=self.project,
+            weld_id=weld_id,
+            weld_length_inches=length,
+            weld_length_source=Weld.WeldLengthSource.MEASURED,
+            weld_length_basis="Measured",
+            primary_welder=welder or self.welder,
+            date_welded=self.start_date,
+            od=od,
+            material1_wall_thickness_in=wall,
+            nde_rig=self.nde_rig,
+        )
+        weld.refresh_from_db()
+        return weld
+
+    def _create_repair(self, weld: Weld, flagged_at: date, nde_rig_label: str) -> WeldRepair:
+        return WeldRepair.objects.create(
+            weld=weld,
+            flagged_at=flagged_at,
+            original_nderig=nde_rig_label,
+            repair_stencil="R100",
+            defect_code_snapshot="DC-1",
+        )
+
+    def _create_sample_data(self):
+        weld_one = self._create_weld(
+            "W-100",
+            Decimal("6.6250"),
+            Decimal("0.280"),
+            Decimal("10.0"),
+        )
+        weld_two = self._create_weld(
+            "W-200",
+            Decimal("10.7500"),
+            Decimal("0.500"),
+            Decimal("20.0"),
+            welder=self.second_welder,
+        )
+        repair_a = self._create_repair(weld_one, self.start_date, "Rig-1")
+        repair_b = self._create_repair(weld_one, self.start_date + timedelta(days=1), "Rig-1")
+        repair_c = self._create_repair(weld_two, self.start_date + timedelta(days=2), "Rig-2")
+        return weld_one, weld_two, (repair_a, repair_b, repair_c)
+
+    def test_weld_populates_nominal_and_wall(self):
+        weld = self._create_weld(
+            "W-300",
+            Decimal("6.6250"),
+            Decimal("0.281"),
+            Decimal("12.0"),
+        )
+        self.assertEqual(weld.nominal_od, '6"')
+        self.assertEqual(weld.wall_thickness_norm, Decimal("0.281"))
+
+    def test_dashboard_clusters_include_nominal_wall_bucket(self):
+        weld_one, _, repairs = self._create_sample_data()
+        filters = {"start_date": self.start_date, "end_date": self.end_date}
+        analytics = build_dashboard_analytics(self.project, filters)
+        nominal_clusters = analytics["clustering"]["nominal_od_wall"]
+        bucket = next(
+            (
+                item
+                for item in nominal_clusters
+                if item.get("nominal_od") == '6"'
+                and item.get("wall_thickness_norm") == "0.280"
+            ),
+            None,
+        )
+        self.assertIsNotNone(bucket)
+        self.assertEqual(bucket["count"], 2)
+        self.assertEqual(bucket["label"], '6" × 0.280')
+        self.assertEqual(Decimal(str(bucket["weld_inches"])), Decimal("10.00"))
+        self.assertEqual(
+            Decimal(str(bucket["repair_rate_per_1000_inches"])),
+            Decimal("200.00"),
+        )
+
+        welder_pair = analytics["pair_clustering"]["welder_wps"]
+        entry = next(
+            (
+                item
+                for item in welder_pair
+                if item.get("welder") == self.welder.stencil
+            ),
+            None,
+        )
+        self.assertIsNotNone(entry)
+        self.assertEqual(entry["count"], 2)
+
+        nde_nominal = analytics["pair_clustering"]["nde_nominal"]
+        nde_entry = next(
+            (
+                item
+                for item in nde_nominal
+                if item.get("nde_rig") == "Rig-1"
+                and item.get("nominal_od") == '6"'
+            ),
+            None,
+        )
+        self.assertIsNotNone(nde_entry)
+        self.assertEqual(nde_entry["count"], 2)
+
+    def test_build_drilldown_filters_repairs(self):
+        weld_one, weld_two, repairs = self._create_sample_data()
+        filters = {"start_date": self.start_date, "end_date": self.end_date}
+        result = build_drilldown(
+            self.project,
+            filters,
+            "nominal_od_wall",
+            {"nominal_od": '6"', "wall_thickness_norm": "0.280"},
+        )
+        self.assertEqual(result["total_count"], 2)
+        returned_ids = {row["id"] for row in result["results"]}
+        self.assertSetEqual(returned_ids, {repairs[0].id, repairs[1].id})
+        self.assertTrue(all(row["weld_id"] == weld_one.weld_id for row in result["results"]))
+
+        paginated = build_drilldown(
+            self.project,
+            filters,
+            "nominal_od_wall",
+            {"nominal_od": '6"', "wall_thickness_norm": "0.280"},
+            page=1,
+            page_size=1,
+            sort="flagged_at",
+        )
+        self.assertEqual(paginated["total_count"], 2)
+        self.assertEqual(len(paginated["results"]), 1)
+        second_page = build_drilldown(
+            self.project,
+            filters,
+            "nominal_od_wall",
+            {"nominal_od": '6"', "wall_thickness_norm": "0.280"},
+            page=2,
+            page_size=1,
+            sort="flagged_at",
+        )
+        self.assertEqual(len(second_page["results"]), 1)
+        combined_ids = {
+            paginated["results"][0]["id"],
+            second_page["results"][0]["id"],
+        }
+        self.assertSetEqual(combined_ids, {repairs[0].id, repairs[1].id})
+
+        other_cluster = build_drilldown(
+            self.project,
+            filters,
+            "nominal_od_wall",
+            {"nominal_od": '10"', "wall_thickness_norm": "0.500"},
+        )
+        self.assertEqual(other_cluster["total_count"], 1)
+        self.assertEqual(other_cluster["results"][0]["id"], repairs[2].id)
+        self.assertEqual(other_cluster["results"][0]["weld_id"], weld_two.weld_id)
+
+    def test_drilldown_view_returns_paginated_results_and_csv(self):
+        weld_one, _, _ = self._create_sample_data()
+        url = reverse(
+            "welds:weld_dashboard_drilldown",
+            kwargs={
+                "org_slug": self.org.slug,
+                "project_slug": self.project.slug,
             },
         )
-        self._assert_weld_ids(response, {self.weld_a.weld_id})
+        params = {
+            "dimension": "nominal_od_wall",
+            "cluster_keys": json.dumps({"nominal_od": '6"', "wall_thickness_norm": "0.280"}),
+            "start_date": self.start_date.isoformat(),
+            "end_date": self.end_date.isoformat(),
+        }
+        response = self.client.get(url, params)
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["total_count"], 2)
+        self.assertTrue(all(item["nominal_od"] == '6"' for item in payload["results"]))
+
+        csv_params = params | {"format": "csv"}
+        csv_response = self.client.get(url, csv_params)
+        self.assertEqual(csv_response.status_code, 200)
+        self.assertEqual(
+            csv_response["Content-Type"],
+            "text/csv",
+        )
+        content = csv_response.content.decode("utf-8")
+        self.assertIn("repair_id,weld_id,flagged_at", content)
+        self.assertIn(weld_one.weld_id, content)

@@ -1,5 +1,6 @@
 import logging
-from decimal import Decimal
+import logging
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 from django.conf import settings
 from django.db import models
@@ -10,6 +11,7 @@ from drive.models import FileNode, Folder
 
 
 logger = logging.getLogger(__name__)
+THREE_DECIMAL = Decimal("0.001")
 
 
 class MaterialHeat(models.Model):
@@ -166,6 +168,63 @@ class NDERig(models.Model):
         )
 
 
+class NominalPipeOD(models.Model):
+    """Configurable mapping of actual outer diameters to nominal labels."""
+
+    _cache: dict[int, list["NominalPipeOD"]] = {}
+
+    org = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.CASCADE,
+        related_name="nominal_pipe_ods",
+    )
+    label = models.CharField(max_length=32)
+    actual_od = models.DecimalField(max_digits=8, decimal_places=4)
+    tolerance = models.DecimalField(
+        max_digits=6,
+        decimal_places=3,
+        default=Decimal("0.125"),
+        help_text="Allowable +/- tolerance when matching an actual OD.",
+    )
+
+    class Meta:
+        ordering = ["actual_od", "label"]
+        unique_together = [("org", "label")]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["org", "actual_od"],
+                name="unique_nominal_od_per_org",
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.label} ({self.actual_od} in)"
+
+    @classmethod
+    def configs_for_org(cls, org_id: int) -> list["NominalPipeOD"]:
+        cache = cls._cache.get(org_id)
+        if cache is None:
+            cache = list(cls.objects.filter(org_id=org_id).order_by("actual_od"))
+            cls._cache[org_id] = cache
+        return cache
+
+    @classmethod
+    def clear_cache(cls, org_id: int | None = None):
+        if org_id is None:
+            cls._cache.clear()
+        else:
+            cls._cache.pop(org_id, None)
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        type(self).clear_cache(self.org_id)
+
+    def delete(self, *args, **kwargs):
+        org_id = self.org_id
+        super().delete(*args, **kwargs)
+        type(self).clear_cache(org_id)
+
+
 class Weld(models.Model):
     class WeldLengthSource(models.TextChoices):
         MEASURED = "MEASURED", "Measured"
@@ -302,6 +361,21 @@ class Weld(models.Model):
         blank=True,
         help_text="Outer diameter in inches.",
     )
+    nominal_od = models.CharField(
+        max_length=32,
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="Denormalized nominal pipe size label (e.g. 6\")",
+    )
+    wall_thickness_norm = models.DecimalField(
+        max_digits=6,
+        decimal_places=3,
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="Normalized wall thickness in inches rounded to 0.001",
+    )
     wps_document = models.ForeignKey(
         FileNode,
         on_delete=models.SET_NULL,
@@ -362,6 +436,10 @@ class Weld(models.Model):
             models.Index(fields=["heat_number"]),
             models.Index(fields=["pipe_size"]),
             models.Index(fields=["od"]),
+            models.Index(fields=["nominal_od"]),
+            models.Index(fields=["wall_thickness_norm"]),
+            models.Index(fields=["project", "nominal_od"]),
+            models.Index(fields=["project", "wall_thickness_norm"]),
             models.Index(fields=["wps_document"]),
             models.Index(fields=["primary_welder"]),
             models.Index(fields=["primary_stencil"]),
@@ -385,6 +463,16 @@ class Weld(models.Model):
                 self.od = outer_diameter
         if not self.wps_document and self.material1_heat_id:
             self.wps_document = self.material1_heat.wps_document
+        wall_value = self._determine_wall_thickness_norm()
+        if wall_value is not None:
+            self.wall_thickness_norm = wall_value
+        else:
+            self.wall_thickness_norm = None
+        nominal_label = self._determine_nominal_od_label()
+        if nominal_label:
+            self.nominal_od = nominal_label
+        elif self.nominal_od and self.nominal_od.strip() == "":
+            self.nominal_od = None
         super().save(*args, **kwargs)
 
     def _select_outer_diameter(self):
@@ -402,6 +490,53 @@ class Weld(models.Model):
             if value is not None:
                 return value
         return None
+
+    def _determine_wall_thickness_norm(self):
+        candidates = [
+            self.wall_thickness_norm,
+            self.material1_wall_thickness_in,
+            getattr(self.material1_heat, "wall_thickness_in", None)
+            if self.material1_heat_id
+            else None,
+            self.material2_wall_thickness_in,
+            getattr(self.material2_heat, "wall_thickness_in", None)
+            if self.material2_heat_id
+            else None,
+        ]
+        for value in candidates:
+            if value is None:
+                continue
+            try:
+                dec = Decimal(value)
+            except (TypeError, ValueError, InvalidOperation):
+                continue
+            return dec.quantize(THREE_DECIMAL, rounding=ROUND_HALF_UP)
+        return None
+
+    def _determine_nominal_od_label(self):
+        if not self.project_id:
+            return self.nominal_od or None
+        configs = NominalPipeOD.configs_for_org(self.project.org_id)
+        actual = self.od
+        if actual is None:
+            actual = self._select_outer_diameter()
+        if actual is None:
+            return self.nominal_od or None
+        try:
+            actual_dec = Decimal(actual)
+        except (TypeError, ValueError, InvalidOperation):
+            return self.nominal_od or None
+        best = None
+        for config in configs:
+            diff = abs(actual_dec - config.actual_od)
+            if diff <= config.tolerance:
+                if best is None or diff < best[0]:
+                    best = (diff, config)
+        if best:
+            return best[1].label
+        if self.nominal_od:
+            return self.nominal_od
+        return "Unspecified"
 
     @property
     def weld_inches(self) -> Decimal:
@@ -523,6 +658,7 @@ class WeldRepair(models.Model):
             models.Index(fields=["weld", "status"]),
             models.Index(fields=["status"]),
             models.Index(fields=["flagged_at"]),
+            models.Index(fields=["weld", "flagged_at"]),
             models.Index(fields=["reinspection_passed_at"]),
         ]
 

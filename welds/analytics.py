@@ -6,20 +6,21 @@ import logging
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date, timedelta
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from math import ceil
 from statistics import mean, median, pstdev
 from typing import Iterable, List, Tuple
 
 from django.db.models import Prefetch, Q
 
-from .models import Weld, WeldRepair
+from .models import NominalPipeOD, Weld, WeldRepair
 
 
 DecimalZero = Decimal("0")
 DecimalOneThousand = Decimal("1000")
 DecimalOne = Decimal("1")
 TWO_PLACE = Decimal("0.01")
+THREE_DECIMAL = Decimal("0.001")
 
 CLUSTER_MIN_COUNT = 2
 
@@ -153,6 +154,70 @@ def resolve_weld_lengths(welds: Iterable[Weld]) -> dict[int, WeldLengthInfo]:
         )
 
     return results
+
+
+def _normalize_wall(value) -> Decimal | None:
+    if value is None:
+        return None
+    try:
+        dec = Decimal(value)
+    except (TypeError, ValueError, InvalidOperation):
+        return None
+    return dec.quantize(THREE_DECIMAL, rounding=ROUND_HALF_UP)
+
+
+def _wall_thickness_for_weld(weld: Weld) -> Decimal | None:
+    if weld.wall_thickness_norm is not None:
+        return weld.wall_thickness_norm
+    candidates = [
+        weld.material1_wall_thickness_in,
+        getattr(weld.material1_heat, "wall_thickness_in", None)
+        if getattr(weld, "material1_heat", None)
+        else None,
+        weld.material2_wall_thickness_in,
+        getattr(weld.material2_heat, "wall_thickness_in", None)
+        if getattr(weld, "material2_heat", None)
+        else None,
+    ]
+    for value in candidates:
+        normalized = _normalize_wall(value)
+        if normalized is not None:
+            return normalized
+    return None
+
+
+def _nominal_label_for_weld(weld: Weld, configs: list[NominalPipeOD]) -> str:
+    if weld.nominal_od:
+        return weld.nominal_od
+    actual = weld.od if weld.od is not None else weld._select_outer_diameter()
+    if actual is None:
+        return "Unspecified"
+    try:
+        actual_dec = Decimal(actual)
+    except (TypeError, ValueError, InvalidOperation):
+        return "Unspecified"
+    best = None
+    for config in configs:
+        diff = abs(actual_dec - config.actual_od)
+        if diff <= config.tolerance:
+            if best is None or diff < best[0]:
+                best = (diff, config)
+    if best:
+        return best[1].label
+    return "Unspecified"
+
+
+def _default_cluster_stats():
+    return {"count": 0, "weld_inches": DecimalZero, "weld_ids": set()}
+
+
+def _increment_cluster(container, key, weld_id: int, length: Decimal):
+    stats = container[key]
+    stats["count"] += 1
+    seen = stats["weld_ids"]
+    if weld_id not in seen:
+        stats["weld_inches"] += length
+        seen.add(weld_id)
 
 
 def _group_daily(values: Iterable[Tuple[date, Decimal, Weld]]) -> dict[date, dict[str, Decimal]]:
@@ -485,17 +550,19 @@ def build_dashboard_analytics(project, filters: dict) -> dict:
 
     # Repairs
     repair_qs = WeldRepair.objects.filter(weld__in=[weld.pk for weld in welds])
+    repair_qs = repair_qs.filter(flagged_at__isnull=False)
     if start_date:
-        repair_qs = repair_qs.filter(
-            Q(flagged_at__gte=start_date)
-            | (Q(flagged_at__isnull=True) & Q(repair_date__gte=start_date))
-        )
+        repair_qs = repair_qs.filter(flagged_at__gte=start_date)
     if end_date:
-        repair_qs = repair_qs.filter(
-            Q(flagged_at__lte=end_date)
-            | (Q(flagged_at__isnull=True) & Q(repair_date__lte=end_date))
+        repair_qs = repair_qs.filter(flagged_at__lte=end_date)
+    repairs = list(
+        repair_qs.select_related(
+            "weld",
+            "weld__primary_welder",
+            "weld__wps_document",
+            "weld__nde_rig",
         )
-    repairs = list(repair_qs.select_related("weld", "weld__primary_welder"))
+    )
 
     repairs_by_day: dict[date, dict[str, Decimal]] = defaultdict(
         lambda: {"repairs": 0, "weld_inches": DecimalZero}
@@ -505,9 +572,9 @@ def build_dashboard_analytics(project, filters: dict) -> dict:
         weld = repair.weld
         info = length_info.get(weld.pk)
         length = info.length if info else DecimalZero
-        event_date = repair.flagged_at or repair.repair_date
+        event_date = repair.flagged_at
         if event_date is None:
-            event_date = weld.weld_date or weld.date_welded
+            continue
         entry = repairs_by_day[event_date]
         entry["repairs"] += 1
         key = (event_date, weld.pk)
@@ -585,169 +652,156 @@ def build_dashboard_analytics(project, filters: dict) -> dict:
         }
 
     # Clustering
-    def _cluster_key(value, label="Unspecified"):
-        return value if value else label
-
-    clustering_dimensions = {
-        "heat_number": defaultdict(lambda: {"count": 0, "weld_inches": DecimalZero}),
-        "pipe_size": defaultdict(lambda: {"count": 0, "weld_inches": DecimalZero}),
-        "od": defaultdict(lambda: {"count": 0, "weld_inches": DecimalZero}),
-        "wps": defaultdict(lambda: {"count": 0, "weld_inches": DecimalZero}),
-        "welder": defaultdict(lambda: {"count": 0, "weld_inches": DecimalZero}),
+    nominal_configs = NominalPipeOD.configs_for_org(project.org_id)
+    single_clusters = {
+        "heat_number": defaultdict(_default_cluster_stats),
+        "welder": defaultdict(_default_cluster_stats),
+        "wps": defaultdict(_default_cluster_stats),
+        "nominal_od_wall": defaultdict(_default_cluster_stats),
     }
-    clustering_welds = {
-        dimension: defaultdict(set) for dimension in clustering_dimensions
-    }
-
     pair_clusters = {
-        "heat_wps": defaultdict(lambda: {"count": 0, "weld_inches": DecimalZero}),
-        "pipe_od": defaultdict(lambda: {"count": 0, "weld_inches": DecimalZero}),
-    }
-    pair_cluster_welds = {
-        dimension: defaultdict(set) for dimension in pair_clusters
+        "welder_wps": defaultdict(_default_cluster_stats),
+        "nde_welder": defaultdict(_default_cluster_stats),
+        "nde_nominal": defaultdict(_default_cluster_stats),
     }
 
     for repair in repairs:
         weld = repair.weld
         info = length_info.get(weld.pk)
         length = info.length if info else DecimalZero
-        clusters = {
-            "heat_number": _cluster_key(weld.heat_number),
-            "pipe_size": _cluster_key(weld.pipe_size),
-            "od": _cluster_key(str(weld.od) if weld.od is not None else None),
-            "wps": _cluster_key(getattr(weld.wps_document, "name", None)),
-            "welder": _cluster_key(getattr(weld.primary_welder, "stencil", None)),
-        }
-        for dimension, key in clusters.items():
-            bucket = clustering_dimensions[dimension][key]
-            bucket["count"] += 1
-            seen_welds = clustering_welds[dimension][key]
-            if weld.pk not in seen_welds:
-                bucket["weld_inches"] += length
-                seen_welds.add(weld.pk)
+        heat_label = weld.heat_number or "Unspecified"
+        welder_label = getattr(weld.primary_welder, "stencil", None) or "Unspecified"
+        wps_label = getattr(weld.wps_document, "name", None) or "Unspecified"
+        nde_label = (
+            repair.original_nderig
+            or getattr(getattr(weld, "nde_rig", None), "name", None)
+            or "Unspecified"
+        )
+        wall_value = _wall_thickness_for_weld(weld)
+        nominal_label = _nominal_label_for_weld(weld, nominal_configs) or "Unspecified"
+        nominal_key = (nominal_label, wall_value)
 
-        heat_key = clusters["heat_number"]
-        wps_key = clusters["wps"]
-        heat_wps_bucket = pair_clusters["heat_wps"][(heat_key, wps_key)]
-        heat_wps_bucket["count"] += 1
-        heat_wps_seen = pair_cluster_welds["heat_wps"][(heat_key, wps_key)]
-        if weld.pk not in heat_wps_seen:
-            heat_wps_bucket["weld_inches"] += length
-            heat_wps_seen.add(weld.pk)
+        _increment_cluster(single_clusters["heat_number"], heat_label, weld.pk, length)
+        _increment_cluster(single_clusters["welder"], welder_label, weld.pk, length)
+        _increment_cluster(single_clusters["wps"], wps_label, weld.pk, length)
+        _increment_cluster(single_clusters["nominal_od_wall"], nominal_key, weld.pk, length)
 
-        pipe_key = clusters["pipe_size"]
-        od_key = clusters["od"]
-        pipe_od_bucket = pair_clusters["pipe_od"][(pipe_key, od_key)]
-        pipe_od_bucket["count"] += 1
-        pipe_od_seen = pair_cluster_welds["pipe_od"][(pipe_key, od_key)]
-        if weld.pk not in pipe_od_seen:
-            pipe_od_bucket["weld_inches"] += length
-            pipe_od_seen.add(weld.pk)
+        pair_key_welder_wps = (welder_label, wps_label)
+        pair_key_nde_welder = (nde_label, welder_label)
+        pair_key_nde_nominal = (nde_label, nominal_label, wall_value)
+        _increment_cluster(pair_clusters["welder_wps"], pair_key_welder_wps, weld.pk, length)
+        _increment_cluster(pair_clusters["nde_welder"], pair_key_nde_welder, weld.pk, length)
+        _increment_cluster(pair_clusters["nde_nominal"], pair_key_nde_nominal, weld.pk, length)
 
-    clustering_payload = {}
-    for dimension, items in clustering_dimensions.items():
+    def _serialize_cluster_items(items, *, formatter):
         data = []
         for key, stats in items.items():
-            inches = stats["weld_inches"]
             count = stats["count"]
             if count < CLUSTER_MIN_COUNT:
                 continue
+            inches = stats["weld_inches"]
+            denominator = inches if inches else DecimalOne
             rate = (
-                (Decimal(count) / inches) * DecimalOneThousand
-                if inches
+                (Decimal(count) / denominator) * DecimalOneThousand
+                if denominator
                 else DecimalZero
             )
-            data.append(
+            payload = formatter(key)
+            payload.update(
                 {
-                    "key": key,
-                    "label": key,
                     "count": count,
-                    "weld_inches": inches.quantize(
-                        TWO_PLACE, rounding=ROUND_HALF_UP
-                    ),
+                    "weld_inches": inches.quantize(TWO_PLACE, rounding=ROUND_HALF_UP),
                     "repair_rate_per_1000_inches": rate.quantize(
                         TWO_PLACE, rounding=ROUND_HALF_UP
                     ),
                 }
             )
-        data.sort(
-            key=lambda item: (
-                -item["repair_rate_per_1000_inches"],
-                -item["count"],
-            )
-        )
-        clustering_payload[dimension] = data[:10]
-
-    pair_clustering_payload = {}
-    for dimension, items in pair_clusters.items():
-        data = []
-        for key, stats in items.items():
-            inches = stats["weld_inches"]
-            count = stats["count"]
-            if count < CLUSTER_MIN_COUNT:
-                continue
-            rate = (
-                (Decimal(count) / inches) * DecimalOneThousand
-                if inches
-                else DecimalZero
-            )
-            if dimension == "heat_wps":
-                heat_key, wps_key = key
-                label = f"{heat_key} · {wps_key}"
-                drilldown_key = json.dumps({"heat_number": heat_key, "wps": wps_key})
-                data.append(
-                    {
-                        "key": drilldown_key,
-                        "label": label,
-                        "heat_number": heat_key,
-                        "wps": wps_key,
-                        "count": count,
-                        "weld_inches": inches.quantize(
-                            TWO_PLACE, rounding=ROUND_HALF_UP
-                        ),
-                        "repair_rate_per_1000_inches": rate.quantize(
-                            TWO_PLACE, rounding=ROUND_HALF_UP
-                        ),
-                    }
-                )
-            else:
-                pipe_key, od_key = key
-                label = f"{pipe_key} · OD {od_key}"
-                drilldown_key = json.dumps({"pipe_size": pipe_key, "od": od_key})
-                data.append(
-                    {
-                        "key": drilldown_key,
-                        "label": label,
-                        "pipe_size": pipe_key,
-                        "od": od_key,
-                        "count": count,
-                        "weld_inches": inches.quantize(
-                            TWO_PLACE, rounding=ROUND_HALF_UP
-                        ),
-                        "repair_rate_per_1000_inches": rate.quantize(
-                            TWO_PLACE, rounding=ROUND_HALF_UP
-                        ),
-                    }
-                )
+            data.append(payload)
         data.sort(key=lambda item: (-item["repair_rate_per_1000_inches"], -item["count"]))
-        pair_clustering_payload[dimension] = data[:10]
+        return data[:10]
+
+    clustering_payload = {
+        "heat_number": _serialize_cluster_items(
+            single_clusters["heat_number"], formatter=lambda key: {"key": key, "label": key}
+        ),
+        "welder": _serialize_cluster_items(
+            single_clusters["welder"], formatter=lambda key: {"key": key, "label": key}
+        ),
+        "wps": _serialize_cluster_items(
+            single_clusters["wps"], formatter=lambda key: {"key": key, "label": key}
+        ),
+        "nominal_od_wall": _serialize_cluster_items(
+            single_clusters["nominal_od_wall"],
+            formatter=lambda key: {
+                "key": json.dumps(
+                    {
+                        "nominal_od": key[0],
+                        "wall_thickness_norm": str(key[1]) if key[1] is not None else None,
+                    }
+                ),
+                "label": f"{key[0]} × {format(key[1], '.3f') if key[1] is not None else '—'}",
+                "nominal_od": key[0],
+                "wall_thickness_norm": str(key[1]) if key[1] is not None else None,
+            },
+        ),
+    }
+
+    pair_clustering_payload = {
+        "welder_wps": _serialize_cluster_items(
+            pair_clusters["welder_wps"],
+            formatter=lambda key: {
+                "key": json.dumps({"welder": key[0], "wps": key[1]}),
+                "label": f"Welder {key[0]} × WPS {key[1]}",
+                "welder": key[0],
+                "wps": key[1],
+            },
+        ),
+        "nde_welder": _serialize_cluster_items(
+            pair_clusters["nde_welder"],
+            formatter=lambda key: {
+                "key": json.dumps({"nde_rig": key[0], "welder": key[1]}),
+                "label": f"NDE {key[0]} × Welder {key[1]}",
+                "nde_rig": key[0],
+                "welder": key[1],
+            },
+        ),
+        "nde_nominal": _serialize_cluster_items(
+            pair_clusters["nde_nominal"],
+            formatter=lambda key: {
+                "key": json.dumps(
+                    {
+                        "nde_rig": key[0],
+                        "nominal_od": key[1],
+                        "wall_thickness_norm": str(key[2]) if key[2] is not None else None,
+                    }
+                ),
+                "label": (
+                    f"NDE {key[0]} × {key[1]} × {format(key[2], '.3f') if key[2] is not None else '—'}"
+                ),
+                "nde_rig": key[0],
+                "nominal_od": key[1],
+                "wall_thickness_norm": str(key[2]) if key[2] is not None else None,
+            },
+        ),
+    }
 
     heatmap_payload = []
-    for (heat_key, wps_key), stats in pair_clusters["heat_wps"].items():
-        inches = stats["weld_inches"]
+    for (welder_label, wps_label), stats in pair_clusters["welder_wps"].items():
         count = stats["count"]
         if count < CLUSTER_MIN_COUNT:
             continue
+        inches = stats["weld_inches"]
+        denominator = inches if inches else DecimalOne
         rate = (
-            (Decimal(count) / inches) * DecimalOneThousand
-            if inches
+            (Decimal(count) / denominator) * DecimalOneThousand
+            if denominator
             else DecimalZero
         )
         heatmap_payload.append(
             {
-                "key": json.dumps({"heat_number": heat_key, "wps": wps_key}),
-                "heat_number": heat_key,
-                "wps": wps_key,
+                "key": json.dumps({"welder": welder_label, "wps": wps_label}),
+                "welder": welder_label,
+                "wps": wps_label,
                 "count": count,
                 "weld_inches": inches.quantize(TWO_PLACE, rounding=ROUND_HALF_UP),
                 "repair_rate_per_1000_inches": rate.quantize(
@@ -836,108 +890,182 @@ def build_dashboard_analytics(project, filters: dict) -> dict:
 def build_drilldown(
     project,
     filters: dict,
-    dimension: str,
-    key: str,
-    selection: dict | None = None,
-) -> list[dict]:
-    analytics = build_dashboard_analytics(project, filters)
-    length_info = analytics["length_info"]
-    available_ids = list(length_info.keys())
-    selected_pk_ids = set()
-    selected_weld_ids = set()
-    if selection:
-        raw_pk_ids = selection.get("pk_ids") or []
-        raw_weld_ids = selection.get("weld_ids") or []
-        selected_pk_ids = {int(value) for value in raw_pk_ids if isinstance(value, int)}
-        for value in raw_pk_ids:
-            if isinstance(value, str):
-                try:
-                    selected_pk_ids.add(int(value))
-                except ValueError:
-                    continue
-        selected_weld_ids = {str(value) for value in raw_weld_ids if str(value).strip()}
+    cluster_type: str,
+    cluster_filters: dict | None = None,
+    *,
+    page: int = 1,
+    page_size: int | None = 50,
+    sort: str | None = None,
+) -> dict:
+    cluster_filters = cluster_filters or {}
+    cluster_type = cluster_type or ""
 
-    weld_qs = (
-        Weld.objects.filter(project=project)
-        .select_related("primary_welder", "wps_document")
-        .filter(pk__in=available_ids)
-    )
+    qs = WeldRepair.objects.filter(weld__project=project, flagged_at__isnull=False)
+    start_date = filters.get("start_date")
+    end_date = filters.get("end_date")
+    if start_date:
+        qs = qs.filter(flagged_at__gte=start_date)
+    if end_date:
+        qs = qs.filter(flagged_at__lte=end_date)
 
-    if selected_pk_ids or selected_weld_ids:
-        selection_filter = Q()
-        if selected_pk_ids:
-            selection_filter |= Q(pk__in=selected_pk_ids)
-        if selected_weld_ids:
-            selection_filter |= Q(weld_id__in=selected_weld_ids)
-        weld_qs = weld_qs.filter(selection_filter)
+    def _filter_heat(qs, value):
+        if not value or value == "Unspecified":
+            return qs.filter(Q(weld__heat_number__isnull=True) | Q(weld__heat_number__exact=""))
+        return qs.filter(weld__heat_number=value)
 
-    welds = list(weld_qs)
-
-    if logger.isEnabledFor(logging.DEBUG):
-        logger.debug(
-            "Prepared drilldown queryset",
-            extra={
-                "project_id": project.id,
-                "dimension": dimension,
-                "key": key,
-                "selected_pk_ids": sorted(selected_pk_ids),
-                "selected_weld_ids": sorted(selected_weld_ids),
-                "available_length_info": len(length_info),
-                "query_count": len(welds),
-            },
+    def _filter_welder(qs, value):
+        if not value or value == "Unspecified":
+            return qs.filter(
+                Q(weld__primary_welder__isnull=True)
+                & (Q(weld__primary_stencil__isnull=True) | Q(weld__primary_stencil__exact=""))
+            )
+        return qs.filter(
+            Q(weld__primary_welder__stencil=value)
+            | Q(weld__primary_stencil=value)
+            | Q(repair_stencil=value)
         )
 
-    parsed_pair: dict[str, str] | None = None
-    if dimension in {"heat_wps", "pipe_od"}:
-        try:
-            parsed_pair = json.loads(key)
-        except (TypeError, json.JSONDecodeError):
-            parsed_pair = {}
+    def _filter_wps(qs, value):
+        if not value or value == "Unspecified":
+            return qs.filter(
+                Q(weld__wps_document__isnull=True)
+                | Q(weld__wps_document__name__isnull=True)
+                | Q(weld__wps_document__name__exact="")
+            )
+        return qs.filter(weld__wps_document__name=value)
+
+    def _filter_nominal(qs, nominal, wall):
+        if not nominal or nominal == "Unspecified":
+            qs = qs.filter(
+                Q(weld__nominal_od__isnull=True) | Q(weld__nominal_od="Unspecified")
+            )
+        else:
+            qs = qs.filter(weld__nominal_od=nominal)
+        if wall in (None, "", "Unspecified"):
+            qs = qs.filter(Q(weld__wall_thickness_norm__isnull=True))
+        else:
+            try:
+                wall_value = Decimal(wall)
+            except (InvalidOperation, TypeError, ValueError):
+                pass
+            else:
+                qs = qs.filter(weld__wall_thickness_norm=wall_value)
+        return qs
+
+    def _filter_nde(qs, value):
+        if not value or value == "Unspecified":
+            return qs.filter(
+                (Q(original_nderig__isnull=True) | Q(original_nderig__exact=""))
+                & Q(weld__nde_rig__isnull=True)
+            )
+        return qs.filter(
+            Q(original_nderig=value)
+            | (
+                (Q(original_nderig__isnull=True) | Q(original_nderig__exact=""))
+                & Q(weld__nde_rig__name=value)
+            )
+        )
+
+    def _get_value(*keys):
+        for key in keys:
+            if key in cluster_filters and cluster_filters[key] not in (None, ""):
+                return cluster_filters[key]
+        return None
+
+    if cluster_type == "heat_number":
+        qs = _filter_heat(qs, _get_value("heat_number", "key"))
+    elif cluster_type == "welder":
+        qs = _filter_welder(qs, _get_value("welder", "stencil", "key"))
+    elif cluster_type == "wps":
+        qs = _filter_wps(qs, _get_value("wps", "key"))
+    elif cluster_type == "nominal_od_wall":
+        qs = _filter_nominal(
+            qs,
+            _get_value("nominal_od", "key"),
+            _get_value("wall_thickness_norm"),
+        )
+    elif cluster_type == "welder_wps":
+        qs = _filter_welder(qs, _get_value("welder", "stencil"))
+        qs = _filter_wps(qs, _get_value("wps"))
+    elif cluster_type == "nde_welder":
+        qs = _filter_nde(qs, _get_value("nde_rig", "nde"))
+        qs = _filter_welder(qs, _get_value("welder", "stencil"))
+    elif cluster_type == "nde_nominal":
+        qs = _filter_nde(qs, _get_value("nde_rig", "nde"))
+        qs = _filter_nominal(
+            qs,
+            _get_value("nominal_od"),
+            _get_value("wall_thickness_norm"),
+        )
+    elif cluster_type == "heat_number_wps":
+        qs = _filter_heat(qs, _get_value("heat_number"))
+        qs = _filter_wps(qs, _get_value("wps"))
+
+    sort_mapping = {
+        "flagged_at": "flagged_at",
+        "-flagged_at": "-flagged_at",
+        "repair_date": "repair_date",
+        "-repair_date": "-repair_date",
+        "weld_id": "weld__weld_id",
+        "-weld_id": "-weld__weld_id",
+    }
+    ordering = sort_mapping.get(sort or "", "-flagged_at")
+
+    total_count = qs.count()
+    if page_size:
+        safe_page = max(page, 1)
+        page_size = max(page_size, 1)
+        offset = (safe_page - 1) * page_size
+        page_qs = qs.order_by(ordering)[offset : offset + page_size]
+    else:
+        page_qs = qs.order_by(ordering)
+        page_size = total_count or 1
+        page = 1
+
+    page_repairs = list(
+        page_qs.select_related(
+            "weld",
+            "weld__primary_welder",
+            "weld__wps_document",
+            "weld__nde_rig",
+        )
+    )
+    welds_for_lengths = [repair.weld for repair in page_repairs]
+    length_info = resolve_weld_lengths(welds_for_lengths)
 
     rows: list[dict] = []
-    for weld in welds:
+    for repair in page_repairs:
+        weld = repair.weld
         info = length_info.get(weld.pk)
-        if not info:
-            continue
-        if dimension == "heat_number" and (weld.heat_number or "Unspecified") != key:
-            continue
-        if dimension == "pipe_size" and (weld.pipe_size or "Unspecified") != key:
-            continue
-        if dimension == "od" and (str(weld.od) if weld.od is not None else "Unspecified") != key:
-            continue
-        if dimension == "wps" and (getattr(weld.wps_document, "name", "Unspecified")) != key:
-            continue
-        if dimension == "welder" and (getattr(weld.primary_welder, "stencil", "Unspecified")) != key:
-            continue
-        if dimension == "heat_wps" and parsed_pair:
-            heat_value = weld.heat_number or "Unspecified"
-            wps_value = getattr(weld.wps_document, "name", None) or "Unspecified"
-            if (
-                heat_value != parsed_pair.get("heat_number", "Unspecified")
-                or wps_value != parsed_pair.get("wps", "Unspecified")
-            ):
-                continue
-        if dimension == "pipe_od" and parsed_pair:
-            pipe_value = weld.pipe_size or "Unspecified"
-            od_value = str(weld.od) if weld.od is not None else "Unspecified"
-            if (
-                pipe_value != parsed_pair.get("pipe_size", "Unspecified")
-                or od_value != parsed_pair.get("od", "Unspecified")
-            ):
-                continue
+        length = info.length if info else DecimalZero
         rows.append(
             {
+                "id": repair.pk,
+                "weld_pk": weld.pk,
                 "weld_id": weld.weld_id,
-                "weld_date": weld.weld_date or weld.date_welded,
-                "weld_length_inches": info.length,
-                "length_estimated": info.estimated,
-                "length_basis": info.basis,
-                "welder": getattr(weld.primary_welder, "name", ""),
-                "stencil": getattr(weld.primary_welder, "stencil", ""),
-                "heat_number": weld.heat_number,
-                "pipe_size": weld.pipe_size,
-                "od": weld.od,
-                "wps": getattr(weld.wps_document, "name", ""),
+                "flagged_at": repair.flagged_at,
+                "repair_date": repair.repair_date,
+                "repair_stencil": repair.repair_stencil,
+                "welder_name": getattr(weld.primary_welder, "name", ""),
+                "welder_stencil": getattr(weld.primary_welder, "stencil", ""),
+                "nominal_od": weld.nominal_od,
+                "wall_thickness_norm": weld.wall_thickness_norm,
+                "weld_inches": length,
+                "length_estimated": bool(info.estimated) if info else True,
+                "length_basis": info.basis if info else "",
+                "nde_rig": repair.original_nderig
+                or getattr(getattr(weld, "nde_rig", None), "name", ""),
+                "defect_code_snapshot": repair.defect_code_snapshot,
+                "attempt_count": repair.attempt_count,
+                "comments": repair.comments,
+                "status": repair.status,
             }
         )
-    return rows
+
+    return {
+        "results": rows,
+        "total_count": total_count,
+        "page": page,
+        "page_size": page_size,
+    }
+

@@ -2,7 +2,15 @@ import json
 
 from django.contrib import admin
 
-from .models import MaterialHeat, NDERig, Welder, Weld, WeldEvent, WeldHistory
+from .models import (
+    MaterialHeat,
+    NDERig,
+    NominalPipeOD,
+    Welder,
+    Weld,
+    WeldEvent,
+    WeldHistory,
+)
 
 
 @admin.register(MaterialHeat)
@@ -36,6 +44,14 @@ class NDERigAdmin(admin.ModelAdmin):
     search_fields = ("name",)
     ordering = ("org", "name")
     readonly_fields = ("qualification_folder",)
+
+
+@admin.register(NominalPipeOD)
+class NominalPipeODAdmin(admin.ModelAdmin):
+    list_display = ("label", "actual_od", "tolerance", "org")
+    list_filter = ("org",)
+    search_fields = ("label",)
+    ordering = ("org", "actual_od")
 
 
 @admin.register(Weld)

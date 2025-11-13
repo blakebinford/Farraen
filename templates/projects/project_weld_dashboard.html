@@ -234,9 +234,9 @@
           </div>
         </div>
         <div class="col-lg-6 col-xl-3">
-          <h6 class="text-muted small text-uppercase mb-2">Pipe Sizes / OD</h6>
+          <h6 class="text-muted small text-uppercase mb-2">Nominal OD × Wall</h6>
           <div class="ratio ratio-1x1">
-            <canvas id="clusterPipeSizeChart"></canvas>
+            <canvas id="clusterNominalChart"></canvas>
           </div>
         </div>
         <div class="col-lg-6 col-xl-3">
@@ -253,12 +253,12 @@
         </div>
       </div>
       <div class="mt-4">
-        <h6 class="text-muted small text-uppercase mb-2">Heat Number vs WPS Density</h6>
+        <h6 class="text-muted small text-uppercase mb-2">Welder vs WPS Density</h6>
         <div class="table-responsive">
           <table class="table table-sm align-middle" id="clusterHeatmapTable">
             <thead class="table-light">
               <tr>
-                <th scope="col">Heat Number</th>
+                <th scope="col">Welder</th>
                 <th scope="col">WPS</th>
                 <th scope="col" class="text-end">Repairs</th>
                 <th scope="col" class="text-end">Weld Inches</th>
@@ -275,9 +275,9 @@
       </div>
       <div class="row g-4 mt-4">
         <div class="col-lg-6">
-          <h6 class="text-muted small text-uppercase mb-2">Top Heat × WPS Clusters</h6>
+          <h6 class="text-muted small text-uppercase mb-2">Top Welder × WPS Clusters</h6>
           <div class="table-responsive">
-            <table class="table table-sm align-middle" id="combinedHeatWpsTable">
+            <table class="table table-sm align-middle" id="combinedWelderWpsTable">
               <thead class="table-light">
                 <tr>
                   <th scope="col">Cluster</th>
@@ -295,9 +295,9 @@
           </div>
         </div>
         <div class="col-lg-6">
-          <h6 class="text-muted small text-uppercase mb-2">Top Pipe Size × OD Clusters</h6>
+          <h6 class="text-muted small text-uppercase mb-2">Top NDE Rig × Nominal OD Clusters</h6>
           <div class="table-responsive">
-            <table class="table table-sm align-middle" id="combinedPipeOdTable">
+            <table class="table table-sm align-middle" id="combinedNdeNominalTable">
               <thead class="table-light">
                 <tr>
                   <th scope="col">Cluster</th>
@@ -323,30 +323,7 @@
             <span class="text-muted small" id="drilldownStatus"></span>
           </div>
         </div>
-        <div class="table-responsive">
-          <table class="table table-sm align-middle" id="drilldownTable">
-            <thead class="table-light">
-              <tr>
-                <th scope="col">Weld ID</th>
-                <th scope="col">Weld Date</th>
-                <th scope="col" class="text-end">Weld Inches</th>
-                <th scope="col">Estimated?</th>
-                <th scope="col">Basis</th>
-                <th scope="col">Welder</th>
-                <th scope="col">Stencil</th>
-                <th scope="col">Heat</th>
-                <th scope="col">Pipe Size</th>
-                <th scope="col">OD</th>
-                <th scope="col">WPS</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td colspan="11" class="text-center text-muted">Select a cluster to view weld and repair records.</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+        <div class="bg-body border rounded" id="drilldownGrid"></div>
       </div>
     </div>
   </div>
@@ -599,7 +576,7 @@
     const welderCumulativeCtx = document.getElementById("welderCumulativeChart");
     const repairRateCtx = document.getElementById("repairRateChart");
     const clusterHeatCtx = document.getElementById("clusterHeatNumberChart");
-    const clusterPipeCtx = document.getElementById("clusterPipeSizeChart");
+    const clusterNominalCtx = document.getElementById("clusterNominalChart");
     const clusterWpsCtx = document.getElementById("clusterWpsChart");
     const clusterWelderCtx = document.getElementById("clusterWelderChart");
 
@@ -628,6 +605,58 @@
         return value;
       }
       return parsed.toLocaleDateString();
+    }
+
+    function appendFiltersToUrl(url, filters) {
+      if (!url || !filters) {
+        return;
+      }
+      Object.entries(filters).forEach(([key, rawValue]) => {
+        if (rawValue === undefined || rawValue === null || rawValue === "") {
+          return;
+        }
+        if (Array.isArray(rawValue)) {
+          rawValue
+            .filter((item) => item !== undefined && item !== null && item !== "")
+            .forEach((value) => url.searchParams.append(key, value));
+          return;
+        }
+        url.searchParams.set(key, rawValue);
+      });
+    }
+
+    function collectFilters() {
+      const filters = {};
+      if (startDateInput?.value) {
+        filters.start_date = startDateInput.value;
+      }
+      if (endDateInput?.value) {
+        filters.end_date = endDateInput.value;
+      }
+      if (welderSelect) {
+        const selected = Array.from(welderSelect.selectedOptions)
+          .map((option) => option.value)
+          .filter((value) => value !== undefined && value !== null && value !== "");
+        if (selected.length) {
+          filters.welder_ids = selected;
+        }
+      }
+      if (stencilSelect?.value) {
+        filters.stencil_id = stencilSelect.value;
+      }
+      if (heatInput?.value) {
+        filters.heat_number = heatInput.value;
+      }
+      if (pipeInput?.value) {
+        filters.pipe_size = pipeInput.value;
+      }
+      if (odInput?.value) {
+        filters.od = odInput.value;
+      }
+      if (wpsInput?.value) {
+        filters.wps_id = wpsInput.value;
+      }
+      return filters;
     }
 
     function populateFilterOptions(analytics) {
@@ -1254,13 +1283,18 @@
       }
       const chart = new Chart(ctx, {
         type: "bar",
-        data: { labels: [], datasets: [{
-          label: "Repairs per 1,000 inches",
-          data: [],
-          backgroundColor: "rgba(255,193,7,0.6)",
-          borderColor: "rgba(255,193,7,1)",
-          borderWidth: 1,
-        }] },
+        data: {
+          labels: [],
+          datasets: [
+            {
+              label: "Repairs per 1,000 inches",
+              data: [],
+              backgroundColor: "rgba(255,193,7,0.6)",
+              borderColor: "rgba(255,193,7,1)",
+              borderWidth: 1,
+            },
+          ],
+        },
         options: {
           indexAxis: "y",
           responsive: true,
@@ -1269,7 +1303,7 @@
             legend: { display: false },
             tooltip: {
               callbacks: {
-                label: function (context) {
+                label(context) {
                   const raw = chart._clusterData?.[context.dataIndex];
                   if (!raw) {
                     return `${context.formattedValue} per 1,000 in`;
@@ -1285,14 +1319,14 @@
               title: { display: true, text: "Repairs per 1,000 inches" },
             },
           },
-          onClick: function (event, elements) {
+          onClick(event, elements) {
             if (!elements.length) {
               return;
             }
             const idx = elements[0].index;
             const raw = chart._clusterData?.[idx];
             if (raw) {
-              loadDrilldown(dimension, raw.key);
+              loadDrilldown(dimension, raw);
             }
           },
         },
@@ -1308,7 +1342,7 @@
       if (!clusterCharts.heat) {
         clusterCharts = {
           heat: createClusterChart(clusterHeatCtx, "heat_number"),
-          pipe: createClusterChart(clusterPipeCtx, "pipe_size"),
+          nominal: createClusterChart(clusterNominalCtx, "nominal_od_wall"),
           wps: createClusterChart(clusterWpsCtx, "wps"),
           welder: createClusterChart(clusterWelderCtx, "welder"),
         };
@@ -1329,11 +1363,7 @@
       }
 
       applyClusterData(clusterCharts.heat, analytics.clustering?.heat_number);
-
-      const pipeData = (analytics.clustering?.pipe_size || []).concat(
-        analytics.clustering?.od || []
-      );
-      applyClusterData(clusterCharts.pipe, pipeData);
+      applyClusterData(clusterCharts.nominal, analytics.clustering?.nominal_od_wall);
       applyClusterData(clusterCharts.wps, analytics.clustering?.wps);
       applyClusterData(clusterCharts.welder, analytics.clustering?.welder);
 
@@ -1353,14 +1383,14 @@
           heatmap.forEach((item) => {
             const row = document.createElement("tr");
             row.innerHTML = `
-              <td>${item.heat_number}</td>
+              <td>${item.welder}</td>
               <td>${item.wps}</td>
               <td class="text-end">${formatNumber(item.count, 0)}</td>
               <td class="text-end">${formatNumber(item.weld_inches || 0)}</td>
               <td class="text-end">${formatNumber(item.repair_rate_per_1000_inches || 0, 2)}</td>
             `;
             row.style.cursor = "pointer";
-            row.addEventListener("click", () => loadDrilldown("heat_wps", item.key));
+            row.addEventListener("click", () => loadDrilldown("welder_wps", item));
             heatmapTable.appendChild(row);
           });
         }
@@ -1391,146 +1421,229 @@
             <td class="text-end">${formatNumber(item.repair_rate_per_1000_inches || 0, 2)}</td>
           `;
           row.style.cursor = "pointer";
-          row.addEventListener("click", () => loadDrilldown(dimension, item.key));
+          row.addEventListener("click", () => loadDrilldown(dimension, item));
           tbody.appendChild(row);
         });
       }
 
       renderCombinedTable(
-        "#combinedHeatWpsTable tbody",
-        analytics.pair_clustering?.heat_wps,
-        "heat_wps"
+        "#combinedWelderWpsTable tbody",
+        analytics.pair_clustering?.welder_wps,
+        "welder_wps"
       );
       renderCombinedTable(
-        "#combinedPipeOdTable tbody",
-        analytics.pair_clustering?.pipe_od,
-        "pipe_od"
+        "#combinedNdeNominalTable tbody",
+        analytics.pair_clustering?.nde_nominal,
+        "nde_nominal"
       );
     }
 
-    function updateDrilldownTable(rows, contextLabel) {
-      const tbody = document.querySelector("#drilldownTable tbody");
-      const status = document.getElementById("drilldownStatus");
-      if (!tbody) {
-        return;
-      }
-      tbody.innerHTML = "";
-      if (!rows || !rows.length) {
-        const row = document.createElement("tr");
-        const cell = document.createElement("td");
-        cell.colSpan = 11;
-        cell.className = "text-center text-muted";
-        cell.textContent = "No records match the selected cluster.";
-        row.appendChild(cell);
-        tbody.appendChild(row);
-        if (status) {
-          status.textContent = contextLabel
-            ? `No records for ${contextLabel}`
-            : "Select a cluster";
-        }
-        return;
-      }
-      rows.forEach((row) => {
-        const tr = document.createElement("tr");
-        tr.innerHTML = `
-          <td>${row.weld_id || "—"}</td>
-          <td>${formatDate(row.weld_date)}</td>
-          <td class="text-end">${formatNumber(row.weld_length_inches || 0)}</td>
-          <td>${row.length_estimated ? "Yes" : "No"}</td>
-          <td>${row.length_basis || ""}</td>
-          <td>${row.welder || ""}</td>
-          <td>${row.stencil || ""}</td>
-          <td>${row.heat_number || ""}</td>
-          <td>${row.pipe_size || ""}</td>
-          <td>${row.od || ""}</td>
-          <td>${row.wps || ""}</td>
-        `;
-        tbody.appendChild(tr);
+    const drilldownGrid = document.getElementById("drilldownGrid");
+    const drilldownStatus = document.getElementById("drilldownStatus");
+    let drilldownTable = null;
+    const DRILLDOWN_PAGE_SIZE = 50;
+    const DRILLDOWN_SORT_MAP = {
+      flagged_at: "flagged_at",
+      repair_date: "repair_date",
+      weld_id: "weld_id",
+      nominal_od: "nominal_od",
+    };
+
+    if (drilldownGrid && typeof Tabulator !== "undefined") {
+      drilldownTable = new Tabulator(drilldownGrid, {
+        layout: "fitColumns",
+        height: 400,
+        placeholder: "Select a cluster to view repair details.",
+        pagination: "remote",
+        paginationSize: DRILLDOWN_PAGE_SIZE,
+        paginationInitialPage: 1,
+        ajaxURL: drilldownApiUrl,
+        ajaxRequestFunc(url, config, params) {
+          if (!currentDrilldown) {
+            return Promise.resolve({
+              results: [],
+              total_count: 0,
+              page: 1,
+              page_size: params.size || this.getPageSize(),
+            });
+          }
+          const requestUrl = new URL(url, window.location.origin);
+          appendFiltersToUrl(requestUrl, currentFilters);
+          requestUrl.searchParams.set("dimension", currentDrilldown.cluster_type);
+          requestUrl.searchParams.set("cluster_keys", JSON.stringify(currentDrilldown.cluster_keys || {}));
+          requestUrl.searchParams.set("page", params.page || 1);
+          requestUrl.searchParams.set("page_size", params.size || this.getPageSize());
+          if (params.sorters?.length) {
+            const sorter = params.sorters[0];
+            const mapped = DRILLDOWN_SORT_MAP[sorter.field];
+            if (mapped) {
+              const prefix = sorter.dir === "desc" ? "-" : "";
+              requestUrl.searchParams.set("sort", `${prefix}${mapped}`);
+            }
+          }
+          return fetch(requestUrl.toString()).then((response) => {
+            if (!response.ok) {
+              throw new Error("Failed to load drilldown");
+            }
+            return response.json();
+          });
+        },
+        ajaxResponse(url, params, response) {
+          const total = response.total_count || 0;
+          const page = response.page || 1;
+          const size = response.page_size || this.getPageSize();
+          const maxPage = Math.max(Math.ceil(total / size), 1);
+          this.setMaxPage(maxPage);
+          if (drilldownStatus) {
+            if (!currentDrilldown) {
+              drilldownStatus.textContent = "Select a cluster";
+            } else {
+              const label = currentDrilldown.label || "Repairs";
+              drilldownStatus.textContent = `${label}: ${total} repair${total === 1 ? '' : 's'} (page ${page} of ${maxPage})`;
+            }
+          }
+          return response.results || [];
+        },
+        columns: [
+          { title: "Repair", field: "id", width: 90, hozAlign: "center" },
+          { title: "Weld", field: "weld_id", width: 120 },
+          {
+            title: "Flagged",
+            field: "flagged_at",
+            sorter: "date",
+            width: 120,
+            formatter: (cell) => formatDate(cell.getValue()),
+          },
+          {
+            title: "Repair Date",
+            field: "repair_date",
+            sorter: "date",
+            width: 120,
+            formatter: (cell) => formatDate(cell.getValue()),
+          },
+          { title: "Nominal OD", field: "nominal_od", width: 130 },
+          {
+            title: "Wall (in)",
+            field: "wall_thickness_norm",
+            width: 110,
+            hozAlign: "right",
+            formatter: (cell) => {
+              const value = cell.getValue();
+              if (value === null || value === undefined || value === "") {
+                return "—";
+              }
+              const numeric = Number(value);
+              if (Number.isNaN(numeric)) {
+                return value;
+              }
+              return Number(numeric).toLocaleString(undefined, {
+                minimumFractionDigits: 3,
+                maximumFractionDigits: 3,
+              });
+            },
+          },
+          {
+            title: "Weld Inches",
+            field: "weld_inches",
+            sorter: "number",
+            width: 120,
+            hozAlign: "right",
+            formatter: (cell) => formatNumber(cell.getValue() || 0),
+          },
+          { title: "Length Basis", field: "length_basis", width: 160 },
+          { title: "Welder Stencil", field: "welder_stencil", width: 140 },
+          { title: "Repair Stencil", field: "repair_stencil", width: 140 },
+          { title: "NDE Rig", field: "nde_rig", width: 140 },
+          { title: "Defect Code", field: "defect_code_snapshot", width: 140 },
+          {
+            title: "Attempts",
+            field: "attempt_count",
+            sorter: "number",
+            width: 110,
+            hozAlign: "right",
+          },
+          { title: "Status", field: "status", width: 120 },
+        ],
       });
-      if (status) {
-        status.textContent = contextLabel
-          ? `Showing ${rows.length} record${rows.length === 1 ? "" : "s"} for ${contextLabel}`
-          : `Showing ${rows.length} record${rows.length === 1 ? "" : "s"}`;
-      }
+    } else if (drilldownStatus) {
+      drilldownStatus.textContent = "Select a cluster";
     }
 
-    function formatDrilldownLabel(dimension, key) {
-      if (!dimension) {
+    function buildClusterFilters(clusterType, raw) {
+      if (!raw) {
+        return {};
+      }
+      if (raw.cluster_keys) {
+        return raw.cluster_keys;
+      }
+      if (typeof raw === "string") {
+        try {
+          return JSON.parse(raw) || {};
+        } catch (error) {
+          return { [clusterType]: raw };
+        }
+      }
+      if (typeof raw === "object") {
+        if (clusterType === "nominal_od_wall") {
+          return {
+            nominal_od: raw.nominal_od ?? raw.nominal_od_label ?? raw.label ?? raw.key,
+            wall_thickness_norm: raw.wall_thickness_norm ?? raw.wall_label ?? null,
+          };
+        }
+        if (clusterType === "welder_wps") {
+          return { welder: raw.welder ?? raw.label, wps: raw.wps };
+        }
+        if (clusterType === "nde_welder") {
+          return { nde_rig: raw.nde_rig, welder: raw.welder };
+        }
+        if (clusterType === "nde_nominal") {
+          return {
+            nde_rig: raw.nde_rig,
+            nominal_od: raw.nominal_od,
+            wall_thickness_norm: raw.wall_thickness_norm ?? null,
+          };
+        }
+        if (raw.key && typeof raw.key === "string") {
+          try {
+            return JSON.parse(raw.key) || {};
+          } catch (error) {
+            return { [clusterType]: raw.key };
+          }
+        }
+        if (raw.value) {
+          return { [clusterType]: raw.value };
+        }
+      }
+      return { [clusterType]: raw };
+    }
+
+    function formatDrilldownLabel(clusterType, raw) {
+      if (!raw) {
         return "";
       }
-      if (dimension === "heat_wps" || dimension === "pipe_od") {
-        try {
-          const parsed = JSON.parse(key);
-          if (dimension === "heat_wps") {
-            const heat = parsed?.heat_number ?? "Unspecified";
-            const wps = parsed?.wps ?? "Unspecified";
-            return `Heat ${heat} × WPS ${wps}`;
-          }
-          const pipe = parsed?.pipe_size ?? "Unspecified";
-          const od = parsed?.od ?? "Unspecified";
-          return `Pipe ${pipe} × OD ${od}`;
-        } catch (error) {
-          // fall back to default formatting
-        }
+      if (typeof raw === "object" && raw.label) {
+        return raw.label;
       }
-      return `${dimension.replace(/_/g, " ")} = ${key}`;
-    }
-
-    function renderAnalytics(analytics) {
-      if (!analytics) {
-        return;
+      const filters = buildClusterFilters(clusterType, raw);
+      if (clusterType === "nominal_od_wall") {
+        const nominal = filters.nominal_od ?? "Unspecified";
+        const wall = filters.wall_thickness_norm ?? "Unspecified";
+        const wallLabel = wall === "Unspecified" || wall === null ? "—" : wall;
+        return `${nominal} × ${wallLabel}`;
       }
-      populateFilterOptions(analytics);
-      updatePlannerSummary(analytics);
-      updateSCurveChart(analytics);
-      updateWelderCharts(analytics);
-      updateRepairRateChart(analytics);
-      updateClusterCharts(analytics);
-    }
-
-    function collectFilters() {
-      const params = {};
-      if (startDateInput && startDateInput.value) {
-        params.start_date = startDateInput.value;
+      if (clusterType === "welder_wps") {
+        return `Welder ${filters.welder ?? "Unspecified"} × WPS ${filters.wps ?? "Unspecified"}`;
       }
-      if (endDateInput && endDateInput.value) {
-        params.end_date = endDateInput.value;
+      if (clusterType === "nde_welder") {
+        return `NDE ${filters.nde_rig ?? "Unspecified"} × Welder ${filters.welder ?? "Unspecified"}`;
       }
-      if (heatInput && heatInput.value) {
-        params.heat_number = heatInput.value;
+      if (clusterType === "nde_nominal") {
+        const wall = filters.wall_thickness_norm ?? "Unspecified";
+        const wallLabel = wall === "Unspecified" || wall === null ? "—" : wall;
+        return `NDE ${filters.nde_rig ?? "Unspecified"} × ${filters.nominal_od ?? "Unspecified"} × ${wallLabel}`;
       }
-      if (pipeInput && pipeInput.value) {
-        params.pipe_size = pipeInput.value;
-      }
-      if (odInput && odInput.value) {
-        params.od = odInput.value;
-      }
-      if (wpsInput && wpsInput.value) {
-        params.wps_id = wpsInput.value;
-      }
-      if (stencilSelect && stencilSelect.value) {
-        params.stencil_id = stencilSelect.value;
-      }
-      if (welderSelect && welderSelect.selectedOptions.length) {
-        params.welder_ids = Array.from(welderSelect.selectedOptions).map(
-          (option) => option.value
-        );
-      }
-      return params;
-    }
-
-    function appendFiltersToUrl(url, filters) {
-      Object.entries(filters || {}).forEach(([key, value]) => {
-        if (Array.isArray(value)) {
-          value.forEach((item) => {
-            if (item !== "") {
-              url.searchParams.append(key, item);
-            }
-          });
-        } else if (value !== undefined && value !== "") {
-          url.searchParams.append(key, value);
-        }
-      });
+      const value = filters[clusterType];
+      return `${clusterType.replace(/_/g, " ")} = ${value ?? raw}`;
     }
 
     function loadAnalytics(filters) {
@@ -1545,7 +1658,7 @@
           analyticsState = data;
           renderAnalytics(analyticsState);
           if (currentDrilldown) {
-            loadDrilldown(currentDrilldown.dimension, currentDrilldown.key, false);
+            refreshDrilldown();
           }
         })
         .catch((error) => {
@@ -1553,28 +1666,50 @@
         });
     }
 
-    function loadDrilldown(dimension, key, shouldUpdateState = true) {
+    function loadDrilldown(clusterType, raw, shouldUpdateState = true) {
       if (!drilldownApiUrl) {
         return;
       }
-      const url = new URL(drilldownApiUrl, window.location.origin);
-      url.searchParams.set("dimension", dimension);
-      url.searchParams.set("key", key);
-      appendFiltersToUrl(url, currentFilters);
-      fetch(url.toString())
-        .then((response) => response.json())
-        .then((rows) => {
-          const label = formatDrilldownLabel(dimension, key);
-          updateDrilldownTable(rows, label);
-          exportDrilldownCsvButton?.removeAttribute("disabled");
-          if (shouldUpdateState) {
-            currentDrilldown = { dimension, key };
-          }
-        })
-        .catch((error) => {
-          console.error("Failed to load drilldown", error);
-        });
+      const clusterKeys = buildClusterFilters(clusterType, raw);
+      const label = formatDrilldownLabel(clusterType, raw);
+      if (shouldUpdateState || !currentDrilldown) {
+        currentDrilldown = {
+          cluster_type: clusterType,
+          cluster_keys: clusterKeys,
+          label,
+        };
+      } else {
+        currentDrilldown.cluster_type = clusterType;
+        currentDrilldown.cluster_keys = clusterKeys;
+        currentDrilldown.label = label || currentDrilldown.label;
+      }
+      if (drilldownStatus) {
+        drilldownStatus.textContent = label ? `Loading ${label}...` : "Loading repairs...";
+      }
+      exportDrilldownCsvButton?.removeAttribute("disabled");
+      drilldownTable?.setData(drilldownApiUrl, { page: 1 });
     }
+
+    function refreshDrilldown() {
+      if (!drilldownTable || !currentDrilldown) {
+        return;
+      }
+      const currentPage = drilldownTable.getPage() || 1;
+      drilldownTable.setData(drilldownApiUrl, { page: currentPage });
+    }
+
+    function renderAnalytics(analytics) {
+      if (!analytics) {
+        return;
+      }
+      populateFilterOptions(analytics);
+      updatePlannerSummary(analytics);
+      updateSCurveChart(analytics);
+      updateWelderCharts(analytics);
+      updateRepairRateChart(analytics);
+      updateClusterCharts(analytics);
+    }
+
 
     if (analyticsState) {
       renderAnalytics(analyticsState);
@@ -1620,7 +1755,10 @@
         currentFilters = {};
         currentDrilldown = null;
         exportDrilldownCsvButton?.setAttribute("disabled", "disabled");
-        document.getElementById("drilldownStatus").textContent = "";
+        if (drilldownStatus) {
+          drilldownStatus.textContent = "Select a cluster";
+        }
+        drilldownTable?.clearData();
         loadAnalytics(currentFilters);
       });
     }
@@ -1642,8 +1780,11 @@
         }
         const url = new URL(drilldownApiUrl, window.location.origin);
         appendFiltersToUrl(url, currentFilters);
-        url.searchParams.set("dimension", currentDrilldown.dimension);
-        url.searchParams.set("key", currentDrilldown.key);
+        url.searchParams.set("dimension", currentDrilldown.cluster_type);
+        url.searchParams.set(
+          "cluster_keys",
+          JSON.stringify(currentDrilldown.cluster_keys || {})
+        );
         url.searchParams.set("format", "csv");
         window.open(url.toString(), "_blank");
       });

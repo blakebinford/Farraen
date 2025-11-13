@@ -53,7 +53,7 @@
       <div class="card h-100">
         <div class="card-body">
           <p class="text-uppercase text-muted small mb-1">Total Weld Inches</p>
-          <p class="display-6 mb-0">{{ weld_kpis.overall.total_weld_inches|floatformat:1 }}</p>
+          <p class="display-6 mb-0">{{ weld_kpis.overall.total_weld_inches|floatformat:1|intcomma }}</p>
         </div>
       </div>
     </div>

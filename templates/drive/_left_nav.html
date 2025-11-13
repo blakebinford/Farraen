@@ -1,8 +1,31 @@
 {% load static humanize %}
-<nav class="drive-left-nav" aria-label="Project folders">
-  <div class="drive-left-nav__project">
-    <a href="{% url 'project_drive_root' org.slug project.slug %}" class="text-decoration-none">{{ project.name }}</a>
+<nav class="drive-left-nav" aria-label="Project navigation">
+  <div class="drive-left-nav__brand">
+    <span class="drive-left-nav__brand-mark">WL</span>
+    <div>
+      <div class="drive-left-nav__brand-text">WeldLog</div>
+      <div class="text-muted small">Project Drive</div>
+    </div>
   </div>
+
+  <div class="drive-left-nav__project">
+    <div class="drive-left-nav__project-name">{{ project.name }}</div>
+    <div class="drive-left-nav__project-meta">
+      {% if folder %}
+        {{ folder.name }}
+      {% else %}
+        Root workspace
+      {% endif %}
+    </div>
+  </div>
+
+  {% if upload_url %}
+    <div class="drive-left-nav__actions">
+      <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#drive-upload-modal">
+        <i class="bi bi-upload me-2"></i> Upload files
+      </button>
+    </div>
+  {% endif %}
 
   {% if breadcrumb %}
     <div class="drive-breadcrumb" aria-label="Current folder path">
@@ -19,7 +42,7 @@
   {% endif %}
 
   <div class="mb-4">
-    <h2 class="h6 text-uppercase text-muted">Folders</h2>
+    <p class="drive-left-nav__section-title mb-2">Folders</p>
     <ul class="drive-folder-tree" role="tree">
       {% for item in folder_tree %}
         <li class="drive-folder-tree__item{% if folder and item.id == folder.id %} is-active{% endif %}"
@@ -35,13 +58,13 @@
     </ul>
   </div>
 
-  <div class="mb-4">
-    <h2 class="h6 text-uppercase text-muted">Recently viewed</h2>
+  <div class="mb-2">
+    <p class="drive-left-nav__section-title mb-2">Recently viewed</p>
     {% if recently_viewed %}
       <ul class="list-unstyled drive-recently-viewed mb-0">
         {% for item in recently_viewed %}
           <li class="drive-recently-viewed__item">
-            <article class="drive-recently-viewed__card d-flex align-items-start justify-content-between gap-3 py-2 px-2 rounded" role="button" tabindex="0"
+            <article class="drive-recently-viewed__card d-flex align-items-start justify-content-between gap-3 py-2 px-2" role="button" tabindex="0"
                      data-drive-card data-detail-url="{% url 'drive_file_drawer' org.slug project.slug item.node.id %}">
               <div class="flex-grow-1">
                 <div class="fw-semibold text-truncate">

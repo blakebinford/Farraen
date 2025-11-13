@@ -1,0 +1,43 @@
+$body-font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+$font-family-base: $body-font-family;
+$headings-font-family: $body-font-family;
+$font-size-base: 1rem;
+$primary: #0E2A47;
+$secondary: #6b7280;
+$success: #10B981;
+$body-bg: #F6F7FB;
+$card-bg: #FFFFFF;
+$border-radius: 0.5rem;
+$border-radius-lg: 0.75rem;
+$border-color: #E7EEF6;
+$box-shadow-sm: 0 6px 20px rgba(15, 23, 42, 0.06);
+$btn-border-radius: $border-radius;
+$btn-border-radius-lg: $border-radius-lg;
+$btn-border-radius-sm: $border-radius;
+$input-border-radius: $border-radius;
+$enable-negative-margins: true;
+$enable-cssgrid: true;
+
+:root {
+  --brand-primary: #0E2A47;
+  --brand-primary-700: #0B243C;
+  --brand-accent: #B57A4A;
+  --brand-accent-700: #8E5F3B;
+  --bg: #F6F7FB;
+  --surface: #FFFFFF;
+  --text: #0F1724;
+  --muted: #475569;
+  --border: #E7EEF6;
+  --success: #10B981;
+  --warning: #E5953B;
+}
+
+body {
+  background-color: var(--bg);
+  color: var(--text);
+  font-family: $body-font-family;
+}
+
+body a {
+  color: $primary;
+}

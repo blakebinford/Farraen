@@ -1,5 +1,5 @@
 <div class="drive-topbar">
-  <div class="flex-grow-1">
+  <div class="drive-topbar__meta">
     <div class="drive-breadcrumb" aria-label="Breadcrumb">
       <a href="{% url 'project_drive_root' org.slug project.slug %}">Drive</a>
       {% if folder %}
@@ -13,33 +13,46 @@
         {% endfor %}
       {% endif %}
     </div>
-    <h1 class="h5 mb-0">{% if folder %}{{ folder.name }}{% else %}Project Drive{% endif %}</h1>
+    <div class="d-flex align-items-center gap-2">
+      <h1 class="h5 mb-0">{% if folder %}{{ folder.name }}{% else %}Project Drive{% endif %}</h1>
+      <span class="badge bg-light text-muted border">{{ files|length }} items</span>
+    </div>
   </div>
   <form method="get" class="drive-topbar__search" role="search">
     <label for="drive-search-input" class="visually-hidden">Search documents</label>
     <div class="input-group">
+      <span class="input-group-text"><i class="bi bi-search"></i></span>
       <input type="search" id="drive-search-input" name="q" value="{{ request.GET.q }}" class="form-control" placeholder="Search this project" />
-      <button class="btn btn-outline-secondary" type="submit">Search</button>
     </div>
   </form>
   <div class="drive-topbar__actions">
     <span class="badge bg-warning-subtle text-warning-emphasis editing-indicator" id="drive-documents-editing-indicator">Editing</span>
-    <button type="button" class="btn btn-outline-primary" id="drive-documents-edit-toggle" aria-pressed="false">Edit</button>
+    <button type="button" class="btn btn-outline-primary" id="drive-documents-edit-toggle" aria-pressed="false">
+      <i class="bi bi-pencil-square me-1"></i> Edit
+    </button>
     {% if folder %}
-      <a class="btn btn-outline-secondary" href="{% if folder.parent %}{% url 'drive_folder' org.slug project.slug folder.parent.id %}{% else %}{% url 'project_drive_root' org.slug project.slug %}{% endif %}">Up one level</a>
-      <a class="btn btn-outline-secondary" href="{% url 'drive_folder_create' org.slug project.slug folder.id %}">New folder</a>
+      <a class="btn btn-outline-secondary" href="{% if folder.parent %}{% url 'drive_folder' org.slug project.slug folder.parent.id %}{% else %}{% url 'project_drive_root' org.slug project.slug %}{% endif %}">
+        <i class="bi bi-arrow-90deg-up me-1"></i> Up one level
+      </a>
+      <a class="btn btn-outline-secondary" href="{% url 'drive_folder_create' org.slug project.slug folder.id %}">
+        <i class="bi bi-folder-plus me-1"></i> New folder
+      </a>
     {% endif %}
     {% if upload_url %}
       <button type="button"
               class="btn btn-primary"
               data-bs-toggle="modal"
               data-bs-target="#drive-upload-modal">
-        Upload
+        <i class="bi bi-upload me-1"></i> Upload
       </button>
     {% endif %}
     <div class="btn-group drive-view-toggle" role="group" aria-label="Change layout">
-      <button type="button" class="btn btn-outline-secondary active" data-drive-toggle="list">List</button>
-      <button type="button" class="btn btn-outline-secondary" data-drive-toggle="grid">Grid</button>
+      <button type="button" class="btn btn-outline-secondary active" data-drive-toggle="list">
+        <i class="bi bi-list"></i>
+      </button>
+      <button type="button" class="btn btn-outline-secondary" data-drive-toggle="grid">
+        <i class="bi bi-grid"></i>
+      </button>
     </div>
   </div>
 </div>

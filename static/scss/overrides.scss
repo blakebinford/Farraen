@@ -1,0 +1,340 @@
+body {
+  min-height: 100vh;
+  background-color: var(--bg);
+  color: var(--text);
+}
+
+a {
+  transition: color 0.2s ease, opacity 0.2s ease;
+  text-decoration-color: rgba(14, 42, 71, 0.25);
+
+  &:hover,
+  &:focus {
+    color: var(--brand-accent);
+    text-decoration-color: var(--brand-accent);
+  }
+}
+
+.app-shell {
+  background: transparent;
+}
+
+.app-sidebar {
+  background-color: var(--surface);
+  border-right: 1px solid var(--border);
+}
+
+.site-topbar {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.site-topbar .nav-link {
+  border-radius: $border-radius;
+  color: var(--muted);
+  padding: 0.5rem 0.75rem;
+}
+
+.site-topbar .nav-link:hover,
+.site-topbar .nav-link:focus {
+  background-color: rgba(14, 42, 71, 0.08);
+  color: var(--brand-primary);
+}
+
+.site-topbar .nav-link.active {
+  background-color: rgba(14, 42, 71, 0.12);
+  color: var(--brand-primary);
+  font-weight: 600;
+}
+
+.card {
+  border: 1px solid $border-color;
+  border-radius: $border-radius-lg;
+  box-shadow: none;
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+
+  &:hover {
+    box-shadow: $box-shadow-sm;
+    transform: translateY(-1px);
+  }
+}
+
+.badge {
+  border-radius: 999px;
+}
+
+.tag.approved,
+.badge.bg-success-subtle {
+  background-color: rgba(16, 185, 129, 0.12);
+  color: var(--success);
+  border: 1px solid rgba(16, 185, 129, 0.25);
+}
+
+.btn {
+  border-radius: $border-radius;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+
+  &:focus-visible {
+    outline: 0;
+    box-shadow: 0 0 0 0.2rem rgba(14, 42, 71, 0.3);
+  }
+}
+
+.btn-primary {
+  background-color: var(--brand-primary);
+  border-color: var(--brand-primary);
+  box-shadow: $box-shadow-sm;
+
+  &:hover,
+  &:focus {
+    background-color: var(--brand-primary-700);
+    border-color: var(--brand-primary-700);
+  }
+}
+
+.btn-outline-secondary,
+.btn-outline-primary {
+  border-color: rgba(14, 42, 71, 0.2);
+
+  &:hover,
+  &:focus {
+    background-color: rgba(14, 42, 71, 0.06);
+    border-color: rgba(14, 42, 71, 0.2);
+  }
+}
+
+.drive-left-nav {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: $border-radius-lg;
+  box-shadow: $box-shadow-sm;
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.drive-left-nav__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.drive-left-nav__actions .btn {
+  width: 100%;
+}
+
+.drive-left-nav__section-title {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.drive-left-nav__brand {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.drive-left-nav__brand-mark {
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 0.75rem;
+  background: linear-gradient(135deg, var(--brand-primary) 0%, var(--brand-primary-700) 100%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+}
+
+.drive-left-nav__brand-text {
+  font-weight: 600;
+  font-size: 1rem;
+  color: var(--brand-primary);
+}
+
+.drive-left-nav__project {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.drive-left-nav__project-name {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.drive-left-nav__project-meta {
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+.drive-folder-tree {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.drive-folder-tree__item {
+  border-radius: $border-radius;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.drive-folder-tree__item.is-active {
+  background: rgba(14, 42, 71, 0.08);
+  font-weight: 600;
+}
+
+.drive-folder-tree__link {
+  display: block;
+  padding: 0.5rem 0.75rem;
+  border-radius: inherit;
+  color: inherit;
+  text-decoration: none;
+
+  &:hover,
+  &:focus {
+    background: rgba(14, 42, 71, 0.08);
+    color: var(--brand-primary);
+  }
+}
+
+.drive-recently-viewed__card {
+  border: 1px solid transparent;
+  border-radius: $border-radius;
+  transition: border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
+
+  &:hover,
+  &:focus {
+    border-color: rgba(14, 42, 71, 0.15);
+    background-color: rgba(14, 42, 71, 0.04);
+    box-shadow: $box-shadow-sm;
+  }
+}
+
+.drive-topbar {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: $border-radius-lg;
+  box-shadow: $box-shadow-sm;
+  padding: 1rem 1.25rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: center;
+}
+
+.drive-topbar__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.drive-topbar__search {
+  flex: 1 1 260px;
+}
+
+.drive-topbar__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
+.drive-preview {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: $border-radius-lg;
+  box-shadow: $box-shadow-sm;
+  padding: 1.5rem;
+  min-height: 320px;
+  color: var(--text);
+}
+
+.drive-shell {
+  background: transparent;
+}
+
+.drive-layout {
+  display: grid;
+  grid-template-columns: minmax(260px, 280px) 1fr;
+  gap: 1.5rem;
+  align-items: start;
+}
+
+.drive-main {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.drive-view-toggle .btn.active {
+  background-color: var(--brand-primary);
+  border-color: var(--brand-primary);
+  color: #fff;
+}
+
+.editing-indicator {
+  display: none;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 999px;
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+}
+
+.editing-indicator.is-active {
+  display: inline-flex;
+  background: rgba(181, 122, 74, 0.12);
+  color: var(--brand-accent-700);
+  border: 1px solid rgba(181, 122, 74, 0.2);
+}
+
+.drive-drawer-host {
+  border-radius: $border-radius-lg;
+}
+
+.document-grid-table > :not(caption) > * > * {
+  padding: 0.75rem 1rem;
+}
+
+.table-hover tbody tr:hover {
+  background-color: rgba(14, 42, 71, 0.05);
+}
+
+@media (max-width: 991.98px) {
+  .drive-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .drive-left-nav {
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 575.98px) {
+  .drive-topbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .drive-topbar__actions {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .drive-topbar__actions .btn,
+  .drive-topbar__actions .btn-group {
+    width: 100%;
+  }
+}

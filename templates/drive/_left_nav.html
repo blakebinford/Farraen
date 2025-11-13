@@ -1,15 +1,20 @@
 {% load static humanize %}
 <nav class="drive-left-nav" aria-label="Project navigation">
   <div class="drive-left-nav__brand">
-    <span class="drive-left-nav__brand-mark">WL</span>
+    <span class="drive-left-nav__brand-mark">
+      {% for word in project.name.split %}
+        {{ word|first }}
+      {% endfor %}
+
+    </span>
     <div>
-      <div class="drive-left-nav__brand-text">WeldLog</div>
+      <div class="drive-left-nav__brand-text">{{ project.name }}</div>
       <div class="text-muted small">Project Drive</div>
     </div>
   </div>
 
   <div class="drive-left-nav__project">
-    <div class="drive-left-nav__project-name">{{ project.name }}</div>
+    
     <div class="drive-left-nav__project-meta">
       {% if folder %}
         {{ folder.name }}

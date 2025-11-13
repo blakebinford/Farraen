@@ -1,3 +1,5 @@
-@import 'scss/_theme';
+/* static/scss/main.scss - quick-fix with correct relative imports */
+@import '_theme';
 @import 'bootstrap/scss/bootstrap';
-@import 'scss/overrides';
+@import 'overrides';
+

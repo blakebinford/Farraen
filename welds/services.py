@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import re
+from datetime import date
 from decimal import Decimal
 
-from .models import Welder, Weld
+from django.db import transaction
+from django.db.models import Max
+
+from .models import Weld, WeldRepair, Welder
 
 _STENCIL_SPLIT_RE = re.compile(r"[;,\s]+")
 
@@ -357,3 +361,88 @@ def build_weld_dashboard_chart_payload(kpis: dict) -> dict:
             "weld_counts": [entry["weld_count"] for entry in time_series],
         },
     }
+
+
+def mark_repair_for_weld(
+    weld: Weld,
+    *,
+    flagged_at: date | None = None,
+    original_ndereport_ref: str | None = None,
+    original_nderig: str | None = None,
+    defect_code: str | None = None,
+    nde_type: str | None = None,
+    manual_flag: bool = False,
+    created_by=None,
+) -> tuple[WeldRepair, bool]:
+    """Create or return the active repair record for ``weld``."""
+
+    event_date = (
+        flagged_at
+        or weld.nde_date
+        or weld.weld_date
+        or getattr(weld, "date_welded", None)
+        or date.today()
+    )
+    with transaction.atomic():
+        open_qs = weld.repairs.select_for_update().filter(
+            status__in=[
+                WeldRepair.Status.OPEN,
+                WeldRepair.Status.IN_PROGRESS,
+            ]
+        )
+        if original_ndereport_ref:
+            existing = open_qs.filter(
+                original_ndereport_ref=original_ndereport_ref
+            ).first()
+            if existing:
+                return existing, False
+        else:
+            existing = open_qs.first()
+            if existing:
+                return existing, False
+
+        max_sequence = (
+            weld.repairs.aggregate(max_seq=Max("repair_sequence"))
+            .get("max_seq")
+            or 0
+        )
+        repair = WeldRepair.objects.create(
+            weld=weld,
+            repair_sequence=max_sequence + 1,
+            flagged_at=event_date,
+            original_ndereport_ref=original_ndereport_ref,
+            original_nderig=original_nderig or getattr(weld.nde_rig, "name", None),
+            defect_code_snapshot=defect_code,
+            nde_type=nde_type or weld.nde_type,
+            manual_flag=manual_flag,
+            repair_stencil=weld.welder_stencil_repair or weld.primary_stencil,
+            created_by=created_by,
+            updated_by=created_by,
+        )
+        return repair, True
+
+
+def close_repairs_for_weld(
+    weld: Weld,
+    *,
+    closed_by=None,
+    comment: str | None = None,
+    closed_at=None,
+) -> list[WeldRepair]:
+    """Close all open repairs tied to ``weld``."""
+
+    closed_repairs: list[WeldRepair] = []
+    for repair in weld.repairs.filter(
+        status__in=[WeldRepair.Status.OPEN, WeldRepair.Status.IN_PROGRESS]
+    ):
+        if comment:
+            existing_comment = repair.comments or ""
+            if existing_comment:
+                repair.comments = f"{existing_comment}\n{comment}".strip()
+            else:
+                repair.comments = comment
+        repair.updated_by = closed_by
+        repair.close(closed_by=closed_by, closed_at=closed_at)
+        repair.save(update_fields=["comments", "updated_by", "closed_at", "closed_by"])
+        closed_repairs.append(repair)
+    return closed_repairs

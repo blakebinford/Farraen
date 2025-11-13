@@ -15,10 +15,13 @@ from .analytics import build_dashboard_analytics
 from .models import (
     MaterialHeat,
     NDERig,
+    RepairAttempt,
+    Reinspection,
     Welder,
     Weld,
     WeldEvent,
     WeldHistory,
+    WeldInspection,
     WeldRepair,
 )
 from .services import build_weld_dashboard_chart_payload, get_project_weld_kpis
@@ -1023,8 +1026,9 @@ class DashboardAnalyticsTests(TestCase):
         for idx in range(10):
             WeldRepair.objects.create(
                 weld=weld,
+                flagged_at=date(2024, 3, 11),
                 repair_date=date(2024, 3, 11),
-                repair_cause="POROSITY",
+                defect_code_snapshot="POROSITY",
             )
 
         analytics = build_dashboard_analytics(self.project, {})
@@ -1044,13 +1048,15 @@ class DashboardAnalyticsTests(TestCase):
 
         WeldRepair.objects.create(
             weld=weld,
+            flagged_at=date(2024, 5, 2),
             repair_date=date(2024, 5, 2),
-            repair_cause="INCLUSION",
+            defect_code_snapshot="INCLUSION",
         )
         WeldRepair.objects.create(
             weld=weld,
+            flagged_at=date(2024, 5, 3),
             repair_date=date(2024, 5, 3),
-            repair_cause="SLAG",
+            defect_code_snapshot="SLAG",
         )
 
         analytics = build_dashboard_analytics(self.project, {})
@@ -1109,8 +1115,9 @@ class DashboardAnalyticsTests(TestCase):
         weld = self._create_weld("ZERO-LEN", date(2024, 6, 1), Decimal("0"))
         WeldRepair.objects.create(
             weld=weld,
+            flagged_at=date(2024, 6, 2),
             repair_date=date(2024, 6, 2),
-            repair_cause="POROSITY",
+            defect_code_snapshot="POROSITY",
         )
 
         analytics = build_dashboard_analytics(self.project, {})
@@ -1124,8 +1131,9 @@ class DashboardAnalyticsTests(TestCase):
         weld.save(update_fields=["heat_number"])
         WeldRepair.objects.create(
             weld=weld,
+            flagged_at=date(2024, 7, 2),
             repair_date=date(2024, 7, 2),
-            repair_cause="SLAG",
+            defect_code_snapshot="SLAG",
         )
 
         analytics = build_dashboard_analytics(self.project, {})
@@ -1149,3 +1157,210 @@ class DashboardAnalyticsTests(TestCase):
         }
         self.assertEqual(median_lookup[date(2024, 8, 1)], Decimal("30.00"))
         self.assertEqual(median_lookup[date(2024, 8, 2)], Decimal("20.00"))
+
+
+class WeldRepairModelTests(TestCase):
+    def setUp(self):
+        User = get_user_model()
+        self.user = User.objects.create_user(
+            email="qa@example.com",
+            password="repair123",
+        )
+        self.org = Organization.objects.create(
+            name="Acme", slug="acme", owner=self.user
+        )
+        Membership.objects.create(
+            org=self.org,
+            user=self.user,
+            role=Membership.Role.ADMIN,
+        )
+        self.project = Project.objects.create(
+            org=self.org,
+            name="Pipeline QA",
+            slug="pipeline-qa",
+            created_by=self.user,
+            status=Project.Status.ACTIVE,
+        )
+        self.weld = Weld.objects.create(
+            project=self.project,
+            weld_id="QA-1",
+            weld_date=date(2024, 1, 1),
+        )
+
+    def test_attempt_updates_parent_metrics(self):
+        repair = WeldRepair.objects.create(
+            weld=self.weld,
+            flagged_at=date(2024, 1, 2),
+            repair_date=date(2024, 1, 2),
+        )
+        RepairAttempt.objects.create(
+            repair=repair,
+            performed_at=date(2024, 1, 3),
+            welder_stencil="A1",
+            inches_repaired=Decimal("2.50"),
+            outcome=RepairAttempt.Outcome.FAIL,
+        )
+        repair.refresh_from_db()
+        self.assertEqual(repair.attempt_count, 1)
+        self.assertEqual(repair.total_inches_repaired, Decimal("2.50"))
+        self.assertEqual(repair.last_attempt_date, date(2024, 1, 3))
+        self.assertEqual(repair.repair_date, date(2024, 1, 3))
+
+    def test_reinspection_pass_closes_repair(self):
+        repair = WeldRepair.objects.create(
+            weld=self.weld,
+            flagged_at=date(2024, 1, 2),
+        )
+        Reinspection.objects.create(
+            repair=repair,
+            reinspection_date=date(2024, 1, 5),
+            reinspection_nderig="Rig-1",
+            reinspection_ndereport_ref="RPT-1",
+            reinspection_result=Reinspection.Result.PASS,
+        )
+        repair.refresh_from_db()
+        self.assertEqual(repair.status, WeldRepair.Status.CLOSED)
+        self.assertEqual(repair.reinspection_passed_at, date(2024, 1, 5))
+
+    def test_inspection_signal_creates_repair(self):
+        WeldInspection.objects.create(
+            weld=self.weld,
+            inspection_date=date(2024, 1, 4),
+            nde_type="UT",
+            nde_rig="UT-1",
+            report_reference="UT-1-001",
+            result=WeldInspection.Result.REPAIR,
+            requires_repair=True,
+        )
+        self.assertEqual(self.weld.repairs.count(), 1)
+        repair = self.weld.repairs.first()
+        self.assertEqual(repair.flagged_at, date(2024, 1, 4))
+        self.assertEqual(repair.original_nderig, "UT-1")
+
+    def test_weld_disposition_signal_creates_and_closes(self):
+        self.weld.disposition = Weld.Disposition.REPAIR
+        self.weld.save()
+        self.assertEqual(self.weld.repairs.count(), 1)
+        repair = self.weld.repairs.first()
+        self.assertTrue(repair.manual_flag)
+        self.weld.disposition = Weld.Disposition.ACCEPTED
+        self.weld.save(update_fields=["disposition"])
+        repair.refresh_from_db()
+        self.assertEqual(repair.status, WeldRepair.Status.CLOSED)
+
+
+class WeldRepairAPITests(TestCase):
+    def setUp(self):
+        User = get_user_model()
+        self.user = User.objects.create_user(
+            email="qa@example.com",
+            password="repair123",
+        )
+        self.org = Organization.objects.create(
+            name="Acme", slug="acme", owner=self.user
+        )
+        Membership.objects.create(
+            org=self.org,
+            user=self.user,
+            role=Membership.Role.ADMIN,
+        )
+        self.project = Project.objects.create(
+            org=self.org,
+            name="Pipeline Repairs",
+            slug="pipeline-repairs",
+            created_by=self.user,
+            status=Project.Status.ACTIVE,
+        )
+        ProjectMember.objects.create(
+            project=self.project,
+            user=self.user,
+            role=ProjectMember.Role.PROJECT_MANAGER,
+        )
+        self.weld = Weld.objects.create(
+            project=self.project,
+            weld_id="REP-1",
+            weld_date=date(2024, 2, 1),
+        )
+        self.client.force_login(self.user)
+
+    def test_mark_repair_idempotent(self):
+        url = reverse(
+            "welds:mark_weld_for_repair",
+            kwargs={"org_slug": self.org.slug, "weld_id": self.weld.id},
+        )
+        response = self.client.post(url, data="{}", content_type="application/json")
+        self.assertEqual(response.status_code, 201)
+        repair_id = response.json()["repair"]["id"]
+        second = self.client.post(url, data="{}", content_type="application/json")
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(second.json()["repair"]["id"], repair_id)
+
+    def test_repair_grid_flow(self):
+        mark_url = reverse(
+            "welds:mark_weld_for_repair",
+            kwargs={"org_slug": self.org.slug, "weld_id": self.weld.id},
+        )
+        self.client.post(mark_url, data="{}", content_type="application/json")
+        repair = self.weld.repairs.first()
+
+        patch_url = reverse(
+            "welds:update_repair",
+            kwargs={"org_slug": self.org.slug, "repair_id": repair.id},
+        )
+        payload = {"comments": "Needs follow-up", "nde_type": "UT"}
+        response = self.client.patch(
+            patch_url,
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        repair.refresh_from_db()
+        self.assertEqual(repair.comments, "Needs follow-up")
+        self.assertEqual(repair.nde_type, "UT")
+
+        attempt_url = reverse(
+            "welds:repair_add_attempt",
+            kwargs={"org_slug": self.org.slug, "repair_id": repair.id},
+        )
+        attempt_payload = {
+            "performed_at": "2024-02-05",
+            "welder_stencil": "A1",
+            "inches_repaired": "2.5",
+            "outcome": RepairAttempt.Outcome.FAIL,
+        }
+        response = self.client.post(
+            attempt_url,
+            data=json.dumps(attempt_payload),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 201)
+        repair.refresh_from_db()
+        self.assertEqual(repair.attempt_count, 1)
+
+        reinspect_url = reverse(
+            "welds:repair_add_reinspection",
+            kwargs={"org_slug": self.org.slug, "repair_id": repair.id},
+        )
+        reinspect_payload = {
+            "reinspection_date": "2024-02-10",
+            "reinspection_nderig": "UT-1",
+            "reinspection_ndereport_ref": "UT-1-002",
+            "reinspection_result": Reinspection.Result.PASS,
+        }
+        response = self.client.post(
+            reinspect_url,
+            data=json.dumps(reinspect_payload),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 201)
+        repair.refresh_from_db()
+        self.assertEqual(repair.status, WeldRepair.Status.CLOSED)
+
+        list_url = reverse(
+            "welds:project_repairs",
+            kwargs={"org_slug": self.org.slug, "project_id": self.project.id},
+        )
+        list_response = self.client.get(list_url)
+        self.assertEqual(list_response.status_code, 200)
+        self.assertEqual(list_response.json()["total_rows"], 1)
+

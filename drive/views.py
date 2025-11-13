@@ -21,6 +21,8 @@ from django.utils import timezone
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.clickjacking import xframe_options_sameorigin
 from django.core.exceptions import ValidationError
+from django.template.response import TemplateResponse
+from django.core.files.base import ContentFile
 
 from organizations.models import Membership
 from organizations.decorators import require_membership
@@ -64,10 +66,21 @@ def project_drive_root(request, org_slug, project_slug):
         .select_related("org", "project")
         .order_by("name")
     )
+    folder_tree = (
+        project.folders.filter(is_archived=False)
+        .select_related("parent")
+        .order_by("path")
+    )
     return render(
         request,
         "drive/folder_root.html",
-        {"org": request.org, "project": project, "roots": roots},
+        {
+            "org": request.org,
+            "project": project,
+            "roots": roots,
+            "folder_tree": folder_tree,
+            "breadcrumb": [],
+        },
     )
 
 
@@ -77,6 +90,10 @@ def folder_view(request, org_slug, project_slug, folder_id):
     org = request.org
     folder = get_object_or_404(Folder, pk=folder_id, org=org)
     project = folder.project
+
+    forbidden = _require_project_access(request, project)
+    if forbidden:
+        return forbidden
 
     child_folders = (
         Folder.objects.filter(org=org, parent=folder)
@@ -89,6 +106,13 @@ def folder_view(request, org_slug, project_slug, folder_id):
         .select_related("latest_version", "checked_out_by")
         .order_by("doc_type", "number", "name")
     )
+
+    folder_tree = (
+        Folder.objects.filter(org=org, project=project, is_archived=False)
+        .order_by("path")
+    )
+
+    breadcrumb = _breadcrumb_for(folder)
 
     allowed_list = sorted(list(getattr(settings, "ALLOWED_CONTENT_TYPES", [])))
     context = {
@@ -109,6 +133,8 @@ def folder_view(request, org_slug, project_slug, folder_id):
                 "folder_id": folder.id,
             },
         ),
+        "folder_tree": folder_tree,
+        "breadcrumb": breadcrumb,
     }
     return render(request, "drive/folder_view.html", context)
 
@@ -280,6 +306,65 @@ def file_upload(request, org_slug, project_slug, folder_id):
 
 from organizations.models import Membership
 
+def _file_detail_context(request, project, node):
+    versions = node.versions.all().order_by("-version")
+
+    try:
+        log_file_event(request, node, FileEvent.Action.VIEW)
+    except Exception:
+        pass
+
+    user_role = None
+    try:
+        membership = Membership.objects.get(org=request.org, user=request.user)
+        user_role = membership.role
+    except Membership.DoesNotExist:
+        user_role = None
+
+    is_admin_or_owner = user_role in (Membership.Role.ADMIN, Membership.Role.OWNER)
+    is_member = user_role in (
+        Membership.Role.MEMBER,
+        Membership.Role.ADMIN,
+        Membership.Role.OWNER,
+    )
+    is_creator = node.created_by_id == request.user.id
+
+    can_view_activity = bool(is_member or is_creator)
+
+    is_checked_out = bool(node.checked_out_by_id)
+    is_checked_out_by_me = node.checked_out_by_id == request.user.id
+    can_checkout = is_member and (not is_checked_out or is_checked_out_by_me)
+    can_checkin = is_member and is_checked_out_by_me
+    can_force_checkin = is_admin_or_owner and is_checked_out
+
+    events_page = None
+    if can_view_activity:
+        page = int(request.GET.get("apage", "1") or 1)
+        qs = node.events.select_related("actor", "version").order_by("-at")
+        paginator = Paginator(qs, 10)
+        try:
+            events_page = paginator.page(page)
+        except EmptyPage:
+            events_page = paginator.page(paginator.num_pages)
+
+    return {
+        "org": request.org,
+        "project": project,
+        "node": node,
+        "versions": versions,
+        "events_page": events_page,
+        "can_view_activity": can_view_activity,
+        "is_admin_or_owner": is_admin_or_owner,
+        "is_member": is_member,
+        "is_creator": is_creator,
+        "is_checked_out": is_checked_out,
+        "is_checked_out_by_me": is_checked_out_by_me,
+        "can_checkout": can_checkout,
+        "can_checkin": can_checkin,
+        "can_force_checkin": can_force_checkin,
+    }
+
+
 @login_required
 @require_membership("GUEST")
 def file_detail(request, org_slug, project_slug, file_id):
@@ -289,73 +374,48 @@ def file_detail(request, org_slug, project_slug, file_id):
         return forbidden
 
     node = get_object_or_404(
-        FileNode.objects.select_related("latest_version", "folder", "project", "org", "created_by"),
-        pk=file_id, org=request.org, project=project
+        FileNode.objects.select_related(
+            "latest_version",
+            "folder",
+            "project",
+            "org",
+            "created_by",
+        ),
+        pk=file_id,
+        org=request.org,
+        project=project,
     )
-    versions = node.versions.all().order_by("-version")
 
-    # Log view (safe)
-    try:
-        log_file_event(request, node, FileEvent.Action.VIEW)
-    except Exception:
-        pass
+    context = _file_detail_context(request, project, node)
+    context["standalone"] = True
+    return render(request, "drive/file_detail.html", context)
 
-    # ---- Compute role/permissions for template (NO queryset calls in template) ----
-    user_role = None
-    try:
-        m = Membership.objects.get(org=request.org, user=request.user)
-        user_role = m.role  # "GUEST","VIEWER","MEMBER","ADMIN","OWNER"
-    except Membership.DoesNotExist:
-        user_role = None
 
-    is_admin_or_owner = user_role in (Membership.Role.ADMIN, Membership.Role.OWNER)
-    is_member = user_role in (Membership.Role.MEMBER, Membership.Role.ADMIN, Membership.Role.OWNER)
-    is_creator = (node.created_by_id == request.user.id)
+@login_required
+@require_membership("GUEST")
+def file_detail_drawer(request, org_slug, project_slug, file_id):
+    project = get_project_for_request(request, request.org, project_slug)
+    forbidden = _require_project_access(request, project)
+    if forbidden:
+        return forbidden
 
-    # Activity tab: only member+ or creator
-    can_view_activity = bool(is_member or is_creator)
-
-    # Checkout-related convenience flags
-    is_checked_out = bool(node.checked_out_by_id)
-    is_checked_out_by_me = (node.checked_out_by_id == request.user.id)
-    can_checkout = is_member and (not is_checked_out or is_checked_out_by_me)
-    can_checkin = is_member and is_checked_out_by_me
-    can_force_checkin = is_admin_or_owner and is_checked_out
-
-    # Activity pagination (only if allowed)
-    events_page = None
-    if can_view_activity:
-        from django.core.paginator import Paginator, EmptyPage
-        page = int(request.GET.get("apage", "1") or 1)
-        qs = node.events.select_related("actor", "version").order_by("-at")
-        paginator = Paginator(qs, 10)
-        try:
-            events_page = paginator.page(page)
-        except EmptyPage:
-            events_page = paginator.page(paginator.num_pages)
-
-    return render(
-        request,
-        "drive/file_detail.html",
-        {
-            "org": request.org,
-            "project": project,
-            "node": node,
-            "versions": versions,
-            "events_page": events_page,
-            "can_view_activity": can_view_activity,
-
-            # expose simple flags ONLY (safe for templates)
-            "is_admin_or_owner": is_admin_or_owner,
-            "is_member": is_member,
-            "is_creator": is_creator,
-            "is_checked_out": is_checked_out,
-            "is_checked_out_by_me": is_checked_out_by_me,
-            "can_checkout": can_checkout,
-            "can_checkin": can_checkin,
-            "can_force_checkin": can_force_checkin,
-        },
+    node = get_object_or_404(
+        FileNode.objects.select_related(
+            "latest_version",
+            "folder",
+            "project",
+            "org",
+            "created_by",
+        ),
+        pk=file_id,
+        org=request.org,
+        project=project,
     )
+
+    context = _file_detail_context(request, project, node)
+    response = TemplateResponse(request, "drive/file_detail_drawer.html", context)
+    response["Cache-Control"] = "no-store"
+    return response
 
 
 
@@ -537,11 +597,14 @@ def file_checkin(request, org_slug, project_slug, file_id):
 def file_force_checkin(request, org_slug, project_slug, file_id):
     project = get_project_for_request(request, request.org, project_slug)
     forbidden = _require_project_access(request, project)
-    if forbidden: return forbidden
+    if forbidden:
+        return forbidden
 
     node = get_object_or_404(
         FileNode.objects.select_for_update(),
-        pk=file_id, org=request.org, project=project
+        pk=file_id,
+        org=request.org,
+        project=project,
     )
 
     with transaction.atomic():
@@ -549,14 +612,82 @@ def file_force_checkin(request, org_slug, project_slug, file_id):
         node.checked_out_by = None
         node.checked_out_at = None
         node.save(update_fields=["checked_out_by", "checked_out_at"])
-        messages.success(request, "Force check-in complete. Others can upload new versions.")
-    node.checked_out_by = None
-    node.checked_out_at = None
-    node.save(update_fields=["checked_out_by", "checked_out_at"])
+        messages.success(
+            request,
+            "Force check-in complete. Others can upload new versions.",
+        )
+
     try:
         log_file_event(request, node, FileEvent.Action.FORCE_CHECKIN)
     except Exception:
         pass
-    messages.success(request, "Force check-in complete. Others can upload new versions.")
+
+    return redirect("drive_file", org_slug=request.org.slug, project_slug=project.slug, file_id=node.id)
+
+
+@login_required
+@require_membership("MEMBER")
+@require_POST
+def file_revert_version(request, org_slug, project_slug, file_id, version):
+    project = get_project_for_request(request, request.org, project_slug)
+    forbidden = _require_project_access(request, project)
+    if forbidden:
+        return forbidden
+
+    node = get_object_or_404(
+        FileNode.objects.select_related("latest_version"),
+        pk=file_id,
+        org=request.org,
+        project=project,
+    )
+
+    revert_source = get_object_or_404(
+        FileVersion,
+        file_node=node,
+        version=version,
+    )
+
+    note = (request.POST.get("note") or "").strip()
+
+    with transaction.atomic():
+        node = FileNode.objects.select_for_update().get(pk=node.pk)
+        latest = node.versions.order_by("-version").first()
+        next_version = (latest.version if latest else 0) + 1
+
+        with revert_source.blob.open("rb") as fh:
+            content = fh.read()
+
+        content_file = ContentFile(content)
+        content_file.name = os.path.basename(revert_source.blob.name)
+
+        new_version = FileVersion.objects.create(
+            file_node=node,
+            version=next_version,
+            blob=content_file,
+            size=revert_source.size,
+            content_type=revert_source.content_type,
+            uploaded_by=request.user,
+            note=note or f"Reverted to v{revert_source.version}",
+        )
+
+        node.latest_version = new_version
+        node.size = new_version.size
+        node.save(update_fields=["latest_version", "size"])
+
+    try:
+        log_file_event(request, node, FileEvent.Action.REVERT, new_version)
+    except Exception:
+        pass
+
+    messages.success(
+        request,
+        f"Created version {new_version.version} from v{revert_source.version}.",
+    )
+
+    if request.headers.get("x-requested-with") == "XMLHttpRequest":
+        context = _file_detail_context(request, project, node)
+        response = TemplateResponse(request, "drive/file_detail_drawer.html", context)
+        response["Cache-Control"] = "no-store"
+        return response
 
     return redirect("drive_file", org_slug=request.org.slug, project_slug=project.slug, file_id=node.id)

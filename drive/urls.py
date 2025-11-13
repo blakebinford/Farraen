@@ -10,6 +10,11 @@ urlpatterns = [
 
     path("drive/file/<int:file_id>/", views.file_detail, name="drive_file"),
     path(
+        "drive/file/<int:file_id>/drawer/",
+        views.file_detail_drawer,
+        name="drive_file_drawer",
+    ),
+    path(
         "drive/file/<int:file_id>/inline-update/",
         views.file_inline_update,
         name="drive_file_inline_update",
@@ -19,6 +24,11 @@ urlpatterns = [
 
     path("drive/file/<int:file_id>/versions/<int:version>/download/", views.file_download_version, name="drive_file_download_version"),
     path("drive/file/<int:file_id>/versions/<int:version>/preview/", views.file_stream_version, name="drive_file_stream_version"),
+    path(
+        "drive/file/<int:file_id>/versions/<int:version>/revert/",
+        views.file_revert_version,
+        name="drive_file_revert_version",
+    ),
     path("drive/file/<int:file_id>/checkout/", views.file_checkout, name="drive_file_checkout"),
     path("drive/file/<int:file_id>/checkin/", views.file_checkin, name="drive_file_checkin"),
     path("drive/file/<int:file_id>/force-checkin/", views.file_force_checkin, name="drive_file_force_checkin"),

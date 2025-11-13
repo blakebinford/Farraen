@@ -1,0 +1,31 @@
+{% load humanize %}
+{% if files %}
+  <div class="drive-card-grid">
+    {% for node in files %}
+      <article class="drive-file-card" tabindex="0" role="button"
+               data-drive-card data-detail-url="{% url 'drive_file_drawer' org.slug project.slug node.id %}">
+        <div>
+          <span class="drive-file-card__title">
+            <a href="{% url 'drive_file' org.slug project.slug node.id %}" class="text-decoration-none" data-drive-ignore>{{ node.name }}</a>
+          </span>
+          {% if node.doc_type %}
+            <span class="badge bg-primary-subtle text-primary-emphasis ms-1">{{ node.doc_type }}</span>
+          {% endif %}
+        </div>
+        <div class="drive-file-card__meta">
+          Version {{ node.version }} · {{ node.latest_version.size|default:node.size|filesizeformat }}
+        </div>
+        <div class="drive-file-card__meta">
+          {% if node.checked_out_by %}
+            <span class="badge bg-warning text-dark">Checked out</span>
+            {{ node.checked_out_by.get_full_name|default:node.checked_out_by.email }}
+          {% else %}
+            <span class="text-muted">Available</span>
+          {% endif %}
+        </div>
+      </article>
+    {% endfor %}
+  </div>
+{% else %}
+  <p class="text-muted mb-0">No files in this folder yet.</p>
+{% endif %}

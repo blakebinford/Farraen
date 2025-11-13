@@ -1,0 +1,109 @@
+{% load drive_extras %}
+{% if node.latest_version %}
+  {% with ct=node.latest_version.content_type|default:"" %}
+    {% if ct|slice:":15" == "application/pdf" %}
+      <iframe class="w-100 border rounded" style="height:60vh"
+              src="{% url 'drive_file_stream' org.slug project.slug node.id %}#view=FitH"
+              title="PDF preview"></iframe>
+    {% elif "wordprocessingml" in ct %}
+      <div id="docx-root" class="docx-view"></div>
+      <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+      <script src="https://cdn.jsdelivr.net/npm/docx-preview@0.3.4/dist/docx-preview.min.js"></script>
+      <script>
+        (async () => {
+          try {
+            const res = await fetch("{% url 'drive_file_stream' org.slug project.slug node.id %}");
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            const ab = await res.arrayBuffer();
+            window.docx.renderAsync(
+              ab,
+              document.getElementById('docx-root'),
+              null,
+              {
+                className: 'docx',
+                inWrapper: true,
+                ignoreLastRenderedPageBreak: true,
+              },
+            );
+          } catch (err) {
+            console.error(err);
+          }
+        })();
+      </script>
+    {% elif ct == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" %}
+      <div id="xlsx-root" class="xlsx-view"></div>
+      <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+      <script>
+        (async () => {
+          const res = await fetch("{% url 'drive_file_stream' org.slug project.slug node.id %}");
+          const ab = await res.arrayBuffer();
+          const wb = XLSX.read(ab, {type:'array'});
+          const first = wb.SheetNames[0];
+          const html = XLSX.utils.sheet_to_html(wb.Sheets[first], { id: 'sheetjs', editable: false });
+          document.getElementById('xlsx-root').innerHTML = html;
+        })();
+      </script>
+    {% elif ct|slice:":6" == "image/" %}
+      <img src="{% url 'drive_file_stream' org.slug project.slug node.id %}"
+           alt="{{ node.name }}"
+           class="img-fluid rounded border" />
+    {% elif ct == "text/csv" %}
+      <div id="csv-root" class="xlsx-view"></div>
+      <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+      <script>
+        (async () => {
+          try {
+            const res = await fetch("{% url 'drive_file_stream' org.slug project.slug node.id %}");
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            const csvText = await res.text();
+            const parsed = Papa.parse(csvText, { header: false, dynamicTyping: false, skipEmptyLines: true });
+            const rows = parsed.data || [];
+            const maxRows = 500;
+            const sample = rows.slice(0, maxRows);
+            const root = document.getElementById('csv-root');
+            const table = document.createElement('table');
+            table.className = 'table table-sm table-striped';
+            const thead = document.createElement('thead');
+            if (sample.length) {
+              const tr = document.createElement('tr');
+              const colCount = sample[0].length || 0;
+              for (let c = 0; c < colCount; c++) {
+                const th = document.createElement('th');
+                th.textContent = 'Col ' + (c + 1);
+                tr.appendChild(th);
+              }
+              thead.appendChild(tr);
+            }
+            const tbody = document.createElement('tbody');
+            sample.forEach((row) => {
+              const tr = document.createElement('tr');
+              row.forEach((cell) => {
+                const td = document.createElement('td');
+                td.textContent = (cell === null || cell === undefined) ? '' : String(cell);
+                tr.appendChild(td);
+              });
+              tbody.appendChild(tr);
+            });
+            table.appendChild(thead);
+            table.appendChild(tbody);
+            root.innerHTML = '';
+            root.appendChild(table);
+            if (rows.length > maxRows) {
+              const note = document.createElement('div');
+              note.className = 'text-muted small mt-2';
+              note.textContent = `Showing first ${maxRows} rows of ${rows.length}.`;
+              root.appendChild(note);
+            }
+          } catch (err) {
+            console.error(err);
+            document.getElementById('csv-root').innerHTML = '<div class="alert alert-warning">Unable to render CSV preview.</div>';
+          }
+        })();
+      </script>
+    {% else %}
+      <p class="text-muted">Preview not available for this file type. Download the latest version to view.</p>
+    {% endif %}
+  {% endwith %}
+{% else %}
+  <p class="text-muted">No versions available.</p>
+{% endif %}

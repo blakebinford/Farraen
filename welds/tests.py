@@ -45,7 +45,7 @@ class WelderModelTests(TestCase):
             name="Pipeline A",
             slug="pipeline-a",
             created_by=self.user,
-            is_archived=False,
+            status=Project.Status.ACTIVE,
         )
 
     def test_welder_can_link_wps_documents(self):
@@ -90,7 +90,7 @@ class NDERigModelTests(TestCase):
             name="Pipeline A",
             slug="pipeline-a",
             created_by=self.user,
-            is_archived=False,
+            status=Project.Status.ACTIVE,
         )
 
     def test_qualification_folder_created(self):
@@ -128,7 +128,7 @@ class WeldLogAPITests(TestCase):
             name="Pipeline A",
             slug="pipeline-a",
             created_by=self.user,
-            is_archived=False,
+            status=Project.Status.ACTIVE,
         )
         ProjectMember.objects.create(
             project=self.project,
@@ -346,7 +346,7 @@ class WeldLogMissingTablesTests(TestCase):
             name="Pipeline A",
             slug="pipeline-a",
             created_by=self.user,
-            is_archived=False,
+            status=Project.Status.ACTIVE,
         )
         ProjectMember.objects.create(
             project=self.project,
@@ -425,7 +425,7 @@ class WeldKPIDashboardServiceTests(TestCase):
             name="Pipeline B",
             slug="pipeline-b",
             created_by=self.user,
-            is_archived=False,
+            status=Project.Status.ACTIVE,
         )
         ProjectMember.objects.create(
             project=self.project,
@@ -662,7 +662,7 @@ class WeldHistoryAPITests(WeldLogAPITests):
     def test_rollback_restores_previous_values_and_creates_history(self):
         ProjectMember.objects.filter(
             project=self.project, user=self.user
-        ).update(role=ProjectMember.Role.MANAGER)
+        ).update(role=ProjectMember.Role.PROJECT_MANAGER)
         create = self._post_weld(self._base_payload())
         self.assertEqual(create.status_code, 201)
         weld_id = create.json()["weld"]["id"]
@@ -706,7 +706,7 @@ class WeldHistoryAPITests(WeldLogAPITests):
     def test_rollback_conflict_returns_current_and_target(self):
         ProjectMember.objects.filter(
             project=self.project, user=self.user
-        ).update(role=ProjectMember.Role.MANAGER)
+        ).update(role=ProjectMember.Role.PROJECT_MANAGER)
         create = self._post_weld(self._base_payload())
         self.assertEqual(create.status_code, 201)
         weld_id = create.json()["weld"]["id"]
@@ -741,7 +741,7 @@ class WeldHistoryAPITests(WeldLogAPITests):
     def test_rollback_records_reason_in_history_response(self):
         ProjectMember.objects.filter(
             project=self.project, user=self.user
-        ).update(role=ProjectMember.Role.MANAGER)
+        ).update(role=ProjectMember.Role.PROJECT_MANAGER)
         create = self._post_weld(self._base_payload())
         self.assertEqual(create.status_code, 201)
         weld_id = create.json()["weld"]["id"]
@@ -934,7 +934,7 @@ class DashboardAnalyticsTests(TestCase):
             name="Pipeline Metrics",
             slug="pipeline-metrics",
             created_by=self.user,
-            is_archived=False,
+            status=Project.Status.ACTIVE,
         )
         ProjectMember.objects.create(
             project=self.project,

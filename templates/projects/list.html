@@ -3,136 +3,30 @@
 
 {% block content %}
 <h1 class="h5 mb-3">{{ org.name }} — Projects</h1>
-
-<div class="d-flex justify-content-between align-items-center mb-3">
-  <div class="text-muted small">Showing <strong>{{ projects|length }}</strong> project{% if projects|length != 1 %}s{% endif %}</div>
+<div class="d-flex justify-content-between mb-2">
   <div>
-    <a class="btn btn-outline-secondary btn-sm me-2" href="{% url 'projects:project_list' org.slug %}">
-      <i class="bi bi-list-task me-1"></i> All Projects
-    </a>
-    <a class="btn btn-primary btn-sm" href="{% url 'projects:project_create' org.slug %}">
-      <i class="bi bi-plus-lg me-1" aria-hidden="true"></i> New Project
-    </a>
+    {% if show_archived %}
+      <a class="btn btn-outline-secondary btn-sm" href="{% url 'projects:project_list' org.slug %}">Hide archived</a>
+    {% else %}
+      <a class="btn btn-outline-secondary btn-sm" href="{% url 'projects:project_list' org.slug %}?show_archived=1">Show archived</a>
+    {% endif %}
   </div>
+  <a class="btn btn-primary btn-sm" href="{% url 'projects:project_create' org.slug %}">New Project</a>
 </div>
-
-<style>
-  /* Small card polish for project list */
-  .project-card { border-radius: 12px; transition: transform .08s ease, box-shadow .12s ease; }
-  .project-card:hover { transform: translateY(-4px); box-shadow: 0 14px 36px rgba(11, 22, 40, 0.06); }
-  .project-card .meta-row { gap: 12px; align-items: center; }
-  .project-desc { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
-  .project-stats .stat { font-size: 13px; color: #6c757d; display:flex; gap:6px; align-items:center; }
-  .project-badge { font-size: 12px; font-weight:700; border-radius: 999px; padding: 0.25rem 0.55rem; }
-</style>
-
-{% if projects %}
-  <div class="row g-3">
-    {% for p in projects %}
-      <div class="col-12 col-md-6 col-lg-4">
-        <div class="card h-100 project-card">
-          <div class="card-body d-flex flex-column">
-            <div class="d-flex align-items-start justify-content-between">
-              <div class="me-2" style="min-width:0;">
-                <h3 class="h6 mb-1" title="{{ p.name }}">{{ p.name }}</h3>
-
-                {# Status badge if available #}
-                {% if p.status %}
-                  <div class="mb-2">
-                    <span class="project-badge bg-light text-dark border">{% if p.status %}{{ p.status }}{% endif %}</span>
-                  </div>
-                {% endif %}
-              </div>
-
-              <div class="text-end ms-auto">
-                <div class="text-muted small">Updated</div>
-                <div class="small text-muted">
-                  {{ p.updated_at|default:p.created_at|naturaltime }}
-                </div>
-              </div>
-            </div>
-            {# Description (truncated) #}
-            {% if p.description %}
-              <p class="mb-2 text-muted project-desc" style="line-height:1.35">{{ p.description }}</p>
-            {% else %}
-              <p class="mb-2 text-muted project-desc" style="line-height:1.35">No description provided.</p>
-            {% endif %}
-
-            <div class="d-flex flex-column gap-2 mb-3">
-              <div class="d-flex flex-wrap meta-row text-muted small">
-                <div class="me-3 d-flex align-items-center">
-                  <i class="bi bi-person-fill me-1" aria-hidden="true"></i>
-                  <span>
-                    {% if p.created_by %}
-                      {{ p.created_by.get_full_name|default:p.created_by.username|default:p.created_by.email }}
-                    {% else %}
-                      — owner
-                    {% endif %}
-                  </span>
-                </div>
-
-                <div class="d-flex align-items-center">
-                  <i class="bi bi-people-fill me-1" aria-hidden="true"></i>
-                  <span>
-                    {% if p.memberships %}
-                      {{ p.memberships.count }} members
-                    
-                    {% else %}
-                      — members
-                    {% endif %}
-                  </span>
-                </div>
-              </div>
-
-              <div class="d-flex flex-wrap meta-row text-muted small">
-                <div class="me-3 d-flex align-items-center">
-                  <i class="bi bi-calendar-event me-1" aria-hidden="true"></i>
-                  <span>
-                    {% if p.planned_start_date %}
-                      {{ p.planned_start_date|date:"M j, Y" }}
-                    {% else %}
-                      — 
-                    {% endif %}
-                    {% if p.end_date %} &nbsp;–&nbsp; {{ p.end_date|date:"M j, Y" }}{% endif %}
-                  </span>
-                </div>
-
-                <div class="d-flex align-items-center">
-        
-                  <span>
-                  
-                  </span>
-                </div>
-              </div>
-
-              {% if p.completion_percent %}
-                <div class="mt-2">
-                  <div class="d-flex justify-content-between small text-muted">
-                    <div>Progress</div>
-                    <div>{{ p.completion_percent }}%</div>
-                  </div>
-                  <div class="progress" style="height:8px;">
-                    <div class="progress-bar bg-primary" role="progressbar" style="width: {{ p.completion_percent }}%;" aria-valuenow="{{ p.completion_percent }}" aria-valuemin="0" aria-valuemax="100"></div>
-                  </div>
-                </div>
-              {% endif %}
-            </div>
-
-            <div class="mt-auto d-flex align-items-center justify-content-between">
-              <div class="btn-group" role="group" aria-label="Project actions">
-                <a class="btn btn-sm btn-outline-primary" href="{% url 'welds:weld_log' org.slug p.slug %}" aria-label="Open weld log for {{ p.name }}">
-                  <i class="bi bi-stickies me-1"></i> Weld Log
-                </a>
-                <a class="btn btn-sm btn-outline-primary" href="{% url 'projects:weld_dashboard' org.slug p.slug %}" aria-label="Open KPI dashboard for {{ p.name }}">
-                  <i class="bi bi-bar-chart-line me-1"></i> KPI
-                </a>
-                <a class="btn btn-sm btn-outline-secondary" href="{% url 'project_drive_root' org.slug p.slug %}" aria-label="Open drive for {{ p.name }}">
-                  <i class="bi bi-folder2-open me-1"></i> Drive
-                </a>
-              </div>
-            </div>
-          </div>
+<ul class="list-group">
+  {% for p in projects %}
+    <li class="list-group-item d-flex justify-content-between align-items-center {% if p.status == 'ARCHIVED' %}list-group-item-secondary{% endif %}">
+      <div>
+        <div class="fw-semibold">{{ p.name }}</div>
+        <div class="small text-muted">
+          {{ p.get_status_display }}{% if p.project_code %} · {{ p.project_code }}{% endif %}
+          {% if p.status == 'ARCHIVED' %}<span class="badge bg-secondary ms-1">Archived</span>{% endif %}
         </div>
+      </div>
+      <div class="btn-group" role="group">
+        <a class="btn btn-outline-primary btn-sm" href="{% url 'welds:weld_log' org.slug p.slug %}">Weld Log</a>
+        <a class="btn btn-outline-primary btn-sm" href="{% url 'projects:weld_dashboard' org.slug p.slug %}">KPI Dashboard</a>
+        <a class="btn btn-outline-secondary btn-sm" href="{% url 'project_drive_root' org.slug p.slug %}">Open Drive</a>
       </div>
     {% endfor %}
   </div>

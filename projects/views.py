@@ -4,7 +4,7 @@ from decimal import Decimal, InvalidOperation
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
-from django.shortcuts import render, redirect
+from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils.decorators import method_decorator
 from django.utils.dateparse import parse_date
@@ -18,29 +18,85 @@ from welds.services import (
     get_project_weld_kpis,
 )
 
+from .forms import ProjectForm
 from .models import Project, ProjectMember
-from .utils import get_project_for_request, user_has_project_access
+from .utils import (
+    assert_project_not_archived,
+    ensure_membership,
+    get_project_for_request,
+    user_has_project_access,
+)
 
 @login_required
 @require_membership("GUEST")
 def project_list(request, org_slug):
-    qs = Project.objects.filter(org=request.org, is_archived=False)
-    # Only show projects the user belongs to
+    show_archived = request.GET.get("show_archived") == "1"
+    qs = Project.objects.filter(org=request.org)
+    if not show_archived:
+        qs = qs.exclude(status=Project.Status.ARCHIVED)
     my = qs.filter(memberships__user=request.user).distinct()
-    return render(request, "projects/list.html", {"org": request.org, "projects": my})
+    context = {
+        "org": request.org,
+        "projects": my,
+        "show_archived": show_archived,
+    }
+    return render(request, "projects/list.html", context)
 
 @login_required
 @require_membership("MEMBER")
 def project_create(request, org_slug):
     if request.method == "POST":
-        name = request.POST.get("name","").strip()
-        if not name:
-            return render(request, "projects/create.html", {"org": request.org, "error": "Name required"})
-        p = Project.objects.create(org=request.org, name=name, created_by=request.user)
-        # add creator as manager
-        ProjectMember.objects.create(project=p, user=request.user, role=ProjectMember.Role.MANAGER, added_by=request.user)
-        return redirect("projects:project_list", org_slug=request.org.slug)
-    return render(request, "projects/create.html", {"org": request.org})
+        form = ProjectForm(request.POST, org=request.org, user=request.user)
+        if form.is_valid():
+            project = form.save(commit=False)
+            project.org = request.org
+            project.created_by = request.user
+            project.updated_by = request.user
+            if not project.project_manager:
+                project.project_manager = request.user
+            project.save()
+            form.save_m2m()
+            ensure_membership(
+                project,
+                project.project_manager,
+                ProjectMember.Role.PROJECT_MANAGER,
+                added_by=request.user,
+            )
+            ensure_membership(
+                project,
+                project.superintendent,
+                ProjectMember.Role.SUPERINTENDENT,
+                added_by=request.user,
+            )
+            ensure_membership(
+                project,
+                project.quality_manager,
+                ProjectMember.Role.QUALITY_MANAGER,
+                added_by=request.user,
+            )
+            for tech in project.quality_techs.all():
+                ensure_membership(
+                    project,
+                    tech,
+                    ProjectMember.Role.QUALITY_TECH,
+                    added_by=request.user,
+                )
+            project.sync_role_memberships()
+            ensure_membership(
+                project,
+                request.user,
+                ProjectMember.Role.PROJECT_MANAGER,
+                added_by=request.user,
+            )
+            messages.success(request, "Project created successfully.")
+            return redirect("projects:project_list", org_slug=request.org.slug)
+    else:
+        form = ProjectForm(org=request.org, user=request.user)
+    return render(
+        request,
+        "projects/create.html",
+        {"org": request.org, "form": form},
+    )
 
 
 @method_decorator(require_membership("GUEST"), name="dispatch")
@@ -77,6 +133,7 @@ class ProjectWeldDashboardView(TemplateView):
 
     def post(self, request, *args, **kwargs):
         project = self.project
+        assert_project_not_archived(project)
         updates = {}
 
         def _parse_decimal(key):
@@ -117,7 +174,8 @@ class ProjectWeldDashboardView(TemplateView):
                 changed_fields.append(field)
 
         if changed_fields:
-            project.save(update_fields=changed_fields)
+            project.updated_by = request.user
+            project.save(update_fields=changed_fields + ["updated_by", "updated_at"])
             messages.success(request, "Planner inputs saved for this project.")
         else:
             messages.info(request, "No planner inputs were changed.")
@@ -144,6 +202,8 @@ class ProjectWeldDashboardView(TemplateView):
                 "weld_kpis": kpis,
                 "chart_data": build_weld_dashboard_chart_payload(kpis),
                 "analytics": analytics_json,
+                "project_is_archived": self.project.status
+                == Project.Status.ARCHIVED,
                 "dashboard_api_url": reverse(
                     "welds:weld_dashboard_analytics",
                     kwargs={

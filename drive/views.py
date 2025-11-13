@@ -29,7 +29,13 @@ from django.core.files.base import ContentFile
 from organizations.models import Membership
 from organizations.decorators import require_membership
 from .models import Folder, FileNode, FileVersion, FileEvent
-from projects.utils import get_project_for_request, user_has_project_access
+from django.core.exceptions import PermissionDenied
+
+from projects.utils import (
+    assert_project_not_archived,
+    get_project_for_request,
+    user_has_project_access,
+)
 from .utils import log_file_event, sanitize_filename, validate_upload
 from django.core.paginator import Paginator, EmptyPage
 
@@ -38,6 +44,11 @@ from django.core.paginator import Paginator, EmptyPage
 def _require_project_access(request, project):
     if not user_has_project_access(request.user, project):
         return HttpResponseForbidden("No project access")
+    if request.method not in ("GET", "HEAD", "OPTIONS"):
+        try:
+            assert_project_not_archived(project)
+        except PermissionDenied:
+            return HttpResponseForbidden("This project is archived and locked.")
     return None
 
 

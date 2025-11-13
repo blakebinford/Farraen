@@ -1,0 +1,318 @@
+{% extends "base.html" %}
+{% load humanize %}
+
+{% block content %}
+<header class="mb-4">
+  <div class="d-flex justify-content-between align-items-start flex-wrap gap-3">
+    <div>
+      <nav aria-label="Breadcrumb">
+        <ol class="breadcrumb small text-muted mb-2">
+          <li class="breadcrumb-item"><a class="text-decoration-none" href="{% url 'org_dashboard' org.slug %}">{{ org.name }}</a></li>
+          <li class="breadcrumb-item"><a class="text-decoration-none" href="{% url 'projects:project_list' org.slug %}">Projects</a></li>
+          <li class="breadcrumb-item active" aria-current="page">{{ project.name }}</li>
+        </ol>
+      </nav>
+      <div class="d-flex align-items-center gap-2">
+        <h1 class="h3 mb-0">{{ project.name }}</h1>
+        <span class="badge {{ status_badge_class }} text-uppercase small px-2 py-1">{{ project.get_status_display }}</span>
+      </div>
+      <div class="text-muted small mt-2 d-flex flex-wrap gap-3">
+        {% if project.project_code %}
+          <span><i class="bi bi-hash me-1"></i>{{ project.project_code }}</span>
+        {% endif %}
+        {% if project.client_name %}
+          <span><i class="bi bi-briefcase me-1"></i>{{ project.client_name }}</span>
+        {% endif %}
+        {% if project.site_address %}
+          <span><i class="bi bi-geo-alt me-1"></i>{{ project.site_address }}</span>
+        {% endif %}
+      </div>
+    </div>
+    <div class="d-flex flex-wrap gap-2">
+      <a class="btn btn-outline-primary btn-sm" href="{% url 'welds:weld_log' org.slug project.slug %}"><i class="bi bi-journal-text me-1"></i> Weld Log</a>
+      <a class="btn btn-outline-primary btn-sm" href="{% url 'projects:weld_dashboard' org.slug project.slug %}"><i class="bi bi-graph-up-arrow me-1"></i> KPI Dashboard</a>
+      <a class="btn btn-outline-secondary btn-sm" href="{% url 'project_drive_root' org.slug project.slug %}"><i class="bi bi-folder2-open me-1"></i> Project Drive</a>
+      {% if can_edit_project or can_edit_status %}
+        <button class="btn btn-primary btn-sm" type="button" data-bs-toggle="collapse" data-bs-target="#project-edit-panel" aria-expanded="{% if show_edit_panel %}true{% else %}false{% endif %}" aria-controls="project-edit-panel">
+          <i class="bi bi-pencil-square me-1"></i> Edit Project
+        </button>
+      {% endif %}
+    </div>
+  </div>
+</header>
+
+<section class="mb-4">
+  <div class="row row-cols-1 row-cols-md-2 row-cols-xl-4 g-3">
+    <div class="col">
+      <div class="card shadow-sm border-0 h-100">
+        <div class="card-body">
+          <h2 class="card-title h6 text-uppercase text-muted mb-2">Total Welds</h2>
+          <p class="display-6 fw-semibold mb-1">{{ metrics.total_welds|intcomma }}</p>
+          <p class="text-muted small mb-0">Pending: {{ metrics.pending_welds|intcomma }}</p>
+        </div>
+      </div>
+    </div>
+    <div class="col">
+      <div class="card shadow-sm border-0 h-100">
+        <div class="card-body">
+          <h2 class="card-title h6 text-uppercase text-muted mb-2">Accepted Welds</h2>
+          <p class="display-6 fw-semibold mb-1">{{ metrics.accepted_welds|intcomma }}</p>
+          <p class="text-muted small mb-0">{{ metrics.accepted_percent|floatformat:1 }}% of total</p>
+        </div>
+      </div>
+    </div>
+    <div class="col">
+      <div class="card shadow-sm border-0 h-100">
+        <div class="card-body">
+          <h2 class="card-title h6 text-uppercase text-muted mb-2">Repairs / Cut Outs</h2>
+          <p class="display-6 fw-semibold mb-1">{{ metrics.rejected_welds|intcomma }}</p>
+          <p class="text-muted small mb-0">{{ metrics.rejected_percent|floatformat:1 }}% of total</p>
+        </div>
+      </div>
+    </div>
+    <div class="col">
+      <div class="card shadow-sm border-0 h-100">
+        <div class="card-body">
+          <h2 class="card-title h6 text-uppercase text-muted mb-2">MTR Coverage</h2>
+          <p class="display-6 fw-semibold mb-1">{{ metrics.docs_coverage_percent|floatformat:1 }}%</p>
+          <p class="text-muted small mb-0">Missing docs on {{ metrics.docs_missing|intcomma }} welds</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="mb-4">
+  <div class="row row-cols-1 row-cols-md-2 g-3">
+    <div class="col">
+      <div class="card shadow-sm border-0 h-100">
+        <div class="card-body">
+          <h2 class="card-title h6 text-uppercase text-muted mb-2">Last Weld Activity</h2>
+          <p class="fs-5 fw-semibold mb-1">
+            {% if metrics.last_weld_activity %}
+              {{ metrics.last_weld_activity|naturaltime }}
+            {% else %}
+              No weld activity recorded
+            {% endif %}
+          </p>
+          {% if metrics.last_weld_date %}
+            <p class="text-muted small mb-0">Most recent weld date: {{ metrics.last_weld_date|date:"M j, Y" }}</p>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    <div class="col">
+      <div class="card shadow-sm border-0 h-100">
+        <div class="card-body">
+          <h2 class="card-title h6 text-uppercase text-muted mb-2">Project Record Updated</h2>
+          <p class="fs-5 fw-semibold mb-1">
+            {% if project.updated_at %}
+              {{ project.updated_at|naturaltime }}
+            {% else %}
+              Not yet updated
+            {% endif %}
+          </p>
+          {% if project.updated_by %}
+            <p class="text-muted small mb-0">Last changed by {{ project.updated_by.email|default:project.updated_by }}</p>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="mb-4">
+  <div class="card shadow-sm border-0">
+    <div class="card-header bg-white border-0 py-3 d-flex justify-content-between align-items-center">
+      <h2 class="h6 mb-0">Project Details</h2>
+      {% if can_edit_project or can_edit_status %}
+        <button class="btn btn-outline-primary btn-sm" type="button" data-bs-toggle="collapse" data-bs-target="#project-edit-panel" aria-expanded="{% if show_edit_panel %}true{% else %}false{% endif %}" aria-controls="project-edit-panel">
+          <i class="bi bi-sliders me-1"></i> Manage
+        </button>
+      {% endif %}
+    </div>
+    <div class="card-body">
+      <div class="row g-4">
+        <div class="col-md-6">
+          <dl class="row small mb-0">
+            <dt class="col-sm-5 text-muted">Project code</dt>
+            <dd class="col-sm-7 fw-semibold">{{ project.project_code|default:"—" }}</dd>
+            <dt class="col-sm-5 text-muted">Client</dt>
+            <dd class="col-sm-7 fw-semibold">{{ project.client_name|default:"—" }}</dd>
+            <dt class="col-sm-5 text-muted">Location</dt>
+            <dd class="col-sm-7 fw-semibold">{{ project.site_address|default:"—" }}</dd>
+            <dt class="col-sm-5 text-muted">Start date</dt>
+            <dd class="col-sm-7 fw-semibold">{% if project.planned_start_date %}{{ project.planned_start_date|date:"M j, Y" }}{% else %}—{% endif %}</dd>
+            <dt class="col-sm-5 text-muted">End date</dt>
+            <dd class="col-sm-7 fw-semibold">{% if project.planned_end_date %}{{ project.planned_end_date|date:"M j, Y" }}{% else %}—{% endif %}</dd>
+            <dt class="col-sm-5 text-muted">Status</dt>
+            <dd class="col-sm-7 fw-semibold">
+              <span class="badge {{ status_badge_class }}">{{ project.get_status_display }}</span>
+              {% if can_edit_status %}
+                <span class="text-muted small ms-2">Editable</span>
+              {% else %}
+                <span class="text-muted small ms-2">Read only</span>
+              {% endif %}
+            </dd>
+          </dl>
+        </div>
+        <div class="col-md-6">
+          <div>
+            <div class="text-muted small mb-1">Description</div>
+            <p class="mb-0">{{ project.description|default:"No description provided." }}</p>
+          </div>
+        </div>
+      </div>
+
+      {% if can_edit_project or can_edit_status %}
+        <div class="collapse {% if show_edit_panel %}show{% endif %} mt-4" id="project-edit-panel">
+          <div class="border-top pt-4">
+            {% if can_edit_project %}
+              <form method="post" class="mb-4">
+                {% csrf_token %}
+                <input type="hidden" name="form" value="project-info">
+                {% if info_form.non_field_errors %}
+                  <div class="alert alert-danger">{{ info_form.non_field_errors }}</div>
+                {% endif %}
+                <div class="row g-3">
+                  <div class="col-md-6">
+                    <label class="form-label small text-uppercase text-muted">{{ info_form.name.label }}</label>
+                    {{ info_form.name }}
+                    {% for error in info_form.name.errors %}
+                      <div class="invalid-feedback d-block">{{ error }}</div>
+                    {% endfor %}
+                  </div>
+                  <div class="col-md-6">
+                    <label class="form-label small text-uppercase text-muted">{{ info_form.project_code.label }}</label>
+                    {{ info_form.project_code }}
+                    {% for error in info_form.project_code.errors %}
+                      <div class="invalid-feedback d-block">{{ error }}</div>
+                    {% endfor %}
+                  </div>
+                  <div class="col-md-6">
+                    <label class="form-label small text-uppercase text-muted">{{ info_form.client_name.label }}</label>
+                    {{ info_form.client_name }}
+                    {% for error in info_form.client_name.errors %}
+                      <div class="invalid-feedback d-block">{{ error }}</div>
+                    {% endfor %}
+                  </div>
+                  <div class="col-md-6">
+                    <label class="form-label small text-uppercase text-muted">{{ info_form.site_address.label }}</label>
+                    {{ info_form.site_address }}
+                    {% for error in info_form.site_address.errors %}
+                      <div class="invalid-feedback d-block">{{ error }}</div>
+                    {% endfor %}
+                  </div>
+                  <div class="col-md-6">
+                    <label class="form-label small text-uppercase text-muted">{{ info_form.planned_start_date.label }}</label>
+                    {{ info_form.planned_start_date }}
+                    {% for error in info_form.planned_start_date.errors %}
+                      <div class="invalid-feedback d-block">{{ error }}</div>
+                    {% endfor %}
+                  </div>
+                  <div class="col-md-6">
+                    <label class="form-label small text-uppercase text-muted">{{ info_form.planned_end_date.label }}</label>
+                    {{ info_form.planned_end_date }}
+                    {% for error in info_form.planned_end_date.errors %}
+                      <div class="invalid-feedback d-block">{{ error }}</div>
+                    {% endfor %}
+                  </div>
+                  <div class="col-12">
+                    <label class="form-label small text-uppercase text-muted">{{ info_form.description.label }}</label>
+                    {{ info_form.description }}
+                    {% for error in info_form.description.errors %}
+                      <div class="invalid-feedback d-block">{{ error }}</div>
+                    {% endfor %}
+                  </div>
+                </div>
+                <div class="mt-3 d-flex justify-content-end">
+                  <button type="submit" class="btn btn-primary">Save details</button>
+                </div>
+              </form>
+            {% endif %}
+
+            {% if can_edit_status %}
+              <form method="post" class="">
+                {% csrf_token %}
+                <input type="hidden" name="form" value="project-status">
+                {% if status_form.non_field_errors %}
+                  <div class="alert alert-danger">{{ status_form.non_field_errors }}</div>
+                {% endif %}
+                <div class="row g-3 align-items-end">
+                  <div class="col-md-6 col-lg-4">
+                    <label class="form-label small text-uppercase text-muted">{{ status_form.status.label }}</label>
+                    {{ status_form.status }}
+                    {% for error in status_form.status.errors %}
+                      <div class="invalid-feedback d-block">{{ error }}</div>
+                    {% endfor %}
+                  </div>
+                  <div class="col-md-6 col-lg-3">
+                    <button type="submit" class="btn btn-outline-primary w-100">Update status</button>
+                  </div>
+                </div>
+              </form>
+            {% endif %}
+          </div>
+        </div>
+      {% endif %}
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="card shadow-sm border-0">
+    <div class="card-header bg-white border-0 py-3">
+      <h2 class="h6 mb-0">Recent Weld Activity</h2>
+    </div>
+    {% if recent_welds %}
+      <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0">
+          <thead class="table-light text-uppercase small text-muted">
+            <tr>
+              <th scope="col">Weld</th>
+              <th scope="col">Status</th>
+              <th scope="col">Logged</th>
+              <th scope="col">Primary welder</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for weld in recent_welds %}
+              <tr>
+                <td class="fw-semibold">{{ weld.weld_id }}</td>
+                <td>
+                  {% if weld.disposition == 'ACCEPTED' %}
+                    <span class="badge bg-success">{{ weld.get_disposition_display }}</span>
+                  {% elif weld.disposition == 'PENDING' %}
+                    <span class="badge bg-warning text-dark">{{ weld.get_disposition_display }}</span>
+                  {% elif weld.disposition == 'REPAIR' %}
+                    <span class="badge bg-danger">{{ weld.get_disposition_display }}</span>
+                  {% elif weld.disposition == 'CUT_OUT' %}
+                    <span class="badge bg-dark">{{ weld.get_disposition_display }}</span>
+                  {% else %}
+                    <span class="badge bg-secondary">{{ weld.get_disposition_display }}</span>
+                  {% endif %}
+                </td>
+                <td class="text-muted small">{{ weld.created_at|naturaltime }}</td>
+                <td>
+                  {% if weld.primary_welder %}
+                    {{ weld.primary_welder.name|default:weld.primary_welder.stencil }}
+                    {% if weld.primary_welder.stencil %}<span class="text-muted small">({{ weld.primary_welder.stencil }})</span>{% endif %}
+                  {% elif weld.primary_stencil %}
+                    {{ weld.primary_stencil }}
+                  {% else %}
+                    <span class="text-muted">—</span>
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="card-body">
+        <p class="mb-0 text-muted small">No welds have been logged for this project yet.</p>
+      </div>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}

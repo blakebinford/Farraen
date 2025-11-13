@@ -67,3 +67,50 @@ class ProjectForm(forms.ModelForm):
         if status == Project.Status.ARCHIVED:
             raise forms.ValidationError("New projects cannot start in the archived state.")
         return status
+
+
+class ProjectInfoForm(forms.ModelForm):
+    class Meta:
+        model = Project
+        fields = [
+            "name",
+            "project_code",
+            "client_name",
+            "site_address",
+            "planned_start_date",
+            "planned_end_date",
+            "description",
+        ]
+        widgets = {
+            "planned_start_date": forms.DateInput(attrs={"type": "date"}),
+            "planned_end_date": forms.DateInput(attrs={"type": "date"}),
+            "description": forms.Textarea(attrs={"rows": 4}),
+        }
+        labels = {
+            "site_address": "Location",
+            "planned_start_date": "Start date",
+            "planned_end_date": "End date",
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for field in self.fields.values():
+            widget = field.widget
+            base_class = "form-control"
+            if isinstance(widget, forms.Select):
+                base_class = "form-select"
+            existing = widget.attrs.get("class", "")
+            widget.attrs["class"] = f"{existing} {base_class}".strip()
+
+
+class ProjectStatusForm(forms.ModelForm):
+    class Meta:
+        model = Project
+        fields = ["status"]
+        widgets = {
+            "status": forms.Select(attrs={"class": "form-select"}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["status"].label = "Project status"

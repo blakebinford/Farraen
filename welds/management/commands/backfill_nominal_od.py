@@ -6,6 +6,11 @@ from django.core.management.base import BaseCommand
 from django.db import transaction
 
 from welds.models import NominalPipeOD, Weld
+from welds.nominal_od import (
+    build_nominal_pipe_sizes,
+    match_nominal_pipe_size,
+    normalize_actual_od,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -43,35 +48,22 @@ def _determine_wall_thickness(weld):
 
 def _select_actual_od(weld):
     if weld.od is not None:
-        return Decimal(weld.od)
-    value = weld._select_outer_diameter()
-    return Decimal(value) if value is not None else None
+        return weld.od
+    return weld._select_outer_diameter()
 
 
 def _build_nominal_lookup(org_id):
-    configs = list(
-        NominalPipeOD.objects.filter(org_id=org_id).order_by("actual_od")
-    )
-    return configs
+    configs = NominalPipeOD.configs_for_org(org_id)
+    return build_nominal_pipe_sizes(configs)
 
 
 def _match_nominal(actual_od, configs):
     if actual_od is None:
         return None
-    actual = Decimal(actual_od)
-    best = None
-    for config in configs:
-        diff = abs(actual - config.actual_od)
-        if diff <= config.tolerance:
-            if best is None or diff < best[0]:
-                best = (diff, config)
-            elif best and diff == best[0]:
-                # Prefer config with closer label ordering if tied on diff
-                if config.actual_od < best[1].actual_od:
-                    best = (diff, config)
-    if best:
-        return best[1].label
-    return None
+    normalized = normalize_actual_od(actual_od)
+    if normalized is None:
+        return None
+    return match_nominal_pipe_size(normalized, configs)
 
 
 class Command(BaseCommand):
@@ -125,28 +117,52 @@ class Command(BaseCommand):
                     configs = _build_nominal_lookup(org.id)
                     org_cache[org.id] = configs
                 actual_od = _select_actual_od(weld)
-                nominal_label = _match_nominal(actual_od, configs)
-                if nominal_label is None and actual_od is not None:
-                    unmapped[str(actual_od)] += 1
+                nominal_match = _match_nominal(actual_od, configs)
+                normalized_actual = normalize_actual_od(actual_od)
+                if nominal_match is None:
+                    if normalized_actual is not None:
+                        unmapped[str(normalized_actual)] += 1
+                        logger.warning(
+                            "No nominal OD match during backfill",
+                            extra={
+                                "weld_id": weld.pk,
+                                "project_id": weld.project_id,
+                                "actual_od_raw": actual_od,
+                                "actual_od_normalized": str(normalized_actual),
+                            },
+                        )
                     nominal_label = "Unspecified"
+                    nominal_actual = None
+                else:
+                    nominal_label = nominal_match.label
+                    nominal_actual = nominal_match.actual_od
                 wall_value = _determine_wall_thickness(weld)
                 current_nominal = weld.nominal_od or None
+                current_nominal_actual = weld.nominal_od_actual or None
                 current_wall = weld.wall_thickness_norm or None
                 if nominal_label == "Unspecified" and current_nominal:
                     # Keep existing specific label
                     nominal_label = current_nominal
+                    nominal_actual = current_nominal_actual
                 if (
                     nominal_label == current_nominal
-                    and (wall_value == current_wall or (wall_value is None and current_wall is None))
+                    and nominal_actual == current_nominal_actual
+                    and (
+                        wall_value == current_wall
+                        or (wall_value is None and current_wall is None)
+                    )
                 ):
                     continue
                 weld.nominal_od = nominal_label
+                weld.nominal_od_actual = nominal_actual
                 weld.wall_thickness_norm = wall_value
                 updates.append(weld)
             if updates and not dry_run:
                 with transaction.atomic():
                     Weld.objects.bulk_update(
-                        updates, ["nominal_od", "wall_thickness_norm"], batch_size=batch_size
+                        updates,
+                        ["nominal_od", "nominal_od_actual", "wall_thickness_norm"],
+                        batch_size=batch_size,
                     )
                 updated += len(updates)
             elif updates:

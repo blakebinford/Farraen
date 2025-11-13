@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date, timedelta
@@ -21,6 +22,9 @@ DecimalOne = Decimal("1")
 TWO_PLACE = Decimal("0.01")
 
 CLUSTER_MIN_COUNT = 2
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -829,11 +833,59 @@ def build_dashboard_analytics(project, filters: dict) -> dict:
     }
 
 
-def build_drilldown(project, filters: dict, dimension: str, key: str) -> list[dict]:
+def build_drilldown(
+    project,
+    filters: dict,
+    dimension: str,
+    key: str,
+    selection: dict | None = None,
+) -> list[dict]:
     analytics = build_dashboard_analytics(project, filters)
     length_info = analytics["length_info"]
-    weld_ids = [info.weld_id for info in length_info.values()]
-    weld_qs = Weld.objects.filter(pk__in=weld_ids).select_related("primary_welder", "wps_document")
+    available_ids = list(length_info.keys())
+    selected_pk_ids = set()
+    selected_weld_ids = set()
+    if selection:
+        raw_pk_ids = selection.get("pk_ids") or []
+        raw_weld_ids = selection.get("weld_ids") or []
+        selected_pk_ids = {int(value) for value in raw_pk_ids if isinstance(value, int)}
+        for value in raw_pk_ids:
+            if isinstance(value, str):
+                try:
+                    selected_pk_ids.add(int(value))
+                except ValueError:
+                    continue
+        selected_weld_ids = {str(value) for value in raw_weld_ids if str(value).strip()}
+
+    weld_qs = (
+        Weld.objects.filter(project=project)
+        .select_related("primary_welder", "wps_document")
+        .filter(pk__in=available_ids)
+    )
+
+    if selected_pk_ids or selected_weld_ids:
+        selection_filter = Q()
+        if selected_pk_ids:
+            selection_filter |= Q(pk__in=selected_pk_ids)
+        if selected_weld_ids:
+            selection_filter |= Q(weld_id__in=selected_weld_ids)
+        weld_qs = weld_qs.filter(selection_filter)
+
+    welds = list(weld_qs)
+
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug(
+            "Prepared drilldown queryset",
+            extra={
+                "project_id": project.id,
+                "dimension": dimension,
+                "key": key,
+                "selected_pk_ids": sorted(selected_pk_ids),
+                "selected_weld_ids": sorted(selected_weld_ids),
+                "available_length_info": len(length_info),
+                "query_count": len(welds),
+            },
+        )
 
     parsed_pair: dict[str, str] | None = None
     if dimension in {"heat_wps", "pipe_od"}:
@@ -843,7 +895,7 @@ def build_drilldown(project, filters: dict, dimension: str, key: str) -> list[di
             parsed_pair = {}
 
     rows: list[dict] = []
-    for weld in weld_qs:
+    for weld in welds:
         info = length_info.get(weld.pk)
         if not info:
             continue

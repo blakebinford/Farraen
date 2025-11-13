@@ -99,6 +99,12 @@
   border-color: #0d6efd;
 }
 
+.drive-chip.is-active {
+  background: #0d6efd;
+  color: #fff;
+  border-color: #0d6efd;
+}
+
 .drive-main {
   display: flex;
   flex-direction: column;

@@ -25,6 +25,7 @@ from .models import (
     WeldInspection,
     WeldRepair,
 )
+from .nominal_od import get_standard_nominal_pipe_sizes, match_nominal_pipe_size, normalize_actual_od
 from .services import build_weld_dashboard_chart_payload, get_project_weld_kpis
 from .views import _migrations_required_message
 
@@ -110,6 +111,71 @@ class NDERigModelTests(TestCase):
             rig.qualification_folder.parent.name,
             "Inspector Qualification",
         )
+
+
+class NominalODMatchingTests(TestCase):
+    def setUp(self):
+        User = get_user_model()
+        self.user = User.objects.create_user(
+            email="nominal@example.com",
+            password="pass1234",
+        )
+        self.org = Organization.objects.create(
+            name="Nominal Org", slug="nominal-org", owner=self.user
+        )
+        Membership.objects.create(
+            org=self.org,
+            user=self.user,
+            role=Membership.Role.ADMIN,
+        )
+        self.project = Project.objects.create(
+            org=self.org,
+            name="Nominal Project",
+            slug="nominal-project",
+            created_by=self.user,
+            status=Project.Status.ACTIVE,
+        )
+
+    def test_exact_match_returns_expected_label(self):
+        mapping = get_standard_nominal_pipe_sizes()
+        match = match_nominal_pipe_size(Decimal("6.625"), mapping)
+        self.assertIsNotNone(match)
+        self.assertEqual(match.label, '6"')
+
+    def test_within_tolerance_maps_to_closest(self):
+        mapping = get_standard_nominal_pipe_sizes()
+        match = match_nominal_pipe_size(Decimal("10.742"), mapping)
+        self.assertIsNotNone(match)
+        self.assertEqual(match.label, '10"')
+
+    def test_out_of_tolerance_returns_none(self):
+        mapping = get_standard_nominal_pipe_sizes()
+        match = match_nominal_pipe_size(Decimal("6.500"), mapping)
+        self.assertIsNone(match)
+
+    def test_metric_value_is_converted(self):
+        normalized = normalize_actual_od(Decimal("273.050"))
+        self.assertEqual(normalized, Decimal("10.750"))
+
+    def test_weld_save_populates_nominal_fields(self):
+        weld = Weld.objects.create(
+            project=self.project,
+            weld_id="NW-001",
+            od=Decimal("10.750"),
+        )
+        weld.refresh_from_db()
+        self.assertEqual(weld.nominal_od, '10"')
+        self.assertEqual(weld.nominal_od_actual, Decimal("10.750"))
+
+    def test_weld_save_handles_metric_values(self):
+        weld = Weld.objects.create(
+            project=self.project,
+            weld_id="NW-002",
+            od=Decimal("168.275"),
+        )
+        weld.refresh_from_db()
+        self.assertEqual(weld.nominal_od, '6"')
+        self.assertEqual(weld.nominal_od_actual, Decimal("6.625"))
 
 
 class WeldLogAPITests(TestCase):

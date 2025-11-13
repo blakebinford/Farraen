@@ -8,6 +8,11 @@ from django.db.models import Count, Max, Sum
 from django.utils import timezone
 
 from drive.models import FileNode, Folder
+from .nominal_od import (
+    build_nominal_pipe_sizes,
+    match_nominal_pipe_size,
+    normalize_actual_od,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -183,7 +188,7 @@ class NominalPipeOD(models.Model):
     tolerance = models.DecimalField(
         max_digits=6,
         decimal_places=3,
-        default=Decimal("0.125"),
+        default=Decimal("0.010"),
         help_text="Allowable +/- tolerance when matching an actual OD.",
     )
 
@@ -368,6 +373,13 @@ class Weld(models.Model):
         db_index=True,
         help_text="Denormalized nominal pipe size label (e.g. 6\")",
     )
+    nominal_od_actual = models.DecimalField(
+        max_digits=8,
+        decimal_places=3,
+        null=True,
+        blank=True,
+        help_text="Actual OD (in) matched to the nominal size.",
+    )
     wall_thickness_norm = models.DecimalField(
         max_digits=6,
         decimal_places=3,
@@ -468,11 +480,16 @@ class Weld(models.Model):
             self.wall_thickness_norm = wall_value
         else:
             self.wall_thickness_norm = None
-        nominal_label = self._determine_nominal_od_label()
+        nominal_label, nominal_actual = self._determine_nominal_od()
         if nominal_label:
             self.nominal_od = nominal_label
+            self.nominal_od_actual = nominal_actual
         elif self.nominal_od and self.nominal_od.strip() == "":
             self.nominal_od = None
+            self.nominal_od_actual = None
+        elif nominal_label == "Unspecified":
+            self.nominal_od = "Unspecified"
+            self.nominal_od_actual = None
         super().save(*args, **kwargs)
 
     def _select_outer_diameter(self):
@@ -513,30 +530,30 @@ class Weld(models.Model):
             return dec.quantize(THREE_DECIMAL, rounding=ROUND_HALF_UP)
         return None
 
-    def _determine_nominal_od_label(self):
+    def _determine_nominal_od(self):
         if not self.project_id:
-            return self.nominal_od or None
+            return self.nominal_od or None, self.nominal_od_actual
         configs = NominalPipeOD.configs_for_org(self.project.org_id)
+        mapping = build_nominal_pipe_sizes(configs)
         actual = self.od
         if actual is None:
             actual = self._select_outer_diameter()
-        if actual is None:
-            return self.nominal_od or None
-        try:
-            actual_dec = Decimal(actual)
-        except (TypeError, ValueError, InvalidOperation):
-            return self.nominal_od or None
-        best = None
-        for config in configs:
-            diff = abs(actual_dec - config.actual_od)
-            if diff <= config.tolerance:
-                if best is None or diff < best[0]:
-                    best = (diff, config)
-        if best:
-            return best[1].label
-        if self.nominal_od:
-            return self.nominal_od
-        return "Unspecified"
+        normalized_actual = normalize_actual_od(actual)
+        if normalized_actual is None:
+            return self.nominal_od or None, self.nominal_od_actual
+        match = match_nominal_pipe_size(normalized_actual, mapping)
+        if match:
+            return match.label, match.actual_od
+        logger.warning(
+            "Unable to determine nominal OD for weld",
+            extra={
+                "weld_id": self.pk,
+                "project_id": self.project_id,
+                "actual_od_raw": actual,
+                "actual_od_normalized": str(normalized_actual),
+            },
+        )
+        return "Unspecified", None
 
     @property
     def weld_inches(self) -> Decimal:

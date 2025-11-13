@@ -1,44 +1,257 @@
 {% load static humanize %}
-<nav class="drive-left-nav" aria-label="Project navigation">
-  <div class="drive-left-nav__brand">
-    <span class="drive-left-nav__brand-mark">
+<nav class="drive-left-nav bg-white border-end d-flex flex-column p-3" aria-label="Project navigation" id="drive-left-nav">
+
+  <style>
+    :root {
+      --accent: #0d6efd;
+      --muted: #6c757d;
+      --surface: #ffffff;
+      --soft-gray: #f6f7f9;
+      --card-shadow: 0 6px 18px rgba(18, 38, 63, 0.06);
+      --radius: 10px;
+    }
+
+    /* NOTE: left nav is intentionally non-sticky and flows with the page.
+       This makes it as long as needed and prevents internal scrolling. */
+    .drive-left-nav {
+      width: 320px;
+      min-width: 280px;
+      max-width: 360px;
+      font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+      font-size: 14px;
+      color: #16202a;
+
+      /* non-sticky layout - left nav will flow in document flow and grow as necessary */
+      position: relative;
+      top: 0;
+      z-index: auto;
+      max-height: none;
+      overflow: visible;
+      background-clip: padding-box;
+    }
+
+    /* On very small screens, make nav full width */
+    @media (max-width: 767.98px) {
+      .drive-left-nav {
+        width: 100%;
+        min-width: 0;
+        max-width: 100%;
+      }
+    }
+
+    .drive-left-nav__brand {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+    .drive-left-nav__brand-mark {
+      width: 48px;
+      height: 48px;
+      border-radius: 12px;
+      display: inline-grid;
+      place-items: center;
+      color: white;
+      font-weight: 700;
+      font-size: 18px;
+      letter-spacing: 0.02em;
+
+      box-shadow: 0 6px 18px rgba(13,110,253,0.12);
+      flex-shrink: 0;
+    }
+    .drive-left-nav__brand-text {
+      font-weight: 700;
+      font-size: 15px;
+      line-height: 1;
+    }
+    .drive-left-nav__brand small {
+      color: var(--muted);
+      display: block;
+      margin-top: 2px;
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    .drive-left-nav__project {
+      padding: 10px;
+      background: linear-gradient(180deg, rgba(13,110,253,0.03), transparent);
+      border-radius: var(--radius);
+      margin-bottom: 14px;
+    }
+    .drive-left-nav__project-meta {
+      font-weight: 600;
+      color: #0b3a66;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .drive-left-nav__actions {
+      margin-top: 10px;
+    }
+    .drive-left-nav__upload-btn {
+      width: 100%;
+      border-radius: 8px;
+      box-shadow: var(--card-shadow);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    .drive-breadcrumb {
+      font-size: 13px;
+      color: var(--muted);
+      margin: 12px 0;
+    }
+    .drive-breadcrumb a {
+      color: inherit;
+      text-decoration: none;
+      font-weight: 600;
+    }
+    .drive-breadcrumb span[aria-hidden="true"] { margin: 0 6px; color: #cfd8e3; }
+
+    .drive-left-nav__section-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: #243447;
+      letter-spacing: 0.04em;
+      margin-bottom: 8px;
+      text-transform: uppercase;
+    }
+
+    .drive-folder-tree {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+    .drive-folder-tree__item {
+      --depth: 0;
+      display: block;
+      margin-bottom: 6px;
+    }
+    .drive-folder-tree__link {
+      display: block;
+      padding: 8px 10px;
+      padding-left: calc(12px + (var(--depth) * 12px));
+      border-radius: 8px;
+      color: #0f1720;
+      text-decoration: none;
+      font-weight: 600;
+      transition: background .12s ease, color .12s ease;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      align-items: center;
+    }
+    .drive-folder-tree__link:hover,
+    .drive-folder-tree__item.is-active .drive-folder-tree__link {
+      background: #f3f6ff;
+      color: var(--accent);
+      text-decoration: none;
+      box-shadow: inset 0 0 0 1px rgba(13,110,253,0.06);
+    }
+
+    .drive-recently-viewed {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+    .drive-recently-viewed__item { margin-bottom: 8px; }
+    .drive-recently-viewed__card {
+      background: var(--surface);
+      border-radius: 8px;
+      box-shadow: var(--card-shadow);
+      padding: 10px;
+      transition: transform .08s ease, box-shadow .12s ease;
+      cursor: pointer;
+    }
+    .drive-recently-viewed__card:focus,
+    .drive-recently-viewed__card:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 12px 30px rgba(18,38,63,0.08);
+      outline: none;
+    }
+    .drive-recently-viewed__icon {
+      width: 44px;
+      height: 44px;
+      border-radius: 8px;
+      background: var(--soft-gray);
+      display: grid;
+      place-items: center;
+      flex-shrink: 0;
+      margin-right: 10px;
+      font-weight: 700;
+      color: #344054;
+    }
+    .drive-recently-viewed__meta { color: var(--muted); font-size: 12px; }
+
+    .text-truncate-2 {
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    [tabindex]:focus {
+      box-shadow: 0 0 0 4px rgba(13,110,253,0.12);
+      border-radius: 8px;
+    }
+  </style>
+
+  <!-- Brand -->
+  <div class="drive-left-nav__brand" role="img" aria-label="{{ project.name }} logo">
+    <span class="drive-left-nav__brand-mark" aria-hidden="true">
       {% for word in project.name.split %}
         {{ word|first }}
       {% endfor %}
-
     </span>
-    <div>
+    <div class="lh-1">
       <div class="drive-left-nav__brand-text">{{ project.name }}</div>
-      <div class="text-muted small">Project Drive</div>
+      <small class="text-muted">Project Drive</small>
     </div>
   </div>
 
-  <div class="drive-left-nav__project">
-    
+  <!-- Project / folder header -->
+  <div class="drive-left-nav__project d-flex align-items-center justify-content-between">
     <div class="drive-left-nav__project-meta">
-      {% if folder %}
-        {{ folder.name }}
-      {% else %}
-        Root workspace
-      {% endif %}
+      <i class="bi bi-folder-fill" aria-hidden="true" style="color: #ffb020;"></i>
+      <div class="ms-1">
+        {% if folder %}
+          <span title="{{ folder.name }}">{{ folder.name }}</span>
+        {% else %}
+          <span>Root workspace</span>
+        {% endif %}
+        <div class="small text-muted" style="font-size:12px;">
+          {% if project.organization and project.organization.name %}
+            {{ project.organization.name }}
+          {% else %}
+            {{ org.name|default:"" }}
+          {% endif %}
+        </div>
+      </div>
     </div>
   </div>
 
+  <!-- Upload action -->
   {% if upload_url %}
-    <div class="drive-left-nav__actions">
-      <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#drive-upload-modal">
-        <i class="bi bi-upload me-2"></i> Upload files
+    <div class="drive-left-nav__actions mt-3">
+      <button type="button"
+              class="btn btn-primary drive-left-nav__upload-btn"
+              data-bs-toggle="modal"
+              data-bs-target="#drive-upload-modal"
+              aria-label="Upload files to drive">
+        <i class="bi bi-upload" aria-hidden="true"></i>
+        <span>Upload files</span>
       </button>
     </div>
   {% endif %}
 
   {% if breadcrumb %}
-    <div class="drive-breadcrumb" aria-label="Current folder path">
+    <div class="drive-breadcrumb mt-3 mb-2" aria-label="Current folder path">
       <a href="{% url 'project_drive_root' org.slug project.slug %}">Drive</a>
       {% for crumb in breadcrumb %}
         <span aria-hidden="true">›</span>
         {% if crumb == folder %}
-          <span>{{ crumb.name }}</span>
+          <span aria-current="location" class="fw-semibold">{{ crumb.name }}</span>
         {% else %}
           <a href="{% url 'drive_folder' org.slug project.slug crumb.id %}">{{ crumb.name }}</a>
         {% endif %}
@@ -46,52 +259,128 @@
     </div>
   {% endif %}
 
-  <div class="mb-4">
-    <p class="drive-left-nav__section-title mb-2">Folders</p>
-    <ul class="drive-folder-tree" role="tree">
-      {% for item in folder_tree %}
-        <li class="drive-folder-tree__item{% if folder and item.id == folder.id %} is-active{% endif %}"
-            data-depth="{{ item.depth }}" role="treeitem" aria-level="{{ item.depth|add:1 }}">
-          <a href="{% url 'drive_folder' org.slug project.slug item.id %}"
-             class="drive-folder-tree__link">
-            {{ item.name }}
-          </a>
-        </li>
-      {% empty %}
-        <li class="text-muted small">No folders yet.</li>
-      {% endfor %}
-    </ul>
-  </div>
-
-  <div class="mb-2">
-    <p class="drive-left-nav__section-title mb-2">Recently viewed</p>
-    {% if recently_viewed %}
-      <ul class="list-unstyled drive-recently-viewed mb-0">
-        {% for item in recently_viewed %}
-          <li class="drive-recently-viewed__item">
-            <article class="drive-recently-viewed__card d-flex align-items-start justify-content-between gap-3 py-2 px-2" role="button" tabindex="0"
-                     data-drive-card data-detail-url="{% url 'drive_file_drawer' org.slug project.slug item.node.id %}">
-              <div class="flex-grow-1">
-                <div class="fw-semibold text-truncate">
-                  <a href="{% url 'drive_file' org.slug project.slug item.node.id %}" class="text-decoration-none text-reset">{{ item.node.name }}</a>
-                </div>
-                <div class="text-muted small text-truncate">
-                  {% if item.node.latest_version %}
-                    v{{ item.node.version }} · {{ item.node.latest_version.size|default:item.node.size|filesizeformat }}
-                  {% else %}
-                    v{{ item.node.version }}
-                  {% endif %}
-                </div>
-              </div>
-              <div class="text-muted small text-nowrap">
-                {{ item.last_at|naturaltime }}
-              </div>
-            </article>
+  <div class="mt-2" tabindex="-1">
+    <!-- Folders -->
+    <div class="mb-4">
+      <p class="drive-left-nav__section-title mb-2">Folders</p>
+      <ul class="drive-folder-tree" role="tree" aria-label="Project folders">
+        {% for item in folder_tree %}
+          <li class="drive-folder-tree__item{% if folder and item.id == folder.id %} is-active{% endif %}"
+              role="treeitem"
+              aria-level="{{ item.depth|add:1 }}"
+              style="--depth: {{ item.depth }};">
+            <a href="{% url 'drive_folder' org.slug project.slug item.id %}"
+               class="drive-folder-tree__link"
+               title="{{ item.name }}">
+              <i class="bi bi-folder2-open"></i>
+              <span class="text-truncate" style="max-width:180px; display:inline-block;">
+                {{ item.name }}
+              </span>
+            </a>
           </li>
+        {% empty %}
+          <li class="text-muted small">No folders yet.</li>
         {% endfor %}
       </ul>
-    {% else %}
-      <p class="text-muted small mb-0">No recent documents.</p>
-    {% endif %}
+    </div>
+
+    <!-- Recently viewed -->
+    <div class="mb-2">
+      <p class="drive-left-nav__section-title mb-2">Recently viewed</p>
+      {% if recently_viewed %}
+        <ul class="drive-recently-viewed mb-0" aria-live="polite">
+          {% for item in recently_viewed %}
+            <li class="drive-recently-viewed__item">
+              <article class="drive-recently-viewed__card d-flex align-items-center justify-content-between"
+                       role="button"
+                       tabindex="0"
+                       data-drive-card
+                       data-detail-url="{% url 'drive_file_drawer' org.slug project.slug item.node.id %}"
+                       aria-label="Open {{ item.node.name }}">
+                <div class="d-flex align-items-start flex-grow-1">
+                  <div class="drive-recently-viewed__icon">
+                    {% with name=item.node.name %}
+                      {% if name|slice:"-3:" == "pdf" %}
+                        <i class="bi bi-file-earmark-pdf" style="color:#e04e4e;font-size:18px;"></i>
+                      {% elif name|slice:"-3:" == "png" or name|slice:"-3:" == "jpg" %}
+                        <i class="bi bi-image" style="color:#2b8aef;font-size:18px;"></i>
+                      {% else %}
+                        <i class="bi bi-file-earmark-text" style="color:#475569;font-size:18px;"></i>
+                      {% endif %}
+                    {% endwith %}
+                  </div>
+
+                  <div class="ms-2 w-100">
+                    <div class="fw-semibold text-truncate-2" style="font-size: 14px;">
+                      <a href="{% url 'drive_file' org.slug project.slug item.node.id %}"
+                         class="text-decoration-none text-reset">
+                        {{ item.node.name }}
+                      </a>
+                    </div>
+                    <div class="drive-recently-viewed__meta d-flex justify-content-between align-items-center mt-1">
+                      <div class="text-muted small">
+                        {% if item.node.latest_version %}
+                          v{{ item.node.version }} · {{ item.node.latest_version.size|default:item.node.size|filesizeformat }}
+                        {% else %}
+                          v{{ item.node.version }}
+                        {% endif %}
+                      </div>
+                      <div class="text-muted small text-nowrap ms-3">
+                        {{ item.last_at|naturaltime }}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </article>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="text-muted small mb-0">No recent documents.</p>
+      {% endif %}
+    </div>
   </div>
+
+  <div class="mt-3 small text-muted">
+    <div>Storage: <strong>{{ project.storage_used|filesizeformat }}</strong></div>
+    <div class="mt-1">Last synced: <strong>{{ project.last_synced|naturaltime }}</strong></div>
+  </div>
+
+  <script>
+    (function () {
+      const cards = document.querySelectorAll('[data-drive-card]');
+      cards.forEach(card => {
+        card.addEventListener('keydown', function (e) {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            const url = card.getAttribute('data-detail-url');
+            if (url) {
+              if (typeof openDriveDrawer === 'function') {
+                openDriveDrawer(url);
+              } else {
+                window.location.href = url;
+              }
+            }
+          }
+        });
+        card.addEventListener('click', function () {
+          const url = card.getAttribute('data-detail-url');
+          if (url) {
+            if (typeof openDriveDrawer === 'function') {
+              openDriveDrawer(url);
+            } else {
+              window.location.href = url;
+            }
+          }
+        });
+      });
+
+      const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+      if (mq.matches) {
+        document.querySelectorAll('.drive-recently-viewed__card').forEach(el => {
+          el.style.transition = 'none';
+        });
+      }
+    })();
+  </script>
 </nav>

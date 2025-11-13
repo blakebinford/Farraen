@@ -4,29 +4,196 @@
 {% block extra_head %}
   {{ block.super }}
   <link rel="stylesheet" href="{% static 'drive/css/drive.css' %}">
+  <style>
+    /* Page layout */
+    .drive-shell .drive-layout {
+      display: flex;
+      gap: 28px;
+      align-items: flex-start;
+      padding: 20px;
+    }
+
+    /* Left column (left-nav already defines its own width) */
+    .drive-left-column {
+      flex: 0 0 auto;
+    }
+
+    /* Main column */
+    .drive-main {
+      flex: 1 1 0%;
+      min-width: 0; /* allow truncation */
+      background: transparent;
+    }
+
+    /* Ensure topbar sits above main content visually */
+    .drive-main > .drive-topbar {
+      position: sticky; /* topbar itself manages its top and z-index in its template */
+      top: 0;
+      z-index: 1048;
+      background: transparent;
+    }
+
+    /* Document grid container */
+    .document-grid-container {
+      background: #ffffff;
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 6px 20px rgba(10,25,47,0.04);
+      margin-top: 14px;
+    }
+
+    .document-grid-container h2 {
+      margin-bottom: 12px;
+      font-weight: 700;
+      color: #243447;
+      font-size: 13px;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+    }
+
+    /* Folder card list */
+    .folder-list {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 10px;
+    }
+
+    @media (min-width: 680px) {
+      .folder-list {
+        grid-template-columns: 1fr 1fr;
+      }
+    }
+
+    .folder-card {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 14px;
+      border-radius: 10px;
+      border: 1px solid #eef2f7;
+      background: linear-gradient(180deg, #ffffff, #fbfdff);
+      transition: transform .08s ease, box-shadow .12s ease, border-color .12s ease;
+      text-decoration: none;
+      color: inherit;
+    }
+
+    .folder-card:hover,
+    .folder-card:focus {
+      transform: translateY(-3px);
+      box-shadow: 0 12px 30px rgba(18,38,63,0.06);
+      border-color: rgba(13,110,253,0.08);
+      outline: none;
+    }
+
+    .folder-card .icon {
+      width: 46px;
+      height: 46px;
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+      background: linear-gradient(135deg,#fff,#f3f7ff);
+      border: 1px solid #eef3ff;
+      color: #ffb020;
+      font-size: 18px;
+      flex-shrink: 0;
+    }
+
+    .folder-card .meta {
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+    }
+
+    .folder-card .meta .name {
+      font-weight: 700;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      font-size: 15px;
+      color: #0f1720;
+    }
+
+    .folder-card .meta .subtitle {
+      font-size: 13px;
+      color: #6c757d;
+      margin-top: 4px;
+    }
+
+    .folder-empty {
+      padding: 26px;
+      text-align: center;
+      color: #6c757d;
+      background: #fbfdff;
+      border: 1px dashed #e9eef6;
+      border-radius: 10px;
+    }
+
+    /* Make sure main content doesn't get hidden under sticky topbar on small screens */
+    @media (max-width: 767.98px) {
+      .drive-shell .drive-layout {
+        display: block;
+        padding: 12px;
+      }
+      .document-grid-container { margin-top: 12px; }
+    }
+  </style>
 {% endblock %}
 
 {% block main_class %}container-fluid py-0 drive-shell{% endblock %}
 
 {% block content %}
   <div class="drive-layout" data-drive-shell data-drive-default-view="list" data-drive-storage-key="project-{{ project.id }}">
-    <aside>
+    <aside class="drive-left-column" aria-label="Project navigation">
       {% include "drive/_left_nav.html" with folder=None %}
     </aside>
-    <section class="drive-main">
+
+    <section class="drive-main" role="main" aria-labelledby="drive-main-heading">
       {% include "drive/_topbar.html" with folder=None upload_url=None %}
-      <div class="drive-list-view" data-drive-list data-drive-hidden="false">
-        <div class="document-grid-container">
-          <h2 class="h6 text-uppercase text-muted mb-3">Project folders</h2>
-          <div class="d-flex flex-column gap-2">
-            {% for folder in roots %}
-              <a class="btn btn-outline-secondary text-start" href="{% url 'drive_folder' org.slug project.slug folder.id %}">
-                {{ folder.name }}
-              </a>
-            {% empty %}
-              <p class="text-muted">No folders yet. Create one from any project folder.</p>
-            {% endfor %}
+
+      <div class="drive-list-view" data-drive-list data-drive-hidden="false" aria-live="polite">
+        <div class="document-grid-container" role="region" aria-label="Project folders">
+          <div class="d-flex align-items-center justify-content-between mb-2">
+            <div>
+              <h2 id="drive-main-heading" class="h6 text-uppercase text-muted mb-0">Project folders</h2>
+              <div class="small text-muted mt-1">{{ roots|length }} {{ roots|length|pluralize:"folder,folders" }}</div>
+            </div>
+            <div>
+              {# Optionally add a create folder button when viewing root #}
+              {% if upload_url %}
+                <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#drive-upload-modal" aria-label="Upload files">
+                  <i class="bi bi-upload me-1" aria-hidden="true"></i> Upload
+                </button>
+              {% endif %}
+            </div>
           </div>
+
+          {% if roots %}
+            <div class="folder-list" role="list">
+              {% for folder in roots %}
+                <a class="folder-card" role="listitem" href="{% url 'drive_folder' org.slug project.slug folder.id %}" aria-label="Open folder {{ folder.name }}">
+                  <div class="icon" aria-hidden="true">
+                    <i class="bi bi-folder2" style="font-size:20px; color:#475569;"></i>
+                  </div>
+
+                  <div class="meta">
+                    <div class="name" title="{{ folder.name }}">{{ folder.name }}</div>
+                    <div class="subtitle">
+                      {% if folder.children_count %}
+                        {{ folder.children_count }} subfolders
+                      {% else %}
+                        Root folder
+                      {% endif %}
+                    </div>
+                  </div>
+                </a>
+              {% endfor %}
+            </div>
+          {% else %}
+            <div class="folder-empty" role="status">
+              <strong>No folders yet</strong>
+              <div class="mt-1">Create one from any project folder or click <em>New folder</em> when inside a folder.</div>
+            </div>
+          {% endif %}
         </div>
       </div>
     </section>

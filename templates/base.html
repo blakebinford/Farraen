@@ -11,6 +11,170 @@
         href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
   <link rel="stylesheet" href="{% static 'css/main.css' %}">
 
+ <style>
+  :root {
+    --accent: #0d6efd; /* primary blue */
+    --accent-04: rgba(13,110,253,0.04);
+    --accent-08: rgba(13,110,253,0.08);
+    --accent-12: rgba(13,110,253,0.12);
+    --muted: #6c757d;
+  }
+/* Replace existing accent tokens with your brand dark blue */
+:root {
+  --accent: #08306B; /* dark navy brand color */
+  --accent-04: rgba(8,48,107,0.04);
+  --accent-08: rgba(8,48,107,0.08);
+  --accent-12: rgba(8,48,107,0.12);
+  --accent-16: rgba(8,48,107,0.16);
+  --accent-18: rgba(8,48,107,0.18);
+  --muted: #6c757d;
+}
+
+/* Nav link treatment (keeps whichever nav option you chose earlier) */
+.site-topbar .nav.nav-underline .nav-link {
+  color: #495057;
+  transition: color .12s ease, border-color .12s ease, background-color .12s ease;
+  border-bottom-color: transparent;
+  background: transparent;
+}
+.site-topbar .nav.nav-underline .nav-link:hover,
+.site-topbar .nav.nav-underline .nav-link:focus {
+  color: var(--accent);
+  background: transparent;
+  text-decoration: none;
+  border-bottom-color: var(--accent);
+}
+.site-topbar .nav.nav-underline .nav-link.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  font-weight: 700;
+}
+
+/* Outline-secondary / icon buttons — modern look with dark navy tint */
+.site-topbar .btn-outline-secondary {
+  color: #495057;
+  background-color: transparent;
+  border: 1px solid rgba(100,116,139,0.12);
+  box-shadow: none;
+  padding: .38rem .55rem;
+  font-weight: 600;
+}
+
+.site-topbar .btn-outline-secondary:hover,
+.site-topbar .btn-outline-secondary:active {
+  color: var(--accent);
+  background-color: var(--accent-04);
+  border-color: var(--accent-16);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px var(--accent-08);
+}
+
+.site-topbar .btn-outline-secondary:focus,
+.site-topbar .btn-outline-secondary:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 0.18rem rgba(8,48,107,0.14);
+}
+
+/* Dropdown items hover */
+.site-topbar .dropdown-menu .dropdown-item:hover,
+.site-topbar .dropdown-menu .dropdown-item:focus {
+  background-color: rgba(8,48,107,0.04);
+  color: var(--accent);
+}
+
+/* Primary upload button hover (so it still pops, but with dark navy) */
+.site-topbar .btn-primary:hover,
+.site-topbar .btn-primary:focus {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 30px rgba(8,48,107,0.10);
+}
+
+/* Make sure any residual shadows are subtle and use the new color */
+.site-topbar .dropdown .btn:hover,
+.site-topbar .dropdown .btn:focus {
+  color: var(--accent);
+  background: var(--accent-04);
+  border-color: var(--accent-16);
+  box-shadow: 0 6px 20px var(--accent-08);
+}
+/* Modern hover: grow text + bold, remove outline/boxy hover */
+:root {
+  --accent: #08306B; /* your dark navy brand color (already set earlier) */
+}
+
+/* Ensure the clickable elements in the topbar don't show the ugly outline */
+.site-topbar .btn,
+.site-topbar .nav.nav-underline .nav-link,
+.site-topbar .dropdown .btn {
+  background: transparent !important;      /* no hover background */
+  border-color: transparent !important;    /* remove border highlight */
+  box-shadow: none !important;             /* remove heavy shadows */
+  color: #495057;
+  transition: transform .12s ease, color .12s ease, font-weight .12s ease;
+  transform-origin: center;
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+}
+
+/* Hover / focus: text gets slightly larger and bolder; no outline, no background */
+.site-topbar .btn:hover,
+.site-topbar .dropdown .btn:hover,
+.site-topbar .nav.nav-underline .nav-link:hover,
+.site-topbar .btn:focus,
+.site-topbar .dropdown .btn:focus,
+.site-topbar .nav.nav-underline .nav-link:focus {
+  color: var(--accent);
+  transform: scale(1.06);    /* gently grows the whole element (including text) */
+  font-weight: 700;          /* bolder text on hover */
+  text-decoration: none;     /* no underline */
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+  outline: none;
+}
+
+/* Keep keyboard accessibility: subtle focus-visible ring only for keyboard users */
+.site-topbar .btn:focus-visible,
+.site-topbar .dropdown .btn:focus-visible,
+.site-topbar .nav.nav-underline .nav-link:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(8,48,107,0.12); /* small, subtle ring */
+}
+
+/* Ensure active nav remains clearly visible (no bubble) */
+.site-topbar .nav.nav-underline .nav-link.active {
+  color: var(--accent);
+  font-weight: 700;
+  transform: none;
+  border-bottom-color: transparent;
+  background: transparent;
+  box-shadow: none !important;
+}
+
+/* Optional: reduce scale on very small screens to avoid layout issues */
+@media (max-width: 480px) {
+  .site-topbar .btn,
+  .site-topbar .nav.nav-underline .nav-link {
+    transition: color .12s ease, font-weight .12s ease;
+    transform: none !important;
+  }
+  .site-topbar .btn:hover,
+  .site-topbar .nav.nav-underline .nav-link:hover {
+    font-weight: 700;
+    color: var(--accent);
+  }
+}
+
+
+  /* Small screen: keep nav hidden and avoid odd gaps */
+  @media (max-width: 767.98px) {
+    .site-topbar .container-fluid { gap: .5rem; }
+    .site-topbar .nav { display: none; } /* keep desktop nav only */
+  }
+</style>
+
+
   {% block extra_head %}{% endblock %}
 </head>
 <body class="app-body" style="background-color: var(--bg); color: var(--text);">

@@ -1,58 +1,298 @@
-<div class="drive-topbar">
-  <div class="drive-topbar__meta">
+{% load static humanize %}
+<div class="drive-topbar bg-white border-bottom py-3 px-3" id="drive-topbar" role="region" aria-label="Drive topbar">
+  <style>
+    :root{
+      --accent: #0d6efd;
+      --muted: #6c757d;
+      --soft-gray: #f6f7f9;
+      --card-shadow: 0 6px 18px rgba(18,38,63,0.06);
+      --radius: 10px;
+
+      /* Expose the topbar height as a variable so other components (left nav) can respect it.
+         If you change topbar paddings or fonts, update this value. */
+      --drive-topbar-height: 72px;
+    }
+
+    .drive-topbar {
+      font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+      color: #16202a;
+      /* Keep the topbar above other content */
+      position: sticky;
+      top: 0;
+      z-index: 1040;
+      /* ensure the effective height corresponds to the var above (approx) */
+      min-height: var(--drive-topbar-height);
+    }
+
+    /* ... rest of your topbar styles (unchanged) ... */
+
+    .drive-topbar__meta{
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .drive-breadcrumb{
+      font-size: 13px;
+      color: var(--muted);
+    }
+    .drive-breadcrumb a{
+      color: inherit;
+      text-decoration: none;
+      font-weight: 600;
+    }
+    .drive-breadcrumb span[aria-hidden="true"]{ margin: 0 8px; color: #cfd8e3; }
+
+    .drive-topbar__title {
+      display:flex;
+      align-items:center;
+      gap:10px;
+      min-width: 0;
+    }
+    .drive-topbar__title h1{
+      font-size:18px;
+      margin:0;
+      font-weight:700;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+    .drive-topbar__meta .badge-items {
+      background: #f8f9fa;
+      color: var(--muted);
+      border: 1px solid #e9ecef;
+      font-weight:700;
+      font-size:13px;
+      padding:6px 9px;
+      border-radius:8px;
+    }
+
+    .drive-topbar__search {
+      flex: 0 1 420px;
+      max-width: 60%;
+      min-width: 160px;
+    }
+    .drive-topbar__search .input-group {
+      box-shadow: var(--card-shadow);
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    .drive-topbar__search .form-control {
+      border: 0;
+      box-shadow: none;
+      padding: 10px 12px;
+    }
+    .drive-topbar__search .input-group-text {
+      background: var(--soft-gray);
+      border: 0;
+      color: #556174;
+      padding: 10px 12px;
+    }
+
+    .drive-topbar__actions {
+      display:flex;
+      align-items:center;
+      gap:8px;
+      justify-content:flex-end;
+      min-width: 0;
+    }
+    .editing-indicator{
+      display:inline-flex;
+      align-items:center;
+      gap:6px;
+      font-weight:700;
+      color: #9a5800;
+      background: linear-gradient(180deg, rgba(255, 243, 205, 0.6), rgba(255, 243, 205, 0.2));
+      border: 1px solid rgba(255, 215, 95, 0.18);
+      padding:6px 9px;
+      border-radius:8px;
+      font-size:13px;
+    }
+    .drive-topbar .btn {
+      border-radius: 8px;
+    }
+    .drive-topbar .btn-outline-secondary{
+      border-color: #e7eaef;
+      color: #344054;
+      background: white;
+    }
+    .drive-topbar .drive-view-toggle .btn {
+      width:42px; height:42px; display:inline-flex; align-items:center; justify-content:center;
+      padding:6px;
+      border-radius:8px;
+    }
+    .drive-view-toggle .btn.active{
+      background: linear-gradient(135deg,var(--accent), #6610f2);
+      color: #fff;
+      border-color: transparent;
+      box-shadow: 0 8px 18px rgba(13,110,253,0.12);
+    }
+
+    @media (min-width: 768px) {
+      .drive-topbar {
+        display:flex;
+        align-items:center;
+        gap:16px;
+      }
+      .drive-topbar__meta { flex: 0 0 auto; }
+      .drive-topbar__search { flex: 1 1 420px; max-width: 420px; }
+      .drive-topbar__actions { flex: 0 0 auto; }
+    }
+    @media (max-width: 767.98px) {
+      .drive-topbar { display:block; }
+      .drive-topbar__search { width: 100%; margin-top:10px; }
+      .drive-topbar__actions { margin-top:10px; display:flex; flex-wrap:wrap; gap:8px; }
+    }
+  </style>
+
+  <!-- Left: breadcrumb + title -->
+  <div class="drive-topbar__meta" style="flex:0 0 auto;">
     <div class="drive-breadcrumb" aria-label="Breadcrumb">
       <a href="{% url 'project_drive_root' org.slug project.slug %}">Drive</a>
       {% if folder %}
         {% for crumb in breadcrumb %}
           <span aria-hidden="true">›</span>
           {% if forloop.last %}
-            <span>{{ crumb.name }}</span>
+            <span class="fw-semibold" aria-current="location">{{ crumb.name }}</span>
           {% else %}
             <a href="{% url 'drive_folder' org.slug project.slug crumb.id %}">{{ crumb.name }}</a>
           {% endif %}
         {% endfor %}
       {% endif %}
     </div>
-    <div class="d-flex align-items-center gap-2">
-      <h1 class="h5 mb-0">{% if folder %}{{ folder.name }}{% else %}Project Drive{% endif %}</h1>
-      <span class="badge bg-light text-muted border">{{ files|length }} items</span>
+
+    <div class="drive-topbar__title mt-1">
+      <h1 class="h5 mb-0" title="{% if folder %}{{ folder.name }}{% else %}{{ project.name }} Project Drive{% endif %}">
+        {% if folder %}{{ folder.name }}{% else %}Project Drive{% endif %}
+      </h1>
+      <span class="badge-items ms-2" aria-live="polite">{{ files|length }} items</span>
     </div>
   </div>
-  <form method="get" class="drive-topbar__search" role="search">
+
+  <!-- Middle: search -->
+  <form method="get" class="drive-topbar__search" role="search" aria-label="Search documents in project">
     <label for="drive-search-input" class="visually-hidden">Search documents</label>
     <div class="input-group">
-      <span class="input-group-text"><i class="bi bi-search"></i></span>
-      <input type="search" id="drive-search-input" name="q" value="{{ request.GET.q }}" class="form-control" placeholder="Search this project" />
+      <span class="input-group-text" id="drive-search-icon"><i class="bi bi-search" aria-hidden="true"></i></span>
+      <input type="search"
+             id="drive-search-input"
+             name="q"
+             value="{{ request.GET.q|default:'' }}"
+             class="form-control"
+             placeholder="Search this project"
+             aria-describedby="drive-search-icon" />
     </div>
   </form>
-  <div class="drive-topbar__actions">
-    <span class="badge bg-warning-subtle text-warning-emphasis editing-indicator" id="drive-documents-editing-indicator">Editing</span>
-    <button type="button" class="btn btn-outline-primary" id="drive-documents-edit-toggle" aria-pressed="false">
-      <i class="bi bi-pencil-square me-1"></i> Edit
+
+  <!-- Right: actions -->
+  <div class="drive-topbar__actions" role="toolbar" aria-label="Drive actions">
+
+    <span class="editing-indicator visually-hidden" id="drive-documents-editing-indicator" aria-hidden="true">Editing</span>
+
+    <button type="button"
+            class="btn btn-outline-primary d-flex align-items-center"
+            id="drive-documents-edit-toggle"
+            aria-pressed="false"
+            aria-controls="drive-documents-list"
+            title="Toggle edit mode">
+      <i class="bi bi-pencil-square me-1" aria-hidden="true"></i>
+      <span class="d-none d-md-inline">Edit</span>
     </button>
+
     {% if folder %}
-      <a class="btn btn-outline-secondary" href="{% if folder.parent %}{% url 'drive_folder' org.slug project.slug folder.parent.id %}{% else %}{% url 'project_drive_root' org.slug project.slug %}{% endif %}">
-        <i class="bi bi-arrow-90deg-up me-1"></i> Up one level
+      <a class="btn btn-outline-secondary d-flex align-items-center"
+         href="{% if folder.parent %}{% url 'drive_folder' org.slug project.slug folder.parent.id %}{% else %}{% url 'project_drive_root' org.slug project.slug %}{% endif %}"
+         title="Go up one level">
+        <i class="bi bi-arrow-90deg-up me-1" aria-hidden="true"></i>
+        <span class="d-none d-md-inline">Up one level</span>
       </a>
-      <a class="btn btn-outline-secondary" href="{% url 'drive_folder_create' org.slug project.slug folder.id %}">
-        <i class="bi bi-folder-plus me-1"></i> New folder
+
+      <a class="btn btn-outline-secondary d-flex align-items-center"
+         href="{% url 'drive_folder_create' org.slug project.slug folder.id %}"
+         title="Create new folder">
+        <i class="bi bi-folder-plus me-1" aria-hidden="true"></i>
+        <span class="d-none d-md-inline">New folder</span>
       </a>
     {% endif %}
+
     {% if upload_url %}
       <button type="button"
-              class="btn btn-primary"
+              class="btn btn-primary d-flex align-items-center"
               data-bs-toggle="modal"
-              data-bs-target="#drive-upload-modal">
-        <i class="bi bi-upload me-1"></i> Upload
+              data-bs-target="#drive-upload-modal"
+              title="Upload files">
+        <i class="bi bi-upload me-1" aria-hidden="true"></i>
+        <span class="d-none d-md-inline">Upload</span>
       </button>
     {% endif %}
+
     <div class="btn-group drive-view-toggle" role="group" aria-label="Change layout">
-      <button type="button" class="btn btn-outline-secondary active" data-drive-toggle="list">
-        <i class="bi bi-list"></i>
+      <button type="button" class="btn btn-outline-secondary active" data-drive-toggle="list" aria-pressed="true" title="List view" aria-label="List view">
+        <i class="bi bi-list" aria-hidden="true"></i>
       </button>
-      <button type="button" class="btn btn-outline-secondary" data-drive-toggle="grid">
-        <i class="bi bi-grid"></i>
+      <button type="button" class="btn btn-outline-secondary" data-drive-toggle="grid" aria-pressed="false" title="Grid view" aria-label="Grid view">
+        <i class="bi bi-grid" aria-hidden="true"></i>
       </button>
     </div>
   </div>
+
+  <script>
+    (function () {
+      // Edit toggle: toggle indicator + aria states
+      const editBtn = document.getElementById('drive-documents-edit-toggle');
+      const editIndicator = document.getElementById('drive-documents-editing-indicator');
+
+      if (editBtn && editIndicator) {
+        function setEditing(on) {
+          editBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+          if (on) {
+            editIndicator.classList.remove('visually-hidden');
+            editIndicator.setAttribute('aria-hidden', 'false');
+          } else {
+            editIndicator.classList.add('visually-hidden');
+            editIndicator.setAttribute('aria-hidden', 'true');
+          }
+        }
+
+        setEditing(editBtn.getAttribute('aria-pressed') === 'true');
+
+        editBtn.addEventListener('click', function () {
+          const isOn = editBtn.getAttribute('aria-pressed') === 'true';
+          setEditing(!isOn);
+        });
+      }
+
+      // View toggle buttons
+      const viewGroup = document.querySelector('.drive-view-toggle');
+      if (viewGroup) {
+        viewGroup.addEventListener('click', (e) => {
+          const btn = e.target.closest('button[data-drive-toggle]');
+          if (!btn) return;
+          const mode = btn.getAttribute('data-drive-toggle');
+          viewGroup.querySelectorAll('button[data-drive-toggle]').forEach(b => {
+            const isActive = b === btn;
+            if (isActive) {
+              b.classList.add('active');
+              b.setAttribute('aria-pressed', 'true');
+            } else {
+              b.classList.remove('active');
+              b.setAttribute('aria-pressed', 'false');
+            }
+          });
+
+          document.dispatchEvent(new CustomEvent('drive:view-change', { detail: { view: mode } }));
+        });
+
+        viewGroup.querySelectorAll('button[data-drive-toggle]').forEach(b => {
+          b.addEventListener('keydown', function (ev) {
+            if (ev.key === 'Enter' || ev.key === ' ') {
+              ev.preventDefault();
+              b.click();
+            }
+          });
+        });
+      }
+    })();
+  </script>
 </div>

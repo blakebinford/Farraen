@@ -4,24 +4,120 @@
 {% block extra_head %}
   {{ block.super }}
   <link rel="stylesheet" href="{% static 'drive/css/drive.css' %}">
+  <style>
+    /* page layout */
+    .drive-shell .drive-layout {
+      display: flex;
+      gap: 28px;
+      align-items: flex-start;
+      padding: 20px;
+    }
+    .drive-left-column { flex: 0 0 auto; }
+    .drive-main { flex: 1 1 0%; min-width: 0; }
+
+    /* document container */
+    .document-grid-container {
+      background: #ffffff;
+      border-radius: 12px;
+      padding: 18px;
+      box-shadow: 0 6px 20px rgba(10,25,47,0.04);
+      margin-top: 14px;
+    }
+    .document-grid-container h2 {
+      margin-bottom: 12px;
+      font-weight: 700;
+      color: #243447;
+      font-size: 13px;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+    }
+
+    /* Subfolders */
+    .subfolder-list { display:flex; flex-wrap:wrap; gap:8px; }
+    .subfolder-chip {
+      display:inline-flex; align-items:center; gap:8px; padding:6px 10px; border-radius: 999px;
+      border:1px solid #e9eef6; background: #fbfdff; color: #344054; text-decoration:none;
+      font-size: 13px; font-weight:600;
+    }
+
+    /* Table styles */
+    .drive-doc-table thead th {
+      font-size: 13px; color: #6c757d; text-transform: uppercase; font-weight:700;
+      border-bottom: 1px solid #eef2f7;
+      padding: 12px 16px;
+    }
+    .drive-doc-table tbody tr {
+      cursor: pointer;
+      transition: background .08s ease, transform .08s ease;
+    }
+    .drive-doc-table tbody tr:focus,
+    .drive-doc-table tbody tr:hover {
+      background: #fbfdff;
+      transform: translateY(-1px);
+      outline: none;
+    }
+    .drive-doc-table td {
+      padding: 14px 16px;
+      vertical-align: middle;
+      white-space: nowrap;
+    }
+    .drive-doc-table td .cell-display { display: inline-block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    /* checked out badge */
+    .badge-checked-out {
+      background: linear-gradient(180deg,#fff3cd,#fff0b5);
+      color:#7a5800;
+      border-radius: 6px;
+      padding: 6px 8px;
+      font-weight:700;
+      font-size:12px;
+      display:inline-block;
+    }
+
+    /* Mobile: show card list instead of table */
+    .drive-doc-cards { display:none; gap:12px; }
+    .drive-doc-card {
+      display:flex; gap:12px; align-items:flex-start; padding:12px; border-radius:10px;
+      border:1px solid #eef3ff; background:#fff; text-decoration:none; color:inherit;
+      transition: transform .08s ease, box-shadow .12s ease;
+    }
+    .drive-doc-card:hover, .drive-doc-card:focus { transform: translateY(-3px); box-shadow: 0 12px 30px rgba(18,38,63,0.06); outline:none; }
+    .doc-card-left { width:46px; height:46px; border-radius:8px; display:grid; place-items:center; background:#fbfdff; border:1px solid #eef3ff; color:#475569; font-weight:700; }
+    .doc-card-meta { flex:1 1 auto; min-width:0; display:flex; flex-direction:column; }
+    .doc-card-title { font-weight:700; font-size:15px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .doc-card-sub { font-size:13px; color:#6c757d; margin-top:6px; display:flex; gap:8px; flex-wrap:wrap; }
+
+    /* responsive */
+    @media (max-width: 767.98px) {
+      .drive-shell .drive-layout { display:block; padding:12px; }
+      .drive-left-column { width:100%; max-width:none; }
+      .drive-doc-table { display:none; }
+      .drive-doc-cards { display:flex; flex-direction:column; }
+      .document-grid-container { padding:14px; }
+    }
+  </style>
 {% endblock %}
 
 {% block main_class %}container-fluid py-0 drive-shell{% endblock %}
 
 {% block content %}
   <div class="drive-layout" data-drive-shell data-drive-default-view="list" data-drive-storage-key="project-{{ project.id }}">
-    <aside>
+    <aside class="drive-left-column" aria-label="Project navigation">
       {% include "drive/_left_nav.html" %}
     </aside>
-    <section class="drive-main">
+
+    <section class="drive-main" role="main" aria-labelledby="drive-main-heading">
       {% include "drive/_topbar.html" %}
 
       {% if child_folders %}
         <div class="mb-3">
           <h2 class="h6 text-uppercase text-muted">Subfolders</h2>
-          <div class="d-flex flex-wrap gap-2">
+          <div class="subfolder-list">
             {% for child in child_folders %}
-              <a class="btn btn-sm btn-outline-secondary" href="{% url 'drive_folder' org.slug project.slug child.id %}">{{ child.name }}</a>
+              <a class="subfolder-chip" href="{% url 'drive_folder' org.slug project.slug child.id %}">
+                <i class="bi bi-folder2" aria-hidden="true"></i>
+                <span>{{ child.name }}</span>
+              </a>
             {% endfor %}
           </div>
         </div>
@@ -31,12 +127,14 @@
         <div class="drive-grid-view" data-drive-grid data-drive-hidden="true">
           {% include "drive/_file_cards.html" %}
         </div>
+
         <div class="drive-list-view" data-drive-list data-drive-hidden="false">
           <div class="document-grid-container" id="drive-documents-grid-container">
+
             <div class="table-responsive">
-              <table class="table table-borderless align-middle document-grid-table drive-doc-table mb-0" id="drive-documents-grid">
+              <table class="table table-borderless align-middle document-grid-table drive-doc-table mb-0" id="drive-documents-grid" role="table" aria-describedby="drive-main-heading">
                 <thead>
-                  <tr>
+                  <tr role="row">
                     <th scope="col">Doc Number</th>
                     <th scope="col">Name</th>
                     <th scope="col">Doc Type</th>
@@ -50,36 +148,47 @@
                 </thead>
                 <tbody>
                   {% for node in files %}
-                    <tr data-drive-open data-detail-url="{% url 'drive_file_drawer' org.slug project.slug node.id %}"
-                        data-update-url="{% url 'drive_file_inline_update' org.slug project.slug node.id %}"
-                        tabindex="0" role="button">
+                    <tr
+                      data-drive-open
+                      data-detail-url="{% url 'drive_file_drawer' org.slug project.slug node.id %}"
+                      data-update-url="{% url 'drive_file_inline_update' org.slug project.slug node.id %}"
+                      tabindex="0"
+                      role="button"
+                      aria-label="Open {{ node.name|default:'document' }}">
                       <td class="editable-cell" data-editable="true" data-field="number" data-value="{{ node.number|default_if_none:''|escape }}">
                         <span class="cell-display">{{ node.number|default:"—" }}</span>
                       </td>
+
                       <td class="editable-cell" data-editable="true" data-field="name" data-value="{{ node.name|default_if_none:''|escape }}">
                         <span class="cell-display">
                           <a href="{% url 'drive_file' org.slug project.slug node.id %}" class="text-decoration-none" data-drive-ignore>{{ node.name|default:"—" }}</a>
                         </span>
                       </td>
+
                       <td class="editable-cell" data-editable="true" data-field="doc_type" data-value="{{ node.doc_type|default_if_none:''|escape }}">
                         <span class="cell-display">{{ node.get_doc_type_display|default:"—" }}</span>
                       </td>
+
                       <td>
                         <span class="cell-display">{{ node.latest_version.content_type|default:node.content_type|default:"—" }}</span>
                       </td>
+
                       <td>
                         <span class="cell-display">{{ node.latest_version.size|default:node.size|filesizeformat }}</span>
                       </td>
+
                       <td>
                         <span class="cell-display">{{ node.version }}</span>
                       </td>
+
                       <td>
                         {% if node.checked_out_by %}
-                          <span class="badge bg-warning text-dark">Yes</span>
+                          <span class="badge-checked-out" title="Checked out">Yes</span>
                         {% else %}
                           <span class="text-muted">No</span>
                         {% endif %}
                       </td>
+
                       <td>
                         {% if node.checked_out_by %}
                           <span class="cell-display">{{ node.checked_out_by.get_full_name|default:node.checked_out_by.username }}</span>
@@ -87,6 +196,7 @@
                           <span class="text-muted">—</span>
                         {% endif %}
                       </td>
+
                       <td>
                         {% if node.checked_out_at %}
                           <span class="cell-display">{{ node.checked_out_at|date:"Y-m-d H:i" }}</span>
@@ -103,6 +213,35 @@
                 </tbody>
               </table>
             </div>
+
+            {# Mobile-friendly card list (now opens the drawer) #}
+            <div class="drive-doc-cards mt-3" aria-hidden="true">
+              {% for node in files %}
+                <a
+                  class="drive-doc-card"
+                  href="{% url 'drive_file_drawer' org.slug project.slug node.id %}"
+                  data-drive-open
+                  data-detail-url="{% url 'drive_file_drawer' org.slug project.slug node.id %}"
+                  aria-label="Open {{ node.name|default:'document' }}">
+                  <div class="doc-card-left" aria-hidden="true">
+                    <i class="bi bi-file-earmark" style="font-size:18px;"></i>
+                  </div>
+                  <div class="doc-card-meta">
+                    <div class="doc-card-title">{{ node.name|default:"—" }}</div>
+                    <div class="doc-card-sub">
+                      <span class="text-muted">{{ node.get_doc_type_display|default:"—" }}</span>
+                      <span class="text-muted">·</span>
+                      <span class="text-muted">{{ node.latest_version.size|default:node.size|filesizeformat }}</span>
+                      {% if node.checked_out_by %}
+                        <span class="badge-checked-out">Checked out</span>
+                        <span class="text-muted">by {{ node.checked_out_by.get_full_name|default:node.checked_out_by.username }}</span>
+                      {% endif %}
+                    </div>
+                  </div>
+                </a>
+              {% endfor %}
+            </div>
+
           </div>
         </div>
       </div>
@@ -166,4 +305,79 @@
 {% block extra_js %}
   {{ block.super }}
   <script src="{% static 'drive/js/drive_ui.js' %}"></script>
+
+  <script>
+    (function () {
+      // Click/keyboard activation on rows with data-drive-open
+      function openDetail(url) {
+        if (!url) return;
+        if (typeof openDriveDrawer === 'function') {
+          openDriveDrawer(url);
+        } else {
+          window.location.href = url;
+        }
+      }
+
+      // attach handlers to table rows (delegation)
+      const table = document.getElementById('drive-documents-grid');
+      if (table) {
+        table.addEventListener('click', function (ev) {
+          const tr = ev.target.closest('tr[data-drive-open]');
+          if (!tr) return;
+          // ignore clicks on links or form controls inside the row
+          if (ev.target.closest('a, button, input, textarea, select')) return;
+          const url = tr.getAttribute('data-detail-url');
+          openDetail(url);
+        });
+
+        table.addEventListener('keydown', function (ev) {
+          const tr = ev.target.closest('tr[data-drive-open]');
+          if (!tr) return;
+          if (ev.key === 'Enter' || ev.key === ' ') {
+            // ignore if focus on a native element that handles Enter
+            const active = document.activeElement;
+            if (active && ['INPUT','TEXTAREA','SELECT','A','BUTTON'].indexOf(active.tagName) !== -1) return;
+            ev.preventDefault();
+            const url = tr.getAttribute('data-detail-url');
+            openDetail(url);
+          }
+        });
+      }
+
+      // Mobile cards now have data-drive-open and data-detail-url; delegate clicks there too
+      document.addEventListener('click', function (ev) {
+        // only handle left clicks without modifiers
+        if (ev.button !== 0 || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return;
+        const card = ev.target.closest('[data-drive-open]');
+        if (!card) return;
+        // ignore clicks on internal links or controls
+        if (ev.target.closest('a[data-drive-ignore], button, input, textarea, select')) return;
+        // Prevent default navigation when clicking the card anchor
+        ev.preventDefault();
+        const url = card.getAttribute('data-detail-url') || card.getAttribute('href');
+        if (url) openDetail(url);
+      }, true);
+
+      // Make sure mobile card list visibility follows responsive layout:
+      // hide mobile cards on larger screens and show them on small screens.
+      function updateCardVisibility() {
+        const cards = document.querySelector('.drive-doc-cards');
+        if (!cards) return;
+        if (window.innerWidth <= 767.98) {
+          cards.setAttribute('aria-hidden', 'false');
+        } else {
+          cards.setAttribute('aria-hidden', 'true');
+        }
+      }
+      updateCardVisibility();
+      window.addEventListener('resize', updateCardVisibility);
+
+      // Respect reduced-motion users
+      if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        document.querySelectorAll('.drive-doc-card, .drive-doc-table tbody tr').forEach(el => {
+          el.style.transition = 'none';
+        });
+      }
+    })();
+  </script>
 {% endblock %}

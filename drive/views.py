@@ -8,7 +8,7 @@ from django.contrib import messages
 from django.urls import reverse
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Q, Max
 from django.utils.text import slugify
 from django.views.decorators.http import require_POST
 from django.http import (
@@ -52,6 +52,48 @@ def _breadcrumb_for(folder: Folder):
     return trail
 
 
+def _recently_viewed_files(request, project, limit=5):
+    user = getattr(request, "user", None)
+    if not user or not user.is_authenticated:
+        return []
+
+    org = getattr(request, "org", None) or project.org
+
+    events = (
+        FileEvent.objects.filter(
+            org=org,
+            actor=user,
+            action=FileEvent.Action.VIEW,
+            file_node__project=project,
+            file_node__is_archived=False,
+        )
+        .values("file_node_id")
+        .annotate(last_at=Max("at"))
+        .order_by("-last_at")
+    )
+
+    rows = list(events[:limit])
+    if not rows:
+        return []
+
+    node_ids = [row["file_node_id"] for row in rows]
+    nodes = (
+        FileNode.objects.filter(id__in=node_ids)
+        .select_related("latest_version")
+    )
+    nodes_by_id = {node.id: node for node in nodes}
+
+    results = []
+    for row in rows:
+        node = nodes_by_id.get(row["file_node_id"])
+        if node:
+            results.append({
+                "node": node,
+                "last_at": row["last_at"],
+            })
+    return results
+
+
 # ---------- views ----------
 
 @login_required
@@ -87,6 +129,7 @@ def project_drive_root(request, org_slug, project_slug):
             "breadcrumb": [],
             "active_filter": active_filter,
             "active_doc_types": active_doc_types,
+            "recently_viewed": _recently_viewed_files(request, project),
         },
     )
 
@@ -182,6 +225,7 @@ def folder_view(request, org_slug, project_slug, folder_id):
         ),
         "folder_tree": folder_tree,
         "breadcrumb": breadcrumb,
+        "recently_viewed": _recently_viewed_files(request, project),
     }
     return render(request, "drive/folder_view.html", context)
 

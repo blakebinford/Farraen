@@ -1,0 +1,51 @@
+{% load static %}
+<nav class="drive-left-nav" aria-label="Project folders">
+  <div class="drive-left-nav__project">
+    <a href="{% url 'project_drive_root' org.slug project.slug %}" class="text-decoration-none">{{ project.name }}</a>
+  </div>
+
+  {% if breadcrumb %}
+    <div class="drive-breadcrumb" aria-label="Current folder path">
+      <a href="{% url 'project_drive_root' org.slug project.slug %}">Drive</a>
+      {% for crumb in breadcrumb %}
+        <span aria-hidden="true">›</span>
+        {% if crumb == folder %}
+          <span>{{ crumb.name }}</span>
+        {% else %}
+          <a href="{% url 'drive_folder' org.slug project.slug crumb.id %}">{{ crumb.name }}</a>
+        {% endif %}
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  <div class="mb-4">
+    <h2 class="h6 text-uppercase text-muted">Folders</h2>
+    <ul class="drive-folder-tree" role="tree">
+      {% for item in folder_tree %}
+        <li class="drive-folder-tree__item{% if folder and item.id == folder.id %} is-active{% endif %}"
+            data-depth="{{ item.depth }}" role="treeitem" aria-level="{{ item.depth|add:1 }}">
+          <a href="{% url 'drive_folder' org.slug project.slug item.id %}"
+             class="drive-folder-tree__link">
+            {{ item.name }}
+          </a>
+        </li>
+      {% empty %}
+        <li class="text-muted small">No folders yet.</li>
+      {% endfor %}
+    </ul>
+  </div>
+
+  <div>
+    <h2 class="h6 text-uppercase text-muted">Quick filters</h2>
+    <div class="drive-filter-chips">
+      <a class="drive-chip" href="?filter=recent">Recent</a>
+      <a class="drive-chip" href="?filter=checkedout">Checked-out</a>
+      <a class="drive-chip" href="?filter=starred">Starred</a>
+      <a class="drive-chip" href="?doc_type=MTR">MTR</a>
+      <a class="drive-chip" href="?doc_type=WPS">WPS</a>
+      <a class="drive-chip" href="?doc_type=NDE">NDE</a>
+      <a class="drive-chip" href="?doc_type=INSPECTOR">Inspector</a>
+      <a class="drive-chip" href="?filter=trash">Archive</a>
+    </div>
+  </div>
+</nav>

@@ -149,6 +149,7 @@ class FileEvent(models.Model):
         CHECKOUT = "CHECKOUT", "Check-out"
         CHECKIN = "CHECKIN", "Check-in"
         FORCE_CHECKIN = "FORCE_CHECKIN", "Force check-in"
+        REVERT = "REVERT", "Revert"
 
     org        = models.ForeignKey("organizations.Organization", on_delete=models.PROTECT, related_name="file_events")
     file_node  = models.ForeignKey(FileNode, on_delete=models.CASCADE, related_name="events")

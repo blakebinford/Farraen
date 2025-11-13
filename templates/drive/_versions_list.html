@@ -1,0 +1,27 @@
+{% load humanize %}
+<ul class="drive-versions-list">
+  {% for version in versions %}
+    <li class="drive-versions-list__item">
+      <div class="d-flex justify-content-between align-items-start">
+        <div>
+          <strong>Version {{ version.version }}</strong>
+          <div class="text-muted small">{{ version.created_at|naturaltime }} · {{ version.size|filesizeformat }}</div>
+          {% if version.note %}
+            <div class="text-muted small">{{ version.note }}</div>
+          {% endif %}
+        </div>
+        <div class="btn-group btn-group-sm" role="group">
+          <a class="btn btn-outline-secondary" href="{% url 'drive_file_stream_version' org.slug project.slug node.id version.version %}" target="_blank" rel="noopener">Preview</a>
+          <a class="btn btn-outline-secondary" href="{% url 'drive_file_download_version' org.slug project.slug node.id version.version %}">Download</a>
+          {% if is_member %}
+            <form method="post" action="{% url 'drive_file_revert_version' org.slug project.slug node.id version.version %}" class="d-inline" data-drive-refresh="drawer">
+              {% csrf_token %}
+              <input type="hidden" name="note" value="">
+              <button type="submit" class="btn btn-outline-danger" data-drive-revert-button data-version="{{ version.version }}"{% if version.version == node.version %} disabled{% endif %}>Revert</button>
+            </form>
+          {% endif %}
+        </div>
+      </div>
+    </li>
+  {% endfor %}
+</ul>

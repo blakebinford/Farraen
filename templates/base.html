@@ -1,4 +1,4 @@
-{% load crispy_forms_tags %}
+{% load crispy_forms_tags static %}
 <!doctype html>
 <html lang="en">
 <head>
@@ -76,7 +76,8 @@
     </div>
   </div>
 </nav>
-<main class="container py-4">
+{% block before_main %}{% endblock %}
+<main class="{% block main_class %}container py-4{% endblock %}" {% block main_attrs %}{% endblock %}>
   {% if messages %}
     <div class="mb-3">
       {% for message in messages %}
@@ -88,6 +89,8 @@
   {% endif %}
   {% block content %}{% endblock %}
 </main>
+{% block after_main %}{% endblock %}
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+{% block extra_js %}{% endblock %}
 </body>
 </html>

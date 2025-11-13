@@ -1,0 +1,82 @@
+{% load humanize %}
+<div class="drive-drawer{% if standalone %} drive-drawer--standalone{% endif %}" {% if not standalone %}role="dialog" aria-modal="true" aria-labelledby="drive-drawer-title"{% else %}role="region"{% endif %}>
+  <div class="drive-drawer__header">
+    <div>
+      <h2 class="h5 mb-1" id="drive-drawer-title" data-drive-focus>{{ node.name }}</h2>
+      <div class="drive-drawer__meta">
+        Version {{ node.version }} · {{ node.latest_version.size|default:node.size|filesizeformat }} · {{ node.latest_version.created_at|naturaltime }}
+      </div>
+      {% if node.checked_out_by %}
+        <div class="small text-warning mt-1">Checked out by {{ node.checked_out_by.get_full_name|default:node.checked_out_by.email }}{% if node.checked_out_at %} — {{ node.checked_out_at|naturaltime }}{% endif %}</div>
+      {% endif %}
+    </div>
+    <div class="d-flex flex-column gap-2 align-items-end">
+      <a class="btn btn-sm btn-outline-secondary" href="{% url 'drive_file_download' org.slug project.slug node.id %}">Download latest</a>
+      {% if not standalone %}
+        <button type="button" class="btn btn-sm btn-light" data-drive-close aria-label="Close details">&times;</button>
+      {% endif %}
+    </div>
+  </div>
+  <div class="drive-drawer__body">
+    <section class="mb-3">
+      <div class="d-flex flex-wrap gap-2">
+        {% if can_checkout %}
+          <form method="post" action="{% url 'drive_file_checkout' org.slug project.slug node.id %}" data-drive-refresh="drawer">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-sm btn-outline-primary" {% if is_checked_out_by_me %}disabled{% endif %}>Check out</button>
+          </form>
+        {% endif %}
+        {% if can_checkin %}
+          <form method="post" action="{% url 'drive_file_checkin' org.slug project.slug node.id %}" data-drive-refresh="drawer">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-sm btn-outline-success">Check in</button>
+          </form>
+        {% endif %}
+        {% if can_force_checkin %}
+          <form method="post" action="{% url 'drive_file_force_checkin' org.slug project.slug node.id %}" data-drive-refresh="drawer">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-sm btn-outline-danger">Force check-in</button>
+          </form>
+        {% endif %}
+        <a class="btn btn-sm btn-outline-secondary" href="{% url 'drive_folder' org.slug project.slug node.folder.id %}">Open folder</a>
+      </div>
+    </section>
+
+    <section class="mb-4">
+      {% include "drive/_file_preview.html" %}
+    </section>
+
+    <section class="mb-4">
+      <h3 class="h6">Details</h3>
+      <dl class="row small mb-0">
+        <dt class="col-4 text-muted">Folder</dt>
+        <dd class="col-8">{{ node.folder.name }}</dd>
+        <dt class="col-4 text-muted">Doc type</dt>
+        <dd class="col-8">{{ node.doc_type|default:"—" }}</dd>
+        <dt class="col-4 text-muted">Uploaded by</dt>
+        <dd class="col-8">{{ node.latest_version.uploaded_by.get_full_name|default:node.latest_version.uploaded_by.email|default:"—" }}</dd>
+        <dt class="col-4 text-muted">Content type</dt>
+        <dd class="col-8">{{ node.latest_version.content_type|default:node.content_type|default:"—" }}</dd>
+      </dl>
+    </section>
+
+    <section class="mb-4">
+      <h3 class="h6">Versions</h3>
+      {% include "drive/_versions_list.html" %}
+    </section>
+
+    {% if can_view_activity and events_page %}
+      <section>
+        <h3 class="h6">Recent activity</h3>
+        <ul class="drive-activity-list">
+          {% for event in events_page %}
+            <li class="drive-activity-list__item">
+              <div class="fw-semibold">{{ event.get_action_display }}{% if event.version %} — v{{ event.version.version }}{% endif %}</div>
+              <div class="text-muted small">{{ event.at|naturaltime }} · {{ event.actor.get_full_name|default:event.actor.email|default:"System" }}</div>
+            </li>
+          {% endfor %}
+        </ul>
+      </section>
+    {% endif %}
+  </div>
+</div>

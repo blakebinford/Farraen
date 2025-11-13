@@ -1,0 +1,40 @@
+<div class="drive-topbar">
+  <div class="flex-grow-1">
+    <div class="drive-breadcrumb" aria-label="Breadcrumb">
+      <a href="{% url 'project_drive_root' org.slug project.slug %}">Drive</a>
+      {% if folder %}
+        {% for crumb in breadcrumb %}
+          <span aria-hidden="true">›</span>
+          {% if forloop.last %}
+            <span>{{ crumb.name }}</span>
+          {% else %}
+            <a href="{% url 'drive_folder' org.slug project.slug crumb.id %}">{{ crumb.name }}</a>
+          {% endif %}
+        {% endfor %}
+      {% endif %}
+    </div>
+    <h1 class="h5 mb-0">{% if folder %}{{ folder.name }}{% else %}Project Drive{% endif %}</h1>
+  </div>
+  <form method="get" class="drive-topbar__search" role="search">
+    <label for="drive-search-input" class="visually-hidden">Search documents</label>
+    <div class="input-group">
+      <input type="search" id="drive-search-input" name="q" value="{{ request.GET.q }}" class="form-control" placeholder="Search this project" />
+      <button class="btn btn-outline-secondary" type="submit">Search</button>
+    </div>
+  </form>
+  <div class="drive-topbar__actions">
+    <span class="badge bg-warning-subtle text-warning-emphasis editing-indicator" id="drive-documents-editing-indicator">Editing</span>
+    <button type="button" class="btn btn-outline-primary" id="drive-documents-edit-toggle" aria-pressed="false">Edit</button>
+    {% if folder %}
+      <a class="btn btn-outline-secondary" href="{% if folder.parent %}{% url 'drive_folder' org.slug project.slug folder.parent.id %}{% else %}{% url 'project_drive_root' org.slug project.slug %}{% endif %}">Up one level</a>
+      <a class="btn btn-outline-secondary" href="{% url 'drive_folder_create' org.slug project.slug folder.id %}">New folder</a>
+    {% endif %}
+    {% if upload_url %}
+      <a class="btn btn-primary" href="{{ upload_url }}">Upload</a>
+    {% endif %}
+    <div class="btn-group drive-view-toggle" role="group" aria-label="Change layout">
+      <button type="button" class="btn btn-outline-secondary active" data-drive-toggle="list">List</button>
+      <button type="button" class="btn btn-outline-secondary" data-drive-toggle="grid">Grid</button>
+    </div>
+  </div>
+</div>

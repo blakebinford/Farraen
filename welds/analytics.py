@@ -5,9 +5,9 @@ import json
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date, timedelta
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from math import ceil
-from statistics import mean, pstdev
+from statistics import mean, median, pstdev
 from typing import Iterable, List, Tuple
 
 from django.db.models import Prefetch, Q
@@ -17,6 +17,10 @@ from .models import Weld, WeldRepair
 
 DecimalZero = Decimal("0")
 DecimalOneThousand = Decimal("1000")
+DecimalOne = Decimal("1")
+TWO_PLACE = Decimal("0.01")
+
+CLUSTER_MIN_COUNT = 2
 
 
 @dataclass(frozen=True)
@@ -232,6 +236,12 @@ def _planned_schedule(
 
 
 def build_dashboard_analytics(project, filters: dict) -> dict:
+    """Assemble the analytics payload for the weld dashboard.
+
+    The returned dictionary exposes production series (daily, cumulative,
+    per-welder), planner metadata, repair rate calculations (daily and rolling),
+    clustering summaries, and helper collections for the front-end filters.
+    """
     weld_qs = (
         Weld.objects.filter(project=project)
         .select_related(
@@ -257,7 +267,20 @@ def build_dashboard_analytics(project, filters: dict) -> dict:
             | (Q(weld_date__isnull=True) & Q(date_welded__lte=end_date))
         )
 
-    welder_ids = filters.get("welder_ids") or []
+    welder_filter = filters.get("welder_ids") or []
+    if isinstance(welder_filter, (str, int)):
+        welder_ids = []
+        try:
+            welder_ids.append(int(welder_filter))
+        except (TypeError, ValueError):
+            welder_ids = []
+    else:
+        welder_ids = []
+        for value in welder_filter:
+            try:
+                welder_ids.append(int(value))
+            except (TypeError, ValueError):
+                continue
     if welder_ids:
         weld_qs = weld_qs.filter(primary_welder_id__in=welder_ids)
 
@@ -337,6 +360,39 @@ def build_dashboard_analytics(project, filters: dict) -> dict:
             )
         welder_series[welder_id] = values
 
+    all_welders_daily = []
+    for day in sorted_daily_dates:
+        total_for_day = daily_map[day]["weld_inches"]
+        all_welders_daily.append(
+            {
+                "date": day,
+                "weld_inches_total": total_for_day.quantize(
+                    TWO_PLACE, rounding=ROUND_HALF_UP
+                ),
+            }
+        )
+
+    welder_median_daily = []
+    for day in sorted_daily_dates:
+        day_values = [
+            series.get(day)
+            for series in welder_daily.values()
+            if day in series and series.get(day) is not None
+        ]
+        if day_values:
+            float_values = [float(value) for value in day_values]
+            median_value = Decimal(str(median(float_values)))
+        else:
+            median_value = DecimalZero
+        welder_median_daily.append(
+            {
+                "date": day,
+                "median_daily_inches": median_value.quantize(
+                    TWO_PLACE, rounding=ROUND_HALF_UP
+                ),
+            }
+        )
+
     total_weld_inches = sum((entry["weld_inches"] for entry in daily_series), DecimalZero)
     project_total_scope = _safe_decimal(project.project_total_weld_inches) or total_weld_inches
 
@@ -348,15 +404,32 @@ def build_dashboard_analytics(project, filters: dict) -> dict:
         else "No recorded weld length measurements"
     )
     planned_daily_inches = DecimalZero
-    planned_notes = None
-    if project.planned_welds_per_workday:
-        planned_daily_inches = _safe_decimal(project.planned_welds_per_workday) * (
-            project_average or Decimal("1")
-        )
-        planned_notes = {
-            "project_average_weld_length": project_average,
-            "basis": planner_average_basis,
-        }
+    planner_basis = None
+    recorded_planned_inches = _safe_decimal(project.planned_weld_inches_per_workday)
+
+    # Prefer the explicit planned weld inches field when available.
+    if recorded_planned_inches and recorded_planned_inches > DecimalZero:
+        planned_daily_inches = recorded_planned_inches
+        planner_basis = "User-defined planned weld inches per workday"
+    elif project.planned_welds_per_workday:
+        legacy_planned = _safe_decimal(project.planned_welds_per_workday)
+        if project_average and project_average > DecimalZero:
+            planned_daily_inches = legacy_planned * project_average
+            planner_basis = (
+                "Converted from planned weld count × project average weld length"
+            )
+        else:
+            planner_basis = (
+                "Legacy planned weld count available but no measured weld lengths to convert."
+            )
+            planned_daily_inches = DecimalZero
+    else:
+        planner_basis = "No planner input configured"
+
+    if planned_daily_inches and planned_daily_inches > DecimalZero:
+        planned_daily_inches = planned_daily_inches.quantize(TWO_PLACE, rounding=ROUND_HALF_UP)
+    else:
+        planned_daily_inches = DecimalZero
 
     planned_start = (
         project.planned_start_date
@@ -426,19 +499,34 @@ def build_dashboard_analytics(project, filters: dict) -> dict:
             weld_length_counted.add(key)
 
     repair_rate_series = []
-    for day in sorted(repairs_by_day.keys()):
+    rolling_rates: list[Decimal] = []
+    sorted_repair_dates = sorted(repairs_by_day.keys())
+    for idx, day in enumerate(sorted_repair_dates):
         entry = repairs_by_day[day]
         inches = entry["weld_inches"]
         repairs_count = entry["repairs"]
-        rate = DecimalZero
-        if inches:
-            rate = (Decimal(repairs_count) / inches) * DecimalOneThousand
+        denominator = inches if inches else DecimalOne
+        rate = (
+            (Decimal(repairs_count) / denominator) * DecimalOneThousand
+            if denominator
+            else DecimalZero
+        )
+        rate = rate.quantize(TWO_PLACE, rounding=ROUND_HALF_UP)
+        rolling_rates.append(rate)
+        window = rolling_rates[max(0, idx - 6) : idx + 1]
+        rolling_average = DecimalZero
+        if window:
+            rolling_average = sum(window, DecimalZero) / Decimal(len(window))
         repair_rate_series.append(
             {
                 "date": day,
                 "repairs": repairs_count,
-                "weld_inches": inches,
+                "weld_inches": inches.quantize(TWO_PLACE, rounding=ROUND_HALF_UP),
                 "rate_per_1000_inches": rate,
+                "rolling_rate_7d": rolling_average.quantize(
+                    TWO_PLACE, rounding=ROUND_HALF_UP
+                ),
+                "weld_inches_zero": inches == DecimalZero,
             }
         )
 
@@ -448,6 +536,36 @@ def build_dashboard_analytics(project, filters: dict) -> dict:
         if total_weld_inches
         else DecimalZero
     )
+    normalized_repair_rate = normalized_repair_rate.quantize(
+        TWO_PLACE, rounding=ROUND_HALF_UP
+    )
+
+    if repair_rate_series:
+        current_rate = repair_rate_series[-1]["rate_per_1000_inches"]
+        previous_rate = (
+            repair_rate_series[-2]["rate_per_1000_inches"]
+            if len(repair_rate_series) > 1
+            else None
+        )
+        if previous_rate is None:
+            direction_symbol = "—"
+        elif current_rate > previous_rate:
+            direction_symbol = "▲"
+        elif current_rate < previous_rate:
+            direction_symbol = "▼"
+        else:
+            direction_symbol = "➖"
+        repair_rate_summary = {
+            "current_rate_per_1000_inches": current_rate,
+            "previous_rate_per_1000_inches": previous_rate,
+            "direction": direction_symbol,
+        }
+    else:
+        repair_rate_summary = {
+            "current_rate_per_1000_inches": None,
+            "previous_rate_per_1000_inches": None,
+            "direction": "—",
+        }
 
     # Clustering
     def _cluster_key(value, label="Unspecified"):
@@ -515,16 +633,32 @@ def build_dashboard_analytics(project, filters: dict) -> dict:
         for key, stats in items.items():
             inches = stats["weld_inches"]
             count = stats["count"]
-            rate = (Decimal(count) / inches) * DecimalOneThousand if inches else DecimalZero
+            if count < CLUSTER_MIN_COUNT:
+                continue
+            rate = (
+                (Decimal(count) / inches) * DecimalOneThousand
+                if inches
+                else DecimalZero
+            )
             data.append(
                 {
                     "key": key,
+                    "label": key,
                     "count": count,
-                    "weld_inches": inches,
-                    "repair_rate_per_1000_inches": rate,
+                    "weld_inches": inches.quantize(
+                        TWO_PLACE, rounding=ROUND_HALF_UP
+                    ),
+                    "repair_rate_per_1000_inches": rate.quantize(
+                        TWO_PLACE, rounding=ROUND_HALF_UP
+                    ),
                 }
             )
-        data.sort(key=lambda item: (-item["repair_rate_per_1000_inches"], -item["count"]))
+        data.sort(
+            key=lambda item: (
+                -item["repair_rate_per_1000_inches"],
+                -item["count"],
+            )
+        )
         clustering_payload[dimension] = data[:10]
 
     pair_clustering_payload = {}
@@ -533,7 +667,13 @@ def build_dashboard_analytics(project, filters: dict) -> dict:
         for key, stats in items.items():
             inches = stats["weld_inches"]
             count = stats["count"]
-            rate = (Decimal(count) / inches) * DecimalOneThousand if inches else DecimalZero
+            if count < CLUSTER_MIN_COUNT:
+                continue
+            rate = (
+                (Decimal(count) / inches) * DecimalOneThousand
+                if inches
+                else DecimalZero
+            )
             if dimension == "heat_wps":
                 heat_key, wps_key = key
                 label = f"{heat_key} · {wps_key}"
@@ -545,8 +685,12 @@ def build_dashboard_analytics(project, filters: dict) -> dict:
                         "heat_number": heat_key,
                         "wps": wps_key,
                         "count": count,
-                        "weld_inches": inches,
-                        "repair_rate_per_1000_inches": rate,
+                        "weld_inches": inches.quantize(
+                            TWO_PLACE, rounding=ROUND_HALF_UP
+                        ),
+                        "repair_rate_per_1000_inches": rate.quantize(
+                            TWO_PLACE, rounding=ROUND_HALF_UP
+                        ),
                     }
                 )
             else:
@@ -560,8 +704,12 @@ def build_dashboard_analytics(project, filters: dict) -> dict:
                         "pipe_size": pipe_key,
                         "od": od_key,
                         "count": count,
-                        "weld_inches": inches,
-                        "repair_rate_per_1000_inches": rate,
+                        "weld_inches": inches.quantize(
+                            TWO_PLACE, rounding=ROUND_HALF_UP
+                        ),
+                        "repair_rate_per_1000_inches": rate.quantize(
+                            TWO_PLACE, rounding=ROUND_HALF_UP
+                        ),
                     }
                 )
         data.sort(key=lambda item: (-item["repair_rate_per_1000_inches"], -item["count"]))
@@ -571,15 +719,23 @@ def build_dashboard_analytics(project, filters: dict) -> dict:
     for (heat_key, wps_key), stats in pair_clusters["heat_wps"].items():
         inches = stats["weld_inches"]
         count = stats["count"]
-        rate = (Decimal(count) / inches) * DecimalOneThousand if inches else DecimalZero
+        if count < CLUSTER_MIN_COUNT:
+            continue
+        rate = (
+            (Decimal(count) / inches) * DecimalOneThousand
+            if inches
+            else DecimalZero
+        )
         heatmap_payload.append(
             {
                 "key": json.dumps({"heat_number": heat_key, "wps": wps_key}),
                 "heat_number": heat_key,
                 "wps": wps_key,
                 "count": count,
-                "weld_inches": inches,
-                "repair_rate_per_1000_inches": rate,
+                "weld_inches": inches.quantize(TWO_PLACE, rounding=ROUND_HALF_UP),
+                "repair_rate_per_1000_inches": rate.quantize(
+                    TWO_PLACE, rounding=ROUND_HALF_UP
+                ),
             }
         )
 
@@ -606,6 +762,7 @@ def build_dashboard_analytics(project, filters: dict) -> dict:
     )
 
     planner_inputs = {
+        "planned_weld_inches_per_workday": project.planned_weld_inches_per_workday,
         "planned_welds_per_workday": project.planned_welds_per_workday,
         "workdays_per_week": project.workdays_per_week,
         "project_total_weld_inches": project.project_total_weld_inches,
@@ -613,9 +770,10 @@ def build_dashboard_analytics(project, filters: dict) -> dict:
         "project_average_weld_length": project_average,
         "project_average_basis": planner_average_basis,
         "planned_daily_weld_inches": planned_daily_inches,
-        "planned_notes": planned_notes,
+        "basis": planner_basis,
         "scope_is_estimated": project.project_total_weld_inches is None,
         "total_weld_inches_logged": total_weld_inches,
+        "project_average_sample_size": project_count,
     }
 
     percent_complete = (
@@ -637,11 +795,14 @@ def build_dashboard_analytics(project, filters: dict) -> dict:
         "daily_production": daily_series,
         "cumulative_production": cumulative_payload,
         "welder_series": welder_series,
+        "all_welders_daily": all_welders_daily,
+        "welder_median_daily": welder_median_daily,
         "planned_series": planned_payload,
         "forecast_series": forecast_series,
         "forecast_summary": forecast_summary,
         "normalized_repair_rate": normalized_repair_rate,
         "repair_rate_series": repair_rate_series,
+        "repair_rate_summary": repair_rate_summary,
         "clustering": clustering_payload,
         "pair_clustering": pair_clustering_payload,
         "heatmap": heatmap_payload,

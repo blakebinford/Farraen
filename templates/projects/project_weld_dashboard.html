@@ -85,8 +85,8 @@
         {% csrf_token %}
         <fieldset class="row g-3 align-items-end" {% if project_is_archived %}disabled{% endif %}>
         <div class="col-md-3">
-          <label class="form-label small text-uppercase" for="id_planned_welds_per_workday">Planned welds per workday</label>
-          <input type="number" step="0.01" class="form-control" id="id_planned_welds_per_workday" name="planned_welds_per_workday" value="{{ project.planned_welds_per_workday|default_if_none:'' }}" placeholder="e.g. 50">
+          <label class="form-label small text-uppercase" for="id_planned_weld_inches_per_workday">Planned daily weld inches</label>
+          <input type="number" step="0.01" class="form-control" id="id_planned_weld_inches_per_workday" name="planned_weld_inches_per_workday" value="{{ project.planned_weld_inches_per_workday|default_if_none:'' }}" placeholder="e.g. 600.00">
         </div>
         <div class="col-md-3">
           <label class="form-label small text-uppercase" for="id_workdays_per_week">Workdays per week</label>
@@ -668,16 +668,21 @@
       }
       const planner = analytics.planner_inputs || {};
       const parts = [];
+      if (planner.planned_daily_weld_inches) {
+        parts.push(
+          `Planned: ${formatNumber(planner.planned_daily_weld_inches, 2)} weld inches/day`
+        );
+      }
       if (planner.project_average_weld_length) {
         parts.push(
-          `Project average weld length: ${formatNumber(
-            planner.project_average_weld_length,
-            1
-          )} in`
+          `Avg weld length: ${formatNumber(planner.project_average_weld_length, 1)} in`
         );
       }
       if (planner.project_average_basis) {
         parts.push(planner.project_average_basis);
+      }
+      if (planner.basis) {
+        parts.push(planner.basis);
       }
       if (planner.scope_is_estimated) {
         parts.push("Scope is estimated until confirmed.");
@@ -703,6 +708,29 @@
         lookup.set(item.date, Number(item.weld_inches || 0));
       });
       return labels.map((label) => lookup.get(label) || 0);
+    }
+
+    function toggleChartPlaceholder(canvas, hasData, message) {
+      if (!canvas) {
+        return;
+      }
+      const container = canvas.parentElement;
+      if (!container) {
+        return;
+      }
+      let placeholder = container.querySelector(".chart-placeholder");
+      if (!placeholder) {
+        placeholder = document.createElement("div");
+        placeholder.className =
+          "chart-placeholder text-muted d-flex align-items-center justify-content-center text-center px-3";
+        placeholder.style.position = "absolute";
+        placeholder.style.inset = "0";
+        placeholder.style.background = "rgba(255,255,255,0.85)";
+        container.appendChild(placeholder);
+      }
+      placeholder.textContent = message;
+      placeholder.style.display = hasData ? "none" : "flex";
+      canvas.style.visibility = hasData ? "visible" : "hidden";
     }
 
     function updateSCurveChart(analytics) {
@@ -883,6 +911,24 @@
       return result;
     }
 
+    function syncWelderAverageVisibility() {
+      if (!welderDailyChart) {
+        return;
+      }
+      const showAverage = welderAverageToggle && welderAverageToggle.checked;
+      welderDailyChart.data.datasets.forEach((dataset) => {
+        if (!dataset.isAverage) {
+          return;
+        }
+        const base = welderDailyChart.data.datasets.find(
+          (candidate) =>
+            !candidate.isAverage && candidate.welderId === dataset.welderId
+        );
+        dataset.hidden = !showAverage || !base || base.hidden;
+      });
+      welderDailyChart.update();
+    }
+
     function updateWelderCharts(analytics) {
       if (!analytics || !welderDailyCtx || !welderCumulativeCtx) {
         return;
@@ -894,14 +940,97 @@
           : option.name || `Welder ${option.id}`;
         welderMap.set(String(option.id), label);
       });
-      const welderSeries = analytics.welder_series || {};
-      const labels = buildLabels(Object.values(welderSeries));
 
-      const datasetsDaily = [];
-      const datasetsAverage = [];
-      const datasetsCumulative = [];
+      const welderSeries = analytics.welder_series || {};
+      const aggregateSeries = (analytics.all_welders_daily || []).map((item) => ({
+        date: item.date,
+        weld_inches: Number(item.weld_inches_total || 0),
+      }));
+      const medianSeries = (analytics.welder_median_daily || []).map((item) => ({
+        date: item.date,
+        weld_inches: Number(item.median_daily_inches || 0),
+      }));
+
+      const selectedWelderIds = new Set(
+        Array.isArray(currentFilters?.welder_ids)
+          ? currentFilters.welder_ids.map((value) => String(value))
+          : currentFilters?.welder_ids
+          ? [String(currentFilters.welder_ids)]
+          : []
+      );
+
+      const labels = buildLabels([
+        aggregateSeries,
+        medianSeries,
+        ...Object.values(welderSeries),
+      ]);
+
+      const baseDailyDatasets = [];
+      const averageDatasets = [];
+      const cumulativeDatasets = [];
+
+      const aggregateColor = "#0d6efd";
+      const medianColor = "#6c757d";
+
+      const aggregateDailyData = mapSeriesToLabels(aggregateSeries, labels);
+      baseDailyDatasets.push({
+        label: "All welders",
+        data: aggregateDailyData,
+        borderColor: aggregateColor,
+        backgroundColor: "rgba(13,110,253,0.15)",
+        fill: false,
+        tension: 0.2,
+        borderWidth: 2,
+        welderId: "all",
+        hidden: false,
+      });
+      averageDatasets.push({
+        label: "All welders (7-day avg)",
+        data: computeMovingAverage(aggregateDailyData),
+        borderColor: aggregateColor,
+        borderDash: [6, 3],
+        fill: false,
+        tension: 0.2,
+        hidden: true,
+        welderId: "all",
+        isAverage: true,
+      });
+
+      const medianDailyData = mapSeriesToLabels(medianSeries, labels);
+      baseDailyDatasets.push({
+        label: "Median welder",
+        data: medianDailyData,
+        borderColor: medianColor,
+        borderDash: [6, 4],
+        fill: false,
+        tension: 0.2,
+        welderId: "median",
+        hidden: false,
+      });
+
+      const cumulativeLabels = labels;
+      const aggregateCumulativeSeries = (analytics.cumulative_production || []).map(
+        (item) => ({
+          date: item.date,
+          weld_inches: Number(item.weld_inches || 0),
+        })
+      );
+      const aggregateCumulativeData = mapSeriesToLabels(
+        aggregateCumulativeSeries,
+        cumulativeLabels
+      );
+      cumulativeDatasets.push({
+        label: "All welders",
+        data: aggregateCumulativeData,
+        borderColor: aggregateColor,
+        fill: false,
+        tension: 0.2,
+        welderId: "all",
+        hidden: false,
+      });
+
       Object.entries(welderSeries).forEach(([welderId, series], index) => {
-        const colorHue = (index * 67) % 360;
+        const colorHue = (index * 67 + 45) % 360;
         const baseColor = `hsl(${colorHue}, 70%, 45%)`;
         const label = welderMap.get(welderId) || `Welder ${welderId}`;
         const dailySeries = series.map((item) => ({
@@ -909,88 +1038,118 @@
           weld_inches: Number(item.daily_inches || 0),
         }));
         const dailyData = mapSeriesToLabels(dailySeries, labels);
-        const avgData = computeMovingAverage(dailyData);
-        const cumulativeData = mapSeriesToLabels(
-          series.map((item) => ({
-            date: item.date,
-            weld_inches: Number(item.cumulative_inches || 0),
-          })),
-          labels
-        );
-
-        datasetsDaily.push({
+        const isSelected =
+          selectedWelderIds.size === 0
+            ? false
+            : selectedWelderIds.has(String(welderId));
+        baseDailyDatasets.push({
           label,
           data: dailyData,
           borderColor: baseColor,
           backgroundColor: baseColor,
           fill: false,
           tension: 0.2,
+          welderId,
+          hidden: !isSelected,
         });
-        datasetsAverage.push({
+        averageDatasets.push({
           label: `${label} (7-day avg)`,
-          data: avgData,
+          data: computeMovingAverage(dailyData),
           borderColor: baseColor,
           borderDash: [4, 4],
           fill: false,
           tension: 0.2,
           hidden: true,
+          welderId,
+          isAverage: true,
         });
-        datasetsCumulative.push({
+        const cumulativeData = mapSeriesToLabels(
+          series.map((item) => ({
+            date: item.date,
+            weld_inches: Number(item.cumulative_inches || 0),
+          })),
+          cumulativeLabels
+        );
+        cumulativeDatasets.push({
           label,
           data: cumulativeData,
           borderColor: baseColor,
           fill: false,
           tension: 0.2,
+          welderId,
+          hidden: !isSelected,
         });
       });
+
+      const dailyDatasets = baseDailyDatasets.concat(averageDatasets);
+
+      const hasDailyData =
+        labels.length > 0 &&
+        baseDailyDatasets.some((dataset) =>
+          (dataset.data || []).some((value) => value > 0)
+        );
+      toggleChartPlaceholder(
+        welderDailyCtx?.canvas,
+        hasDailyData,
+        "No welder production data for the selected filters."
+      );
+
+      const hasCumulativeData = cumulativeDatasets.some((dataset) =>
+        (dataset.data || []).some((value) => value > 0)
+      );
+      toggleChartPlaceholder(
+        welderCumulativeCtx?.canvas,
+        hasCumulativeData,
+        "No cumulative production data for the selected filters."
+      );
 
       if (!welderDailyChart) {
         welderDailyChart = new Chart(welderDailyCtx, {
           type: "line",
-          data: { labels, datasets: datasetsDaily.concat(datasetsAverage) },
+          data: { labels, datasets: dailyDatasets },
           options: {
             responsive: true,
             maintainAspectRatio: false,
             interaction: { mode: "index", intersect: false },
             plugins: { legend: { position: "bottom" } },
-            scales: { y: { beginAtZero: true, title: { display: true, text: "Weld Inches" } } },
+            scales: {
+              y: {
+                beginAtZero: true,
+                title: { display: true, text: "Weld Inches" },
+              },
+            },
           },
         });
       } else {
         welderDailyChart.data.labels = labels;
-        welderDailyChart.data.datasets = datasetsDaily.concat(datasetsAverage);
+        welderDailyChart.data.datasets = dailyDatasets;
         welderDailyChart.update();
       }
 
       if (!welderCumulativeChart) {
         welderCumulativeChart = new Chart(welderCumulativeCtx, {
           type: "line",
-          data: { labels, datasets: datasetsCumulative },
+          data: { labels: cumulativeLabels, datasets: cumulativeDatasets },
           options: {
             responsive: true,
             maintainAspectRatio: false,
             interaction: { mode: "index", intersect: false },
             plugins: { legend: { position: "bottom" } },
-            scales: { y: { beginAtZero: true, title: { display: true, text: "Cumulative Inches" } } },
+            scales: {
+              y: {
+                beginAtZero: true,
+                title: { display: true, text: "Cumulative Inches" },
+              },
+            },
           },
         });
       } else {
-        welderCumulativeChart.data.labels = labels;
-        welderCumulativeChart.data.datasets = datasetsCumulative;
+        welderCumulativeChart.data.labels = cumulativeLabels;
+        welderCumulativeChart.data.datasets = cumulativeDatasets;
         welderCumulativeChart.update();
       }
 
-      if (welderAverageToggle) {
-        const showAverage = welderAverageToggle.checked;
-        if (welderDailyChart) {
-          welderDailyChart.data.datasets.forEach((dataset) => {
-            if (dataset.label && dataset.label.endsWith("(7-day avg)")) {
-              dataset.hidden = !showAverage;
-            }
-          });
-          welderDailyChart.update();
-        }
-      }
+      syncWelderAverageVisibility();
     }
 
     function updateRepairRateChart(analytics) {
@@ -1000,7 +1159,29 @@
       const series = analytics.repair_rate_series || [];
       const labels = series.map((item) => item.date);
       const rateData = series.map((item) => Number(item.rate_per_1000_inches || 0));
-      const repairsData = series.map((item) => Number(item.repairs || 0));
+      const rollingData = series.map((item) => Number(item.rolling_rate_7d || 0));
+
+      const hasData = series.length > 0;
+      toggleChartPlaceholder(
+        repairRateCtx?.canvas,
+        hasData,
+        "No repair rate data available for the selected filters."
+      );
+
+      if (!hasData) {
+        if (repairRateChart) {
+          repairRateChart.data.labels = [];
+          repairRateChart.data.datasets.forEach((dataset) => {
+            dataset.data = [];
+          });
+          repairRateChart.update();
+        }
+        const summary = document.getElementById("repairRateSummary");
+        if (summary) {
+          summary.textContent = "No repair rate data available.";
+        }
+        return;
+      }
 
       if (!repairRateChart) {
         repairRateChart = new Chart(repairRateCtx, {
@@ -1009,12 +1190,20 @@
             labels,
             datasets: [
               {
-                label: "Repairs per 1,000 inches",
+                label: "Daily repairs per 1,000 in",
                 data: rateData,
                 borderColor: "#d63384",
                 backgroundColor: "rgba(214,51,132,0.15)",
                 tension: 0.2,
                 fill: true,
+              },
+              {
+                label: "7-day rolling average",
+                data: rollingData,
+                borderColor: "#6610f2",
+                borderDash: [6, 3],
+                tension: 0.2,
+                fill: false,
               },
             ],
           },
@@ -1034,22 +1223,28 @@
       } else {
         repairRateChart.data.labels = labels;
         repairRateChart.data.datasets[0].data = rateData;
+        if (repairRateChart.data.datasets[1]) {
+          repairRateChart.data.datasets[1].data = rollingData;
+        }
         repairRateChart.update();
       }
 
       const summary = document.getElementById("repairRateSummary");
       if (summary) {
-        const currentRate = rateData.length
-          ? rateData[rateData.length - 1]
-          : 0;
-        const previousRate = rateData.length > 1
-          ? rateData[rateData.length - 2]
-          : currentRate;
-        const direction = currentRate >= previousRate ? "▲" : "▼";
-        summary.textContent = `Current: ${formatNumber(
-          currentRate,
-          2
-        )} repairs per 1,000 in (${direction} vs. previous)`;
+        const summaryData = analytics.repair_rate_summary || {};
+        const currentRate = Number(summaryData.current_rate_per_1000_inches || 0);
+        const previousRate = Number(summaryData.previous_rate_per_1000_inches || 0);
+        const direction = summaryData.direction || (currentRate >= previousRate ? "▲" : "▼");
+        const parts = [
+          `Current: ${formatNumber(currentRate, 2)} repairs / 1,000 in (${direction} vs. previous)`,
+        ];
+        const zeroDays = series.filter((item) => item.weld_inches_zero).length;
+        if (zeroDays) {
+          parts.push(
+            `${zeroDays} day${zeroDays === 1 ? "" : "s"} had zero weld inches logged`
+          );
+        }
+        summary.textContent = parts.join(" · ");
       }
     }
 
@@ -1124,7 +1319,9 @@
           return;
         }
         chart._clusterData = data || [];
-        chart.data.labels = (data || []).map((item) => item.key || "Unspecified");
+        chart.data.labels = (data || []).map(
+          (item) => item.label || item.key || "Unspecified"
+        );
         chart.data.datasets[0].data = (data || []).map((item) =>
           Number(item.repair_rate_per_1000_inches || 0)
         );
@@ -1315,7 +1512,7 @@
         params.stencil_id = stencilSelect.value;
       }
       if (welderSelect && welderSelect.selectedOptions.length) {
-        params.welder_id = Array.from(welderSelect.selectedOptions).map(
+        params.welder_ids = Array.from(welderSelect.selectedOptions).map(
           (option) => option.value
         );
       }
@@ -1391,14 +1588,7 @@
 
     if (welderAverageToggle) {
       welderAverageToggle.addEventListener("change", () => {
-        if (welderDailyChart) {
-          welderDailyChart.data.datasets.forEach((dataset) => {
-            if (dataset.label && dataset.label.endsWith("(7-day avg)")) {
-              dataset.hidden = !welderAverageToggle.checked;
-            }
-          });
-          welderDailyChart.update();
-        }
+        syncWelderAverageVisibility();
       });
     }
 
@@ -1543,6 +1733,12 @@
 
     const welderCanvas = document.getElementById("welderRepairRateChart");
     if (welderCanvas && chartData.repair_rate_by_welder.labels.length) {
+      const welderRates = chartData.repair_rate_by_welder.repair_rates.map((value) =>
+        Number(value || 0)
+      );
+      const maxRate = welderRates.length ? Math.max(...welderRates) : 0;
+      const paddedMax = Math.max(maxRate, 5);
+      const yMax = Math.min(100, Math.ceil(paddedMax * 1.15));
       new Chart(welderCanvas, {
         type: "bar",
         data: {
@@ -1550,7 +1746,7 @@
           datasets: [
             {
               label: "Repair Rate (%)",
-              data: chartData.repair_rate_by_welder.repair_rates,
+              data: welderRates,
               backgroundColor: "rgba(220,53,69,0.5)",
               borderColor: "rgba(220,53,69,1)",
               borderWidth: 1,
@@ -1568,7 +1764,7 @@
           scales: {
             y: {
               beginAtZero: true,
-              max: 100,
+              max: yMax,
               ticks: {
                 callback: (value) => `${value}%`,
                 font: { size: 10 },

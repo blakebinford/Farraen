@@ -22,6 +22,7 @@ from django.conf.urls.static import static
 urlpatterns = [
     path("admin/", admin.site.urls),
     path("accounts/", include("allauth.urls")),  # login, signup, password reset, etc.
+    path("api/quilt/", include(("welds.api.urls", "welds-api"), namespace="quilt")),
     path("o/<slug:org_slug>/", include("organizations.urls")),
     path("o/<slug:org_slug>/", include("documents.urls")),
     path("o/<slug:org_slug>/", include(("projects.urls", "projects"), namespace="projects")),

@@ -9,8 +9,19 @@ class FolderAdmin(admin.ModelAdmin):
 
 @admin.register(FileNode)
 class FileNodeAdmin(admin.ModelAdmin):
-    list_display = ("org","folder","name","latest_version","size","is_locked","is_archived")
-    list_filter = ("org","is_archived")
+    list_display = (
+        "org",
+        "folder",
+        "name",
+        "latest_version",
+        "size",
+        "is_locked",
+        "is_archived",
+        "mtr_approved",
+        "mtr_approved_by",
+        "mtr_approved_at",
+    )
+    list_filter = ("org", "is_archived", "mtr_approved")
     search_fields = ("name","folder__path")
 
 @admin.register(FileVersion)

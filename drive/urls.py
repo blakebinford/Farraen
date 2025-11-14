@@ -32,4 +32,9 @@ urlpatterns = [
     path("drive/file/<int:file_id>/checkout/", views.file_checkout, name="drive_file_checkout"),
     path("drive/file/<int:file_id>/checkin/", views.file_checkin, name="drive_file_checkin"),
     path("drive/file/<int:file_id>/force-checkin/", views.file_force_checkin, name="drive_file_force_checkin"),
+    path(
+        "drive/file/<int:file_id>/approve-mtr/",
+        views.file_manual_approve_mtr,
+        name="drive_mtr_manual_approve",
+    ),
 ]

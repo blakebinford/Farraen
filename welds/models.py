@@ -6,6 +6,7 @@ from django.conf import settings
 from django.db import models
 from django.db.models import Count, Max, Sum
 from django.utils import timezone
+from django.core.exceptions import ValidationError
 
 from drive.models import FileNode, Folder
 from .nominal_od import (
@@ -61,6 +62,94 @@ class MaterialHeat(models.Model):
 
     def __str__(self) -> str:
         return f"{self.heat_number} ({self.org.slug})"
+
+    def clean(self):
+        super().clean()
+        if self.mtr_document_id and not self.mtr_document.mtr_approved:
+            if getattr(self, "_allow_unapproved_mtr", False):
+                return
+            raise ValidationError(
+                {
+                    "mtr_document": "Associated MTR document has not been verified/approved for use.",
+                }
+            )
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+
+class MaterialHeatDraft(models.Model):
+    file_node = models.ForeignKey(
+        "drive.FileNode",
+        on_delete=models.CASCADE,
+        related_name="material_heat_drafts",
+    )
+    org = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.CASCADE,
+        related_name="material_heat_drafts",
+    )
+    parsed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="parsed_material_heat_drafts",
+    )
+    parsed_at = models.DateTimeField(auto_now_add=True)
+    heat_number = models.CharField(max_length=128, blank=True)
+    material_description = models.CharField(max_length=255, blank=True)
+    material_type = models.CharField(max_length=120, blank=True)
+    material_grade = models.CharField(max_length=120, blank=True)
+    outer_diameter_in = models.DecimalField(
+        max_digits=8,
+        decimal_places=3,
+        null=True,
+        blank=True,
+    )
+    wall_thickness_in = models.DecimalField(
+        max_digits=8,
+        decimal_places=3,
+        null=True,
+        blank=True,
+    )
+    wps_number = models.CharField(max_length=128, blank=True)
+    page_numbers = models.CharField(max_length=255, blank=True)
+    confidence = models.FloatField(null=True, blank=True)
+    notes = models.TextField(blank=True)
+    raw_payload = models.JSONField(default=dict, blank=True)
+    resolved_material_heat = models.ForeignKey(
+        "welds.MaterialHeat",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="drafts",
+    )
+    verified = models.BooleanField(default=False)
+    verified_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="verified_material_heat_drafts",
+    )
+    verified_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-parsed_at"]
+        indexes = [
+            models.Index(fields=["file_node"], name="mhd_file_node"),
+            models.Index(fields=["org", "verified"], name="mhd_org_verified"),
+        ]
+
+    def __str__(self) -> str:
+        return f"Draft {self.heat_number or 'unknown'} for {self.file_node_id}"
+
+    def clean(self):
+        super().clean()
+        if self.file_node_id and self.org_id and self.file_node.org_id != self.org_id:
+            raise ValidationError("Draft org must match file node org.")
 
 
 class Welder(models.Model):

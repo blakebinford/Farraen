@@ -18,6 +18,44 @@
     </div>
   </div>
   <div class="drive-drawer__body">
+    {% if node.doc_type == "MTR" %}
+      <div class="alert {% if node.mtr_approved %}alert-success{% else %}alert-warning{% endif %}">
+        {% if node.mtr_approved %}
+          <div class="d-flex justify-content-between align-items-start gap-3">
+            <div>
+              <div class="fw-semibold">MTR approved for use</div>
+              <div class="small text-muted">
+                Approved {{ node.mtr_approved_at|naturaltime }} by {{ node.mtr_approved_by.get_full_name|default:node.mtr_approved_by.email|default:"Unknown" }}.
+              </div>
+            </div>
+            {% if mtr_can_manual_approve and mtr_manual_approve_url %}
+              <form method="post" action="{{ mtr_manual_approve_url }}" onsubmit="return confirm('Re-approve this MTR?')">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-sm btn-outline-light">Re-approve</button>
+              </form>
+            {% endif %}
+          </div>
+        {% else %}
+          <div class="d-flex flex-column gap-2">
+            <div>
+              <div class="fw-semibold">MTR awaiting approval</div>
+              <div class="small text-muted">{{ mtr_pending_drafts_count }} draft{{ mtr_pending_drafts_count|pluralize }} require verification before this document can be used.</div>
+            </div>
+            <div class="d-flex flex-wrap gap-2">
+              {% if mtr_review_url %}
+                <a class="btn btn-primary btn-sm" href="{{ mtr_review_url }}">Review parsed heats</a>
+              {% endif %}
+              {% if mtr_can_manual_approve and mtr_manual_approve_url %}
+                <form method="post" action="{{ mtr_manual_approve_url }}" onsubmit="return confirm('Approve this MTR for use? Ensure all heats are correct.')">
+                  {% csrf_token %}
+                  <button type="submit" class="btn btn-outline-light btn-sm">Approve MTR</button>
+                </form>
+              {% endif %}
+            </div>
+          </div>
+        {% endif %}
+      </div>
+    {% endif %}
     <section class="mb-3">
       <div class="d-flex flex-wrap gap-2">
         {% if can_checkout %}

@@ -11,6 +11,7 @@ from .models import (
     Weld,
     WeldEvent,
     WeldHistory,
+    WeldRepair,
 )
 
 
@@ -139,6 +140,26 @@ class WeldHistoryAdmin(admin.ModelAdmin):
     list_filter = ("change_type", "created_at")
     search_fields = ("weld__weld_id", "reason", "changed_fields")
     ordering = ("-created_at",)
+
+
+@admin.register(WeldRepair)
+class WeldRepairAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "weld",
+        "status",
+        "flagged_at",
+        "attempt_count",
+        "assigned_to",
+        "closed_at",
+    )
+    list_filter = ("status", "nde_type", "flagged_at")
+    search_fields = (
+        "weld__weld_id",
+        "original_ndereport_ref",
+        "defect_code_snapshot",
+    )
+    ordering = ("-flagged_at", "-id")
 
 
 @admin.register(WeldEvent)

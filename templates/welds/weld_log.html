@@ -526,7 +526,34 @@
         </div>
       </div>
     </div>
+    <div
+      class="modal fade"
+      id="markRepairConfirmModal"
+      tabindex="-1"
+      aria-labelledby="markRepairConfirmTitle"
+      aria-describedby="markRepairConfirmBody"
+      aria-hidden="true"
+    >
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title" id="markRepairConfirmTitle">Mark weld for repair?</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body" id="markRepairConfirmBody">
+            This will create an open repair case for
+            <span id="markRepairWeldLabel" class="fw-semibold">this weld</span>
+            and notify the repair team. Continue?
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-outline-secondary" id="markRepairCancelButton" data-bs-dismiss="modal">Cancel</button>
+            <button type="button" class="btn btn-danger" id="markRepairConfirmButton">Mark Repair</button>
+          </div>
+        </div>
+      </div>
+    </div>
   {% if not setup_error %}
+    {{ weld_log_config|json_script:"weld-log-config" }}
     {{ disposition_options|json_script:"weld-disposition-options" }}
     {{ weld_type_options|json_script:"weld-type-options" }}
     {{ repair_type_options|json_script:"weld-repair-type-options" }}
@@ -535,12 +562,34 @@
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <script>
       (function () {
+      function parseJsonConfig(elementId) {
+        const script = document.getElementById(elementId);
+        if (!script) {
+          return null;
+        }
+        try {
+          return JSON.parse(script.textContent);
+        } catch (error) {
+          console.error(`Failed to parse JSON config for ${elementId}`, error);
+          return null;
+        }
+      }
+
+      const weldLogConfig = parseJsonConfig("weld-log-config") || {};
+      const markRepairUrlTemplate = weldLogConfig.markRepairUrlTemplate || "";
+      const weldLogCsrfToken = weldLogConfig.csrfToken || "";
+      const repairLogBaseUrl = weldLogConfig.repairLogUrl || "";
+
       const dataEndpoint = "{{ data_url }}";
       const heatOptionsEndpoint = "{{ heat_options_url }}";
       const heatSearchEndpoint = "{{ heat_search_url }}";
       const ndeRigsEndpoint = "{{ nde_rigs_url }}";
       const welderOptionsEndpoint = "{{ welder_options_url }}";
       const weldHistoryPageEndpoint = "{{ weld_history_page_url }}";
+
+      const bootstrap = window.bootstrap || null;
+      const Modal = bootstrap ? bootstrap.Modal : null;
+      const Toast = bootstrap ? bootstrap.Toast : null;
 
       const statusEl = document.getElementById("weld-log-status");
       const saveBtn = document.getElementById("weld-log-save");
@@ -556,6 +605,7 @@
       const welderCache = new Map();
       const dirtyRows = new Set();
       const pendingRowSaves = new WeakMap();
+      let toastContainer = null;
       let suppressRowAddedEvents = true;
       let statusResetTimer = null;
       let preloadOptionsPromise = null;
@@ -573,7 +623,6 @@
       const historyUrlTemplate = "{{ weld_history_url_template }}";
       const rollbackUrlTemplate = "{{ weld_history_rollback_url_template }}";
       const canRollback = {{ can_rollback_welds|yesno:"true,false" }};
-      const Modal = window.bootstrap ? window.bootstrap.Modal : null;
       const auditModalEl = document.getElementById("weldHistoryModal");
       const auditModal = Modal && auditModalEl ? new Modal(auditModalEl, { focus: true }) : null;
       const auditModalLabel = document.getElementById("weldHistoryModalLabel");
@@ -595,6 +644,10 @@
       const rollbackConfirmBtn = document.getElementById("weld-rollback-confirm-btn");
       const rollbackConflictAlert = document.getElementById("weld-rollback-conflict");
       const rollbackConflictDiffEl = document.getElementById("weld-rollback-conflict-diff");
+      const markRepairModalEl = document.getElementById("markRepairConfirmModal");
+      const markRepairModal = Modal && markRepairModalEl ? new Modal(markRepairModalEl, { focus: true }) : null;
+      const markRepairModalWeldLabel = document.getElementById("markRepairWeldLabel");
+      const markRepairModalConfirmBtn = document.getElementById("markRepairConfirmButton");
       let activeWeldDetail = null;
       let pendingRollbackHistoryId = null;
       let pendingRollbackEntry = null;
@@ -648,6 +701,280 @@
         rollbackConfirmBtn.addEventListener("click", () => {
           submitRollback();
         });
+      }
+
+      function ensureToastContainer() {
+        if (toastContainer && document.body.contains(toastContainer)) {
+          return toastContainer;
+        }
+        toastContainer = document.createElement("div");
+        toastContainer.className = "toast-container position-fixed top-0 end-0 p-3";
+        toastContainer.setAttribute("aria-live", "polite");
+        toastContainer.setAttribute("aria-atomic", "true");
+        document.body.appendChild(toastContainer);
+        return toastContainer;
+      }
+
+      function showToast(message, { variant = "info", actionLabel = "", actionHref = "" } = {}) {
+        const container = ensureToastContainer();
+        if (Toast) {
+          const toastEl = document.createElement("div");
+          toastEl.className = `toast align-items-center text-bg-${variant} border-0`;
+          toastEl.setAttribute("role", "status");
+          toastEl.setAttribute("aria-live", "polite");
+          toastEl.setAttribute("aria-atomic", "true");
+
+          const contentWrapper = document.createElement("div");
+          contentWrapper.className = "d-flex align-items-center";
+
+          const body = document.createElement("div");
+          body.className = "toast-body";
+          body.textContent = message;
+
+          if (actionLabel && actionHref) {
+            const link = document.createElement("a");
+            link.className = "btn btn-link btn-sm text-white text-decoration-underline ms-2";
+            link.href = actionHref;
+            link.textContent = actionLabel;
+            link.setAttribute("role", "button");
+            link.addEventListener("click", () => {
+              const instance = Toast.getInstance(toastEl);
+              instance?.hide();
+            });
+            body.appendChild(link);
+          }
+
+          const closeBtn = document.createElement("button");
+          closeBtn.type = "button";
+          closeBtn.className = "btn-close btn-close-white me-2 m-auto";
+          closeBtn.setAttribute("data-bs-dismiss", "toast");
+          closeBtn.setAttribute("aria-label", "Close");
+
+          contentWrapper.appendChild(body);
+          contentWrapper.appendChild(closeBtn);
+          toastEl.appendChild(contentWrapper);
+          container.appendChild(toastEl);
+
+          const toast = new Toast(toastEl, { delay: 4000 });
+          toastEl.addEventListener("hidden.bs.toast", () => {
+            toast.dispose();
+            toastEl.remove();
+          });
+          toast.show();
+          return;
+        }
+
+        const alert = document.createElement("div");
+        alert.className = `alert alert-${variant} shadow`;
+        alert.setAttribute("role", "alert");
+        alert.textContent = message;
+        if (actionLabel && actionHref) {
+          alert.append(" ");
+          const link = document.createElement("a");
+          link.href = actionHref;
+          link.className = "alert-link";
+          link.textContent = actionLabel;
+          alert.appendChild(link);
+        }
+        container.appendChild(alert);
+        setTimeout(() => {
+          alert.remove();
+        }, 5000);
+      }
+
+      function buildRepairLogLink(weldIdentifier) {
+        if (!repairLogBaseUrl) {
+          return "";
+        }
+        try {
+          const url = new URL(repairLogBaseUrl, window.location.origin);
+          if (weldIdentifier) {
+            url.searchParams.set("weld_id", weldIdentifier);
+          }
+          return url.toString();
+        } catch (error) {
+          console.error("Failed to build repair log link", error);
+          return repairLogBaseUrl;
+        }
+      }
+
+      function setButtonBusy(button, isBusy) {
+        if (!button) {
+          return;
+        }
+        button.disabled = Boolean(isBusy);
+        button.setAttribute("aria-busy", isBusy ? "true" : "false");
+        const spinner = button.__spinnerEl;
+        const label = button.__labelEl;
+        if (spinner) {
+          spinner.classList.toggle("d-none", !isBusy);
+        }
+        if (label) {
+          label.textContent = isBusy ? "Marking…" : button.dataset.defaultLabel || "Mark Repair";
+        }
+      }
+
+      function confirmMarkRepair(weldIdentifier) {
+        if (markRepairModal && markRepairModalEl && markRepairModalConfirmBtn) {
+          if (markRepairModalWeldLabel) {
+            markRepairModalWeldLabel.textContent = weldIdentifier || "this weld";
+          }
+          return new Promise(resolve => {
+            let confirmed = false;
+
+            const onConfirm = () => {
+              confirmed = true;
+              markRepairModal.hide();
+            };
+
+            const onHidden = () => {
+              markRepairModalConfirmBtn.removeEventListener("click", onConfirm);
+              resolve(confirmed);
+            };
+
+            const onShown = () => {
+              markRepairModalConfirmBtn.focus();
+            };
+
+            markRepairModalConfirmBtn.addEventListener("click", onConfirm, { once: true });
+            markRepairModalEl.addEventListener("hidden.bs.modal", onHidden, { once: true });
+            markRepairModalEl.addEventListener("shown.bs.modal", onShown, { once: true });
+            markRepairModal.show();
+          });
+        }
+
+        const promptMessage = weldIdentifier
+          ? `Mark weld ${weldIdentifier} for repair? This will create an open repair case for this weld.`
+          : "Mark this weld for repair? This will create an open repair case for this weld.";
+        return Promise.resolve(window.confirm(promptMessage));
+      }
+
+      async function handleMarkRepair(row, button) {
+        const rowData = row?.getData ? row.getData() : null;
+        if (!rowData || !rowData.id) {
+          showToast("Save this weld before marking it for repair.", { variant: "warning" });
+          return;
+        }
+        if (!markRepairUrlTemplate) {
+          showToast("Repair actions are unavailable for this project.", { variant: "danger" });
+          return;
+        }
+
+        const weldIdentifier = rowData.weld_id || `#${rowData.id}`;
+        const confirmed = await confirmMarkRepair(weldIdentifier);
+        if (!confirmed) {
+          return;
+        }
+
+        const requestUrl = markRepairUrlTemplate.replace("{id}", rowData.id);
+        setButtonBusy(button, true);
+
+        try {
+          const response = await fetch(requestUrl, {
+            method: "POST",
+            credentials: "same-origin",
+            headers: {
+              "Content-Type": "application/json",
+              ...(weldLogCsrfToken ? { "X-CSRFToken": weldLogCsrfToken } : {}),
+            },
+            body: JSON.stringify({}),
+          });
+
+          if (!response.ok) {
+            let detail = "";
+            try {
+              const errorPayload = await response.json();
+              detail = errorPayload?.error || errorPayload?.detail || "";
+            } catch (error) {
+              try {
+                detail = await response.text();
+              } catch (_) {
+                detail = "";
+              }
+            }
+            const error = new Error(detail || "Failed to mark repair. Please try again.");
+            error.status = response.status;
+            throw error;
+          }
+
+          let payload = {};
+          try {
+            payload = await response.json();
+          } catch (error) {
+            console.error("Failed to parse repair response", error);
+          }
+
+          const created = Boolean(payload?.created);
+          const repairPayload = payload?.repair || {};
+          const repairIdentifier = repairPayload?.weld_identifier || weldIdentifier;
+          const viewLink = buildRepairLogLink(repairIdentifier);
+          showToast(created ? "Repair created." : "Repair already open.", {
+            variant: created ? "success" : "info",
+            actionLabel: viewLink ? "View Repair" : "",
+            actionHref: viewLink,
+          });
+
+          await loadData({ forceRefresh: true });
+        } catch (error) {
+          console.error("Failed to mark weld for repair", error);
+          let message = error?.message || "Failed to mark repair. Please try again.";
+          if (error?.status === 403) {
+            message = "You do not have permission to mark this weld for repair.";
+          } else if (error?.status === 423) {
+            message = "This project is archived; repairs cannot be created.";
+          }
+          showToast(message, { variant: "danger" });
+        } finally {
+          setButtonBusy(button, false);
+        }
+      }
+
+      function createMarkRepairButton(row) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "btn btn-outline-danger btn-sm d-inline-flex align-items-center gap-1";
+        button.dataset.defaultLabel = "Mark Repair";
+        button.setAttribute("aria-label", "Mark repair for this weld");
+        button.title = "Create or re-open a repair case for this weld";
+
+        const spinner = document.createElement("span");
+        spinner.className = "spinner-border spinner-border-sm d-none";
+        spinner.setAttribute("role", "status");
+        spinner.setAttribute("aria-hidden", "true");
+        button.appendChild(spinner);
+
+        const label = document.createElement("span");
+        label.className = "btn-label";
+        label.textContent = "Mark Repair";
+        button.appendChild(label);
+
+        button.__spinnerEl = spinner;
+        button.__labelEl = label;
+
+        const rowData = row?.getData ? row.getData() : null;
+        const weldIdentifier = rowData?.weld_id || (rowData?.id ? `#${rowData.id}` : "this weld");
+        if (weldIdentifier) {
+          button.setAttribute("aria-label", `Mark repair for weld ${weldIdentifier}`);
+        }
+
+        if (!markRepairUrlTemplate || !rowData?.id) {
+          button.disabled = true;
+          button.setAttribute("aria-disabled", "true");
+          if (!markRepairUrlTemplate) {
+            button.title = "Repair actions are unavailable.";
+          } else {
+            button.title = "Save this weld before marking it for repair.";
+          }
+          return button;
+        }
+
+        button.addEventListener("click", event => {
+          event.preventDefault();
+          event.stopPropagation();
+          handleMarkRepair(row, button);
+        });
+
+        return button;
       }
 
       function ensureOptionsPreloaded() {
@@ -2789,6 +3116,24 @@
             editor: "input",
             headerSort: true,
             validator: [validateDispositionComment],
+          },
+          {
+            title: "Actions",
+            field: "__actions",
+            headerSort: false,
+            hozAlign: "center",
+            width: 160,
+            minWidth: 140,
+            cssClass: "text-nowrap",
+            print: false,
+            download: false,
+            formatter(cell) {
+              const wrapper = document.createElement("div");
+              wrapper.className = "d-flex justify-content-center";
+              const button = createMarkRepairButton(cell.getRow());
+              wrapper.appendChild(button);
+              return wrapper;
+            },
           },
           {
             title: "Created",

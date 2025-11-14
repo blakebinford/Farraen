@@ -2254,3 +2254,86 @@ class MTRWorkflowTests(TestCase):
         self.assertEqual(response.status_code, 302)
         self.file_node.refresh_from_db()
         self.assertTrue(self.file_node.mtr_approved)
+
+
+class QuiltAPITests(TestCase):
+    def setUp(self):
+        User = get_user_model()
+        self.user = User.objects.create_user(
+            email="quilt@example.com",
+            password="testpass123",
+        )
+        self.org = Organization.objects.create(name="Acme", slug="acme", owner=self.user)
+        Membership.objects.create(org=self.org, user=self.user, role=Membership.Role.ADMIN)
+        self.project = Project.objects.create(
+            org=self.org,
+            name="Pipeline Loop",
+            slug="pipeline-loop",
+            created_by=self.user,
+            status=Project.Status.ACTIVE,
+        )
+        ProjectMember.objects.create(
+            project=self.project,
+            user=self.user,
+            role=ProjectMember.Role.PROJECT_MANAGER,
+        )
+        self.welder = Welder.objects.create(org=self.org, name="J. Martinez", stencil="JM-1")
+
+    def _create_weld(self, identifier: str, has_repair: bool, repair_date: date | None = None) -> Weld:
+        weld = Weld.objects.create(
+            project=self.project,
+            primary_welder=self.welder,
+            weld_id=identifier,
+            disposition=Weld.Disposition.REPAIR,
+            weld_date=date(2025, 6, 1),
+        )
+        if has_repair:
+            WeldRepair.objects.create(
+                weld=weld,
+                repair_sequence=1,
+                repair_date=repair_date or date(2025, 6, 5),
+                flagged_at=repair_date or date(2025, 6, 4),
+            )
+        return weld
+
+    def test_kpi_repair_rate_uses_repair_counts(self):
+        self._create_weld("W-001", has_repair=True)
+        self._create_weld("W-002", has_repair=False)
+        self._create_weld("W-003", has_repair=True)
+
+        self.client.force_login(self.user)
+        url = reverse("quilt:quilt-query")
+        response = self.client.post(
+            url,
+            data=json.dumps({"project_id": self.project.id, "per_page": 25}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertIn("kpi", payload)
+        self.assertAlmostEqual(payload["kpi"]["repair_rate"], 2 / 3, places=5)
+        self.assertEqual(payload["kpi"]["total_welds"], 3)
+        self.assertEqual(payload["kpi"]["repaired_welds"], 2)
+
+    def test_per_page_is_capped_at_fifty(self):
+        for idx in range(60):
+            self._create_weld(
+                f"W-{idx:03d}",
+                has_repair=True,
+                repair_date=date(2025, 6, 1) + timedelta(days=idx % 5),
+            )
+
+        self.client.force_login(self.user)
+        url = reverse("quilt:quilt-query")
+        response = self.client.post(
+            url,
+            data=json.dumps({"project_id": self.project.id, "per_page": 80}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertLessEqual(payload["meta"]["per_page"], 50)
+        self.assertLessEqual(payload["meta"]["returned"], 50)
+        self.assertEqual(payload["meta"]["total"], 60)

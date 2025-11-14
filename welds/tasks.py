@@ -7,7 +7,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Iterable, List
 
 try:  # pragma: no cover - fallback for environments without Celery
-    from celery import shared_task
+    from pipeledger.celery import shared_task
 except ImportError:  # pragma: no cover
     def shared_task(*decorator_args, **decorator_kwargs):
         def decorator(func):

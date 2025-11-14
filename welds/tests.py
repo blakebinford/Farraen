@@ -6,7 +6,7 @@ from unittest.mock import patch
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.core.files.base import ContentFile
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 from django.urls import reverse
 from django.utils import timezone
 
@@ -33,7 +33,138 @@ from .nominal_od import get_standard_nominal_pipe_sizes, match_nominal_pipe_size
 from .services import build_weld_dashboard_chart_payload, get_project_weld_kpis
 from .views import _migrations_required_message
 from .forms import MaterialHeatForm
-from .tasks import process_mtr_fileversion, process_mtr_fileversion_sync
+from .tasks import _merge_materials, process_mtr_fileversion, process_mtr_fileversion_sync
+
+
+class MergeMaterialsTests(SimpleTestCase):
+    def test_merge_groups_by_heat_number_and_convert_mm(self):
+        chunks = [
+            {
+                "materials": [
+                    {
+                        "heat_number": "12345",
+                        "material_type": "Pipe",
+                        "material_grade": "X52",
+                        "material_description": "Pipe section",
+                        "outer_diameter_in": 16.0,
+                        "wall_thickness_in": 0.5,
+                        "page_numbers": [1],
+                        "confidence": 0.9,
+                    }
+                ]
+            },
+            {
+                "materials": [
+                    {
+                        "heat_number": "123-45",
+                        "material_type": "pipe",
+                        "material_grade": "API5L-PSL2-X52",
+                        "material_description": "Pipe section",
+                        "outer_diameter_in": "406.4 mm",
+                        "wall_thickness_in": "12.7 mm",
+                        "page_numbers": [2],
+                        "confidence": 0.6,
+                    }
+                ]
+            },
+        ]
+
+        result = _merge_materials(chunks)
+
+        self.assertEqual(len(result), 1)
+        material = result[0]
+        self.assertEqual(material["heat_number"], "12345")
+        self.assertEqual(material["material_type"], "PIPE")
+        self.assertEqual(material["material_grade"], "X52")
+        self.assertAlmostEqual(material["outer_diameter_in"], 16.0)
+        self.assertAlmostEqual(material["wall_thickness_in"], 0.5)
+        self.assertFalse(material["needs_manual_review"])
+        self.assertIn("Converted outer_diameter_in from mm", material["notes"])
+        self.assertGreater(material["confidence"], 0.7)
+        self.assertEqual(sorted(material["page_numbers"]), [1, 2])
+        self.assertEqual(len(material["source_candidates"]), 2)
+
+    def test_merge_clusters_null_heat_numbers(self):
+        chunks = [
+            {
+                "materials": [
+                    {
+                        "heat_number": None,
+                        "material_type": "Pipe",
+                        "material_grade": "X65",
+                        "outer_diameter_in": 8.625,
+                        "wall_thickness_in": 0.322,
+                        "page_numbers": [3],
+                        "confidence": 0.4,
+                    },
+                    {
+                        "heat_number": None,
+                        "material_type": "Pipe",
+                        "material_grade": "X65",
+                        "outer_diameter_in": "219.1 mm",
+                        "wall_thickness_in": "8.18 mm",
+                        "page_numbers": [4],
+                        "confidence": 0.4,
+                    },
+                ]
+            }
+        ]
+
+        result = _merge_materials(chunks)
+
+        self.assertEqual(len(result), 1)
+        material = result[0]
+        self.assertIsNone(material["heat_number"])
+        self.assertEqual(material["material_grade"], "X65")
+        self.assertAlmostEqual(material["outer_diameter_in"], 8.625, places=3)
+        self.assertTrue(material["needs_manual_review"])
+        self.assertIn("Heat number unavailable", material["notes"])
+        self.assertIn("Aggregated confidence below auto-approval threshold", material["notes"])
+        self.assertEqual(sorted(material["page_numbers"]), [3, 4])
+
+    def test_merge_marks_low_support_grade(self):
+        chunks = [
+            {
+                "materials": [
+                    {
+                        "heat_number": "HX-200",
+                        "material_type": "Pipe",
+                        "material_grade": "X60",
+                        "outer_diameter_in": 10.75,
+                        "wall_thickness_in": 0.5,
+                        "page_numbers": [5],
+                        "confidence": 0.45,
+                    },
+                    {
+                        "heat_number": "HX200",
+                        "material_type": "Pipe",
+                        "material_grade": "X52",
+                        "outer_diameter_in": 10.75,
+                        "wall_thickness_in": 0.5,
+                        "page_numbers": [5],
+                        "confidence": 0.35,
+                    },
+                    {
+                        "heat_number": "HX-200",
+                        "material_type": "Pipe",
+                        "material_grade": None,
+                        "outer_diameter_in": 10.75,
+                        "wall_thickness_in": 0.5,
+                        "page_numbers": [6],
+                        "confidence": 0.2,
+                    },
+                ]
+            }
+        ]
+
+        result = _merge_materials(chunks)
+
+        self.assertEqual(len(result), 1)
+        material = result[0]
+        self.assertEqual(material["heat_number"], "HX-200")
+        self.assertEqual(material["material_grade"], "X60")
+        self.assertIn("Material grade has weak support", material["notes"])
+        self.assertFalse(material["needs_manual_review"])
 
 
 class WelderModelTests(TestCase):

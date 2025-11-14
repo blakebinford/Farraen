@@ -641,7 +641,14 @@ def file_detail_drawer(request, org_slug, project_slug, file_id):
     )
 
     context = _file_detail_context(request, project, node)
-    response = TemplateResponse(request, "drive/file_detail_drawer.html", context)
+
+    if request.headers.get("x-requested-with") == "XMLHttpRequest":
+        response = TemplateResponse(request, "drive/file_detail_drawer.html", context)
+        response["Cache-Control"] = "no-store"
+        return response
+
+    context["standalone"] = True
+    response = render(request, "drive/file_detail.html", context)
     response["Cache-Control"] = "no-store"
     return response
 

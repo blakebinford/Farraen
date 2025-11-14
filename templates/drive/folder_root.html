@@ -144,7 +144,7 @@
 {% block content %}
   <div class="drive-layout" data-drive-shell data-drive-default-view="list" data-drive-storage-key="project-{{ project.id }}">
     <aside class="drive-left-column" aria-label="Project navigation">
-      {% include "drive/_left_nav.html" with folder=None %}
+      {% include "drive/_left_nav.html" with folder=None upload_url=None %}
     </aside>
 
     <section class="drive-main" role="main" aria-labelledby="drive-main-heading">

@@ -251,7 +251,15 @@
       </form>
 
       {% if upload_url %}
-        <div class="modal fade" id="drive-upload-modal" tabindex="-1" aria-labelledby="drive-upload-modal-title" aria-hidden="true">
+        <div
+          class="modal fade"
+          id="drive-upload-modal"
+          tabindex="-1"
+          aria-labelledby="drive-upload-modal-title"
+          aria-hidden="true"
+          data-drive-upload-modal
+          data-drive-has-project="{% if folder.project %}true{% else %}false{% endif %}"
+        >
           <div class="modal-dialog modal-dialog-centered">
             <div class="modal-content">
               <div class="modal-header">
@@ -261,6 +269,27 @@
               <form action="{{ upload_url }}" method="post" enctype="multipart/form-data">
                 <div class="modal-body">
                   {% csrf_token %}
+                  <div class="mb-3">
+                    <label for="id_drive_upload_doc_type" class="form-label">Document type</label>
+                    <select class="form-select" id="id_drive_upload_doc_type" name="doc_type" data-drive-doc-type>
+                      <option value="">— Select type —</option>
+                      {% for value, label in doc_type_choices %}
+                        <option value="{{ value }}">{{ label }}</option>
+                      {% endfor %}
+                    </select>
+                    <div class="form-text">Select MTR to trigger parsing; MTRs must be uploaded into a project folder.</div>
+                  </div>
+                  <div class="mb-3">
+                    <label for="id_drive_upload_number" class="form-label">Document number <span class="text-muted small">(optional)</span></label>
+                    <input type="text" class="form-control" id="id_drive_upload_number" name="number" maxlength="128">
+                  </div>
+                  <div class="mb-3">
+                    <label for="id_drive_upload_title" class="form-label">Title <span class="text-muted small">(optional)</span></label>
+                    <input type="text" class="form-control" id="id_drive_upload_title" name="title" maxlength="256">
+                  </div>
+                  <div class="alert alert-warning d-none" data-drive-mtr-project-hint>
+                    MTRs must be uploaded to a project folder. Switch to a project folder to upload an MTR.
+                  </div>
                   <div class="mb-3">
                     <label for="id_drive_upload_file" class="form-label">Choose file</label>
                     <input type="file" class="form-control" id="id_drive_upload_file" name="file" required>

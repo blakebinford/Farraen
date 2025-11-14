@@ -33,7 +33,7 @@ from .nominal_od import get_standard_nominal_pipe_sizes, match_nominal_pipe_size
 from .services import build_weld_dashboard_chart_payload, get_project_weld_kpis
 from .views import _migrations_required_message
 from .forms import MaterialHeatForm
-from .tasks import process_mtr_fileversion
+from .tasks import process_mtr_fileversion, process_mtr_fileversion_sync
 
 
 class WelderModelTests(TestCase):
@@ -1977,6 +1977,67 @@ class MTRWorkflowTests(TestCase):
         self.assertEqual(draft.heat_number, "HX-100")
         self.assertEqual(draft.page_numbers, "1,2")
         self.assertIsNone(self.file_node.mtr_approved_version)
+
+    @patch("welds.tasks._material_payloads_from_text")
+    def test_process_mtr_fileversion_sync_creates_drafts(self, mock_parser):
+        mock_parser.return_value = [
+            {
+                "heat_number": "HX-555",
+                "material_description": "Pipe",
+                "material_grade": "X60",
+                "page_numbers": [1],
+            }
+        ]
+
+        new_version = FileVersion.objects.create(
+            file_node=self.file_node,
+            version=2,
+            blob=ContentFile(b"%PDF-1.7", name="mtr-sync.pdf"),
+        )
+
+        self.file_node.mtr_approved = True
+        self.file_node.save(update_fields=["mtr_approved"])
+
+        created = process_mtr_fileversion_sync(new_version.id)
+
+        self.file_node.refresh_from_db()
+        drafts = MaterialHeatDraft.objects.filter(file_node=self.file_node)
+        self.assertEqual(created, 1)
+        self.assertEqual(drafts.count(), 1)
+        self.assertEqual(drafts.first().heat_number, "HX-555")
+        self.assertFalse(self.file_node.mtr_approved)
+
+    def test_mtr_draft_list_filtered_by_file(self):
+        other_node = FileNode.objects.create(
+            org=self.org,
+            project=self.project,
+            folder=self.folder,
+            name="MTR-OTHER.pdf",
+            doc_type=FileNode.DocType.MTR,
+            created_by=self.user,
+        )
+        MaterialHeatDraft.objects.create(
+            file_node=self.file_node,
+            org=self.org,
+            heat_number="HX-300",
+        )
+        MaterialHeatDraft.objects.create(
+            file_node=other_node,
+            org=self.org,
+            heat_number="HX-999",
+        )
+
+        url = reverse(
+            "welds:mtr_draft_list",
+            kwargs={"org_slug": self.org.slug},
+        )
+        response = self.client.get(url, {"file": str(self.file_node.id)})
+        self.assertEqual(response.status_code, 200)
+        drafts = list(response.context["drafts_page"].object_list)
+        self.assertEqual(len(drafts), 1)
+        self.assertEqual(drafts[0].file_node_id, self.file_node.id)
+        self.assertContains(response, "Showing drafts for")
+        self.assertNotContains(response, "HX-999")
 
     def test_material_heat_requires_approved_mtr(self):
         heat = MaterialHeat(

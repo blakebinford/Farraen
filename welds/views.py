@@ -8,7 +8,7 @@ from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
 from django.db import connection, transaction, IntegrityError
-from django.db.models import Q
+from django.db.models import Q, Count
 from django.http import JsonResponse, HttpResponseBadRequest, HttpResponseForbidden, HttpResponse
 from django.contrib import messages
 from django.shortcuts import render, get_object_or_404, redirect
@@ -2770,14 +2770,84 @@ def close_repair(request, org_slug, repair_id: int):
 
 @require_membership()
 def list_mtr_drafts(request, org_slug):
+    base_qs = MaterialHeatDraft.objects.filter(org=request.org, verified=False)
+    counts_map = {
+        row["file_node_id"]: row["total"]
+        for row in base_qs.values("file_node_id").annotate(total=Count("id"))
+    }
+
+    def _status_display(node: FileNode | None, pending_count: int) -> tuple[str, str]:
+        if node and node.mtr_approved:
+            return "Approved", "approved"
+        if pending_count:
+            suffix = "draft" if pending_count == 1 else "drafts"
+            return f"Ready ({pending_count} {suffix})", "ready"
+        if node and node.doc_type == FileNode.DocType.MTR:
+            return "Parsing", "parsing"
+        return "", ""
+
     drafts_qs = (
-        MaterialHeatDraft.objects.filter(org=request.org, verified=False)
-        .select_related("file_node", "file_node__latest_version", "parsed_by")
+        base_qs
+        .select_related("file_node", "file_node__latest_version", "file_node__project", "parsed_by")
         .order_by("verified", "-parsed_at")
     )
+
+    file_filter = (request.GET.get("file") or "").strip()
+    filtered_file = None
+    filtered_file_id = None
+    filtered_drafts_count = None
+    filtered_status_label = ""
+    filtered_status_state = ""
+    filtered_status_url = ""
+    filtered_mtr_approved = False
+
+    if file_filter:
+        try:
+            filtered_file_id = int(file_filter)
+        except (TypeError, ValueError):
+            filtered_file_id = None
+        if filtered_file_id:
+            drafts_qs = drafts_qs.filter(file_node_id=filtered_file_id)
+            filtered_file = (
+                FileNode.objects.filter(org=request.org, pk=filtered_file_id)
+                .select_related("project", "latest_version")
+                .first()
+            )
+            filtered_drafts_count = counts_map.get(filtered_file_id, 0)
+            if filtered_file:
+                filtered_mtr_approved = bool(filtered_file.mtr_approved)
+                if filtered_file.project_id:
+                    try:
+                        filtered_status_url = reverse(
+                            "drive_mtr_status",
+                            kwargs={
+                                "org_slug": request.org.slug,
+                                "project_slug": filtered_file.project.slug,
+                                "file_id": filtered_file.id,
+                            },
+                        )
+                    except Exception:
+                        filtered_status_url = ""
+                filtered_status_label, filtered_status_state = _status_display(
+                    filtered_file,
+                    filtered_drafts_count or 0,
+                )
+
     page_number = request.GET.get("page") or 1
     paginator = Paginator(drafts_qs, 25)
     drafts_page = paginator.get_page(page_number)
+
+    for draft in drafts_page:
+        pending_count = counts_map.get(draft.file_node_id, 0)
+        label, state = _status_display(draft.file_node, pending_count)
+        draft.pending_count = pending_count
+        draft.status_label = label
+        draft.status_state = state
+
+    query_params = request.GET.copy()
+    if "page" in query_params:
+        query_params.pop("page")
+    querystring = query_params.urlencode()
 
     return render(
         request,
@@ -2785,6 +2855,15 @@ def list_mtr_drafts(request, org_slug):
         {
             "org": request.org,
             "drafts_page": drafts_page,
+            "filtered_file": filtered_file,
+            "filtered_file_id": filtered_file_id,
+            "filtered_drafts_count": filtered_drafts_count,
+            "filtered_status_label": filtered_status_label,
+            "filtered_status_state": filtered_status_state,
+            "filtered_status_url": filtered_status_url,
+            "filtered_mtr_approved": filtered_mtr_approved,
+            "querystring": querystring,
+            "file_filter_value": file_filter,
         },
     )
 

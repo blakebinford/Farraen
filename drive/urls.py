@@ -15,6 +15,11 @@ urlpatterns = [
         name="drive_file_drawer",
     ),
     path(
+        "drive/file/<int:file_id>/mtr-status/",
+        views.file_mtr_status,
+        name="drive_mtr_status",
+    ),
+    path(
         "drive/file/<int:file_id>/inline-update/",
         views.file_inline_update,
         name="drive_file_inline_update",

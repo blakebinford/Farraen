@@ -252,6 +252,50 @@
     });
   }
 
+  function initUploadModal() {
+    const modal = document.querySelector('[data-drive-upload-modal]');
+    if (!modal) {
+      return;
+    }
+
+    const docTypeSelect = modal.querySelector('[data-drive-doc-type]');
+    if (!docTypeSelect) {
+      return;
+    }
+
+    const hint = modal.querySelector('[data-drive-mtr-project-hint]');
+    const hasProject = modal.dataset.driveHasProject !== 'false';
+    const disableMTR = !hasProject;
+    const mtrOptions = docTypeSelect.querySelectorAll('option[value="MTR"]');
+
+    if (disableMTR) {
+      mtrOptions.forEach((option) => {
+        option.disabled = true;
+      });
+      if (docTypeSelect.value === 'MTR') {
+        docTypeSelect.value = '';
+      }
+      if (hint) {
+        hint.classList.remove('d-none');
+      }
+    } else {
+      mtrOptions.forEach((option) => {
+        option.disabled = false;
+      });
+      if (hint) {
+        hint.classList.add('d-none');
+      }
+    }
+
+    if (disableMTR) {
+      docTypeSelect.addEventListener('change', () => {
+        if (docTypeSelect.value === 'MTR') {
+          docTypeSelect.value = '';
+        }
+      });
+    }
+  }
+
   function initInlineEditing() {
     const gridContainer = document.getElementById('drive-documents-grid-container');
     const grid = document.getElementById('drive-documents-grid');
@@ -490,10 +534,12 @@
   ready(() => {
     const shell = document.querySelector('[data-drive-shell]');
     if (!shell) {
+      initUploadModal();
       return;
     }
     initViewToggle(shell);
     initDrawer(shell);
     initInlineEditing();
+    initUploadModal();
   });
 })();

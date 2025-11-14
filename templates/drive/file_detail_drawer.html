@@ -11,6 +11,9 @@
       {% endif %}
     </div>
     <div class="d-flex flex-column gap-2 align-items-end">
+      {% if node.doc_type == "MTR" and mtr_review_filtered_url %}
+        <a class="btn btn-sm btn-primary" href="{{ mtr_review_filtered_url }}">View MTR Drafts</a>
+      {% endif %}
       <a class="btn btn-sm btn-outline-secondary" href="{% url 'drive_file_download' org.slug project.slug node.id %}">Download latest</a>
       {% if not standalone %}
         <button type="button" class="btn btn-sm btn-light" data-drive-close aria-label="Close details">&times;</button>
@@ -42,9 +45,11 @@
               <div class="small text-muted">{{ mtr_pending_drafts_count }} draft{{ mtr_pending_drafts_count|pluralize }} require verification before this document can be used.</div>
             </div>
             <div class="d-flex flex-wrap gap-2">
-              {% if mtr_review_url %}
-                <a class="btn btn-primary btn-sm" href="{{ mtr_review_url }}">Review parsed heats</a>
-              {% endif %}
+              {% with review_url=mtr_review_filtered_url|default:mtr_review_url %}
+                {% if review_url %}
+                  <a class="btn btn-primary btn-sm" href="{{ review_url }}">Review parsed heats</a>
+                {% endif %}
+              {% endwith %}
               {% if mtr_can_manual_approve and mtr_manual_approve_url %}
                 <form method="post" action="{{ mtr_manual_approve_url }}" onsubmit="return confirm('Approve this MTR for use? Ensure all heats are correct.')">
                   {% csrf_token %}

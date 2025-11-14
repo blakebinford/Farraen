@@ -1,5 +1,4 @@
 import logging
-import logging
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 from django.conf import settings
@@ -949,6 +948,39 @@ class Reinspection(models.Model):
         super().save(*args, **kwargs)
         if is_new:
             self.repair.refresh_reinspection_state()
+
+
+class QuiltQueryLog(models.Model):
+    """Audit log for QUILT assistant queries."""
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="quilt_queries",
+    )
+    org = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.CASCADE,
+        related_name="quilt_queries",
+    )
+    project = models.ForeignKey(
+        "projects.Project",
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="quilt_queries",
+    )
+    intent = models.CharField(max_length=64)
+    filters = models.JSONField(default=dict, blank=True)
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self) -> str:  # pragma: no cover - simple audit repr
+        scope = self.project_id or self.org_id
+        return f"QUILT query by {self.user_id} scope={scope} intent={self.intent}"
 
 
 class WeldHistory(models.Model):

@@ -1,119 +1,66 @@
-{% load static i18n %}
-<div class="quilt-widget" data-quilt-root hidden>
-  <button type="button" class="btn btn-primary quilt-toggle" aria-expanded="false" aria-controls="quilt-panel">
-    <i class="bi bi-chat-dots-fill"></i>
-    <span class="visually-hidden">Open QUILT assistant</span>
-  </button>
-  <div class="card shadow quilt-panel" id="quilt-panel" role="region" aria-label="QUILT — Quality Integrate Learning Tool">
-    <div class="card-header d-flex align-items-center justify-content-between">
-      <div class="d-flex align-items-center gap-2">
-        <i class="bi bi-robot text-primary"></i>
-        <div>
-          <div class="fw-semibold">QUILT</div>
-          <div class="small text-muted">Quality Integrate Learning Tool</div>
-        </div>
-      </div>
-      <button type="button" class="btn btn-sm btn-outline-secondary quilt-close" aria-label="Close QUILT">
-        <i class="bi bi-chevron-down"></i>
-      </button>
+{% load static %}
+<div
+    id="quilt-widget"
+    class="quilt-widget"
+    data-org-id="{{ org.id|default:"" }}"
+    data-org-slug="{{ org.slug|default:"" }}"
+    data-project-id="{{ project.id|default:"" }}"
+    data-project-slug="{{ project.slug|default:"" }}"
+>
+    <button
+        id="quilt-toggle"
+        class="quilt-toggle"
+        type="button"
+        aria-expanded="false"
+        aria-controls="quilt-panel"
+    >
+        <span class="sr-only">Toggle QUILT assistant</span>
+        <span aria-hidden="true">💬 QUILT</span>
+    </button>
+    <div id="quilt-panel" class="quilt-panel" role="dialog" aria-modal="false" aria-labelledby="quilt-title" hidden>
+        <header class="quilt-header">
+            <h2 id="quilt-title">QUILT Assistant</h2>
+            <p class="quilt-subtitle">Quality insights for weld repairs</p>
+        </header>
+        <section class="quilt-quick-actions" aria-label="Quick actions">
+            <button type="button" class="quilt-action" data-action="repairs_summary">Summarize repairs</button>
+            <button type="button" class="quilt-action" data-action="top_welders">Top welders by repairs</button>
+            <button type="button" class="quilt-action" data-action="repair_rate">Repair rate</button>
+            <button type="button" class="quilt-action" data-action="export_csv">Export CSV</button>
+        </section>
+        <div class="quilt-status" role="status" aria-live="polite"></div>
+        <form id="quilt-filters" class="quilt-filters" novalidate>
+            <label for="quilt-project-select">Project</label>
+            <select id="quilt-project-select" name="project" aria-describedby="quilt-project-hint"></select>
+            <p id="quilt-project-hint" class="quilt-hint">Select a project to scope queries.</p>
+            <label for="quilt-start-date">Start date</label>
+            <input id="quilt-start-date" type="date" name="start_date" />
+            <label for="quilt-end-date">End date</label>
+            <input id="quilt-end-date" type="date" name="end_date" />
+            <label for="quilt-welder">Welder</label>
+            <input id="quilt-welder" type="text" name="welder" placeholder="Welder ID" />
+            <button type="submit" class="quilt-submit">Run query</button>
+        </form>
+        <section class="quilt-kpi" aria-label="Key performance indicators">
+            <div class="quilt-kpi-grid" role="list"></div>
+        </section>
+        <section class="quilt-welds" aria-label="Weld results">
+            <ol class="quilt-weld-list" role="list"></ol>
+            <button type="button" class="quilt-show-more" hidden>Show more</button>
+            <p class="quilt-truncation" hidden></p>
+        </section>
     </div>
-    <div class="card-body d-flex flex-column">
-      <p class="small text-muted mb-2">
-        Ask QUILT to summarize weld repairs, show repair KPIs, or list welds. Results are limited to 25 items; use Export CSV for wider reports.
-      </p>
-      <div class="quilt-results flex-grow-1 overflow-auto mb-2">
-        <div class="quilt-answer text-body-secondary small"></div>
-        <div class="quilt-kpis mt-2"></div>
-        <div class="quilt-welds mt-2"></div>
-        <div class="quilt-pagination text-muted small mt-2"></div>
-      </div>
-      <div class="d-flex flex-wrap gap-2 mb-3">
-        <button type="button" class="btn btn-outline-primary btn-sm quilt-quick" data-intent="repairs_summary">{% trans "Summarize repairs" %}</button>
-        <button type="button" class="btn btn-outline-primary btn-sm quilt-quick" data-intent="kpi">{% trans "Top welders by repairs" %}</button>
-        <button type="button" class="btn btn-outline-primary btn-sm quilt-quick" data-intent="repair_rate">{% trans "Repair rate" %}</button>
-        <button type="button" class="btn btn-outline-primary btn-sm quilt-quick" data-intent="export_csv">{% trans "Export CSV" %}</button>
-      </div>
-      <form class="quilt-form" novalidate>
-        <div class="input-group">
-          <input type="text" class="form-control" name="query" placeholder="Summarize weld repairs" autocomplete="off" />
-          <button class="btn btn-primary" type="submit">
-            <span class="visually-hidden">Send</span>
-            <i class="bi bi-arrow-up"></i>
-          </button>
-        </div>
-      </form>
-      <button type="button" class="btn btn-link btn-sm text-decoration-none quilt-show-more mt-2" hidden>
-        {% trans "Show more" %}
-      </button>
-    </div>
-  </div>
-  <noscript>
-    <div class="alert alert-info quilt-noscript" role="alert">
-      QUILT requires JavaScript. Visit the Weld Log analytics page for manual reports.
-    </div>
-  </noscript>
+    <noscript>
+        <p class="quilt-noscript">
+            QUILT requires JavaScript. Visit
+            {% if org %}
+                <a href="/o/{{ org.slug }}/quilt/">the full assistant</a>
+            {% else %}
+                <a href="/quilt/">the full assistant</a>
+            {% endif %}
+            to continue.
+        </p>
+    </noscript>
 </div>
-<style>
-  .quilt-widget {
-    position: fixed;
-    right: 1.25rem;
-    bottom: 1.25rem;
-    z-index: 1050;
-    width: 360px;
-    max-width: calc(100vw - 2rem);
-    font-size: 0.9rem;
-  }
-  .quilt-widget .quilt-toggle {
-    border-radius: 999px;
-    width: 56px;
-    height: 56px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    box-shadow: 0 10px 25px rgba(8,48,107,0.18);
-  }
-  .quilt-widget .quilt-panel {
-    display: none;
-    height: 520px;
-    border-radius: 1rem;
-    overflow: hidden;
-  }
-  .quilt-widget.is-open .quilt-panel {
-    display: flex;
-    flex-direction: column;
-  }
-  .quilt-widget.is-open .quilt-toggle {
-    display: none;
-  }
-  .quilt-widget .quilt-kpi-card {
-    border-left: 4px solid var(--accent, #08306B);
-  }
-  .quilt-widget .quilt-weld-card {
-    border: 1px solid rgba(8,48,107,0.12);
-  }
-  .quilt-widget .quilt-weld-list {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-  }
-  .quilt-widget .quilt-weld-list li + li {
-    border-top: 1px solid rgba(8,48,107,0.08);
-  }
-  .quilt-widget .quilt-weld-list li {
-    padding: 0.5rem 0;
-  }
-  .quilt-widget .quilt-pagination strong {
-    color: var(--accent, #08306B);
-  }
-  @media (max-width: 576px) {
-    .quilt-widget {
-      right: 0.75rem;
-      bottom: 0.75rem;
-      width: calc(100vw - 1.5rem);
-    }
-    .quilt-widget .quilt-panel {
-      height: 420px;
-    }
-  }
-</style>
+<link rel="stylesheet" href="{% static 'css/quilt.css' %}" />
 <script src="{% static 'js/quilt.js' %}" defer></script>

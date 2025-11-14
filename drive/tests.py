@@ -217,12 +217,24 @@ class DriveUIViewTests(TestCase):
         payload = response.json()
         self.assertTrue(payload["mtr_approved"])
 
-    def test_file_detail_drawer_endpoint(self):
+    def test_file_detail_drawer_endpoint_full_page_when_not_ajax(self):
         response = self.client.get(self._drawer_url())
         self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "<html", html=True)
         self.assertContains(response, "drive-drawer__header")
+        self.assertContains(response, "drive-drawer--standalone")
         self.assertContains(response, "Versions")
         self.assertContains(response, "drive-preview")
+
+    def test_file_detail_drawer_endpoint_ajax_returns_fragment(self):
+        response = self.client.get(
+            self._drawer_url(), HTTP_X_REQUESTED_WITH="XMLHttpRequest"
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Cache-Control"], "no-store")
+        self.assertContains(response, "drive-drawer__header")
+        self.assertNotContains(response, "drive-drawer--standalone")
+        self.assertNotContains(response, "<html", html=True)
 
     def test_file_detail_page_standalone(self):
         detail_url = reverse("drive_file", kwargs={

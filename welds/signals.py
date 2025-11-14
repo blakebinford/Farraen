@@ -1,10 +1,18 @@
 from __future__ import annotations
 
+import logging
+
 from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
 
+from drive.models import FileNode, FileVersion
+
 from .models import Weld, WeldInspection
 from .services import close_repairs_for_weld, mark_repair_for_weld
+from .tasks import process_mtr_fileversion, process_mtr_fileversion_sync
+
+
+logger = logging.getLogger(__name__)
 
 
 @receiver(pre_save, sender=Weld)
@@ -56,3 +64,30 @@ def _handle_inspection(sender, instance: WeldInspection, created: bool, **kwargs
         nde_type=instance.nde_type,
         manual_flag=False,
     )
+
+
+@receiver(post_save, sender=FileVersion)
+def _handle_mtr_version(sender, instance: FileVersion, created: bool, **kwargs):
+    if not created:
+        return
+
+    file_node = instance.file_node
+    if file_node.doc_type != FileNode.DocType.MTR:
+        return
+
+    FileNode.objects.filter(pk=file_node.pk).update(
+        mtr_approved=False,
+        mtr_approved_by=None,
+        mtr_approved_at=None,
+        mtr_approved_version=None,
+    )
+
+    try:
+        process_mtr_fileversion.delay(instance.pk)
+    except Exception:
+        logger.warning(
+            "Failed to enqueue Celery task for MTR parsing; running synchronously.",
+            exc_info=True,
+            extra={"fileversion_id": instance.pk},
+        )
+        process_mtr_fileversion_sync(instance.pk)

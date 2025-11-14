@@ -59,7 +59,13 @@ class FileNode(models.Model):
     title          = models.CharField(max_length=256, blank=True, default="")
     content_type   = models.CharField(max_length=150, blank=True)
     size           = models.BigIntegerField(default=0)
-    latest_version = models.ForeignKey("FileVersion", null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    latest_version = models.ForeignKey(
+        "FileVersion",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+    )
     is_locked      = models.BooleanField(default=False)
     locked_by      = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
     locked_at      = models.DateTimeField(null=True, blank=True)
@@ -73,10 +79,39 @@ class FileNode(models.Model):
         related_name="checked_out_files",
     )
     checked_out_at = models.DateTimeField(null=True, blank=True)
+    mtr_approved = models.BooleanField(
+        default=False,
+        help_text="Indicates whether the latest MTR version has been fully verified and approved.",
+    )
+    mtr_approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="approved_mtr_files",
+    )
+    mtr_approved_at = models.DateTimeField(null=True, blank=True)
+    mtr_approved_version = models.ForeignKey(
+        "FileVersion",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="approved_mtr_for",
+    )
 
     class Meta:
         unique_together = [("org", "folder", "slug")]
         ordering = ["name"]
+        indexes = [
+            models.Index(
+                fields=["doc_type", "mtr_approved"],
+                name="drive_file_mtr_approved",
+            ),
+            models.Index(
+                fields=["mtr_approved_at"],
+                name="drive_file_mtr_approved_at",
+            ),
+        ]
 
     def save(self, *args, **kwargs):
         if not self.slug:

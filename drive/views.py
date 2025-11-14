@@ -449,6 +449,29 @@ def _file_detail_context(request, project, node):
         except EmptyPage:
             events_page = paginator.page(paginator.num_pages)
 
+    mtr_pending_count = 0
+    mtr_has_unverified = False
+    mtr_review_url = ""
+    mtr_manual_approve_url = ""
+    if node.doc_type == FileNode.DocType.MTR:
+        mtr_pending_count = node.material_heat_drafts.filter(verified=False).count()
+        mtr_has_unverified = mtr_pending_count > 0
+        try:
+            mtr_review_url = reverse("welds:mtr_draft_list", kwargs={"org_slug": request.org.slug})
+        except Exception:
+            mtr_review_url = ""
+        try:
+            mtr_manual_approve_url = reverse(
+                "drive_mtr_manual_approve",
+                kwargs={
+                    "org_slug": request.org.slug,
+                    "project_slug": project.slug,
+                    "file_id": node.id,
+                },
+            )
+        except Exception:
+            mtr_manual_approve_url = ""
+
     return {
         "org": request.org,
         "project": project,
@@ -464,6 +487,11 @@ def _file_detail_context(request, project, node):
         "can_checkout": can_checkout,
         "can_checkin": can_checkin,
         "can_force_checkin": can_force_checkin,
+        "mtr_has_unverified_drafts": mtr_has_unverified,
+        "mtr_pending_drafts_count": mtr_pending_count,
+        "mtr_review_url": mtr_review_url,
+        "mtr_manual_approve_url": mtr_manual_approve_url,
+        "mtr_can_manual_approve": is_admin_or_owner,
     }
 
 
@@ -518,6 +546,58 @@ def file_detail_drawer(request, org_slug, project_slug, file_id):
     response = TemplateResponse(request, "drive/file_detail_drawer.html", context)
     response["Cache-Control"] = "no-store"
     return response
+
+
+@login_required
+@require_POST
+@require_membership("MEMBER")
+def file_manual_approve_mtr(request, org_slug, project_slug, file_id):
+    project = get_project_for_request(request, request.org, project_slug)
+    forbidden = _require_project_access(request, project)
+    if forbidden:
+        return forbidden
+
+    node = get_object_or_404(
+        FileNode.objects.select_related("latest_version", "project", "org"),
+        pk=file_id,
+        org=request.org,
+        project=project,
+    )
+
+    if node.doc_type != FileNode.DocType.MTR:
+        return HttpResponseForbidden("Only MTR documents can be approved via this action.")
+
+    try:
+        membership = Membership.objects.get(org=request.org, user=request.user)
+    except Membership.DoesNotExist:
+        return HttpResponseForbidden("You do not have access to approve this MTR.")
+
+    if membership.role not in (Membership.Role.ADMIN, Membership.Role.OWNER):
+        return HttpResponseForbidden("Only organization admins may approve MTRs.")
+
+    unverified = node.material_heat_drafts.filter(verified=False).exists()
+    node.mtr_approved = True
+    node.mtr_approved_by = request.user
+    node.mtr_approved_at = timezone.now()
+    node.mtr_approved_version = node.latest_version
+    node.save(
+        update_fields=[
+            "mtr_approved",
+            "mtr_approved_by",
+            "mtr_approved_at",
+            "mtr_approved_version",
+        ]
+    )
+
+    if unverified:
+        messages.warning(
+            request,
+            "MTR approved manually. Unverified drafts remain—please ensure they are reviewed.",
+        )
+    else:
+        messages.success(request, "MTR approved for use.")
+
+    return redirect("drive_file", org_slug=request.org.slug, project_slug=project.slug, file_id=node.id)
 
 
 

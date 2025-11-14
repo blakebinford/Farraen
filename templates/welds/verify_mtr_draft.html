@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container py-4">
+  <div class="mb-3">
+    <a class="btn btn-outline-secondary btn-sm" href="{% url 'welds:mtr_draft_list' org.slug %}">Back to drafts</a>
+  </div>
+
+  <div class="row">
+    <div class="col-lg-7">
+      <h1 class="h3">Verify material heat</h1>
+      <p class="text-muted">Confirm or edit the parsed values below. The associated MTR will be approved automatically once all drafts from this document are verified.</p>
+
+      <form method="post" class="mt-4">
+        {% csrf_token %}
+        {% for hidden in form.hidden_fields %}
+          {{ hidden }}
+        {% endfor %}
+        {% if form.non_field_errors %}
+          <div class="alert alert-danger">
+            {% for error in form.non_field_errors %}
+              <div>{{ error }}</div>
+            {% endfor %}
+          </div>
+        {% endif %}
+
+        {% for field in form.visible_fields %}
+          <div class="mb-3">
+            <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+            {{ field }}
+            {% if field.help_text %}
+              <div class="form-text">{{ field.help_text }}</div>
+            {% endif %}
+            {% if field.errors %}
+              <div class="invalid-feedback d-block">
+                {% for error in field.errors %}{{ error }}{% endfor %}
+              </div>
+            {% endif %}
+          </div>
+        {% endfor %}
+
+        <button type="submit" class="btn btn-primary">Save and mark verified</button>
+      </form>
+    </div>
+    <div class="col-lg-5">
+      <div class="card mb-3">
+        <div class="card-body">
+          <h2 class="h5">Parsed context</h2>
+          <dl class="row small mb-0">
+            <dt class="col-4 text-muted">Heat</dt>
+            <dd class="col-8">{{ draft.heat_number|default:"—" }}</dd>
+            <dt class="col-4 text-muted">Pages</dt>
+            <dd class="col-8">{{ draft.page_numbers|default:"—" }}</dd>
+            <dt class="col-4 text-muted">Confidence</dt>
+            <dd class="col-8">{% if draft.confidence %}{{ draft.confidence|floatformat:2 }}{% else %}—{% endif %}</dd>
+            <dt class="col-4 text-muted">MTR</dt>
+            <dd class="col-8">
+              {% if draft.file_node.project %}
+                <a href="{% url 'drive_file' org.slug draft.file_node.project.slug draft.file_node.id %}" target="_blank" rel="noopener">{{ draft.file_node.name }}</a>
+              {% else %}
+                {{ draft.file_node.name }}
+              {% endif %}
+            </dd>
+          </dl>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-body">
+          <h2 class="h6">Raw parser output</h2>
+          <pre class="small bg-light p-2 rounded" style="max-height: 260px; overflow:auto;">{{ raw_payload }}</pre>
+        </div>
+      </div>
+      <div class="alert alert-info mt-3">
+        This MTR will be approved for use only after all drafts are verified or an administrator manually approves it from the Drive preview.
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

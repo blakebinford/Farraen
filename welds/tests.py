@@ -4,16 +4,20 @@ from decimal import Decimal
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
+from django.core.files.base import ContentFile
 from django.test import TestCase
 from django.urls import reverse
+from django.utils import timezone
 
-from drive.models import FileNode, Folder
+from drive.models import FileNode, FileVersion, Folder
 from organizations.models import Membership, Organization
 from projects.models import Project, ProjectMember
 
 from .analytics import build_dashboard_analytics, build_drilldown
 from .models import (
     MaterialHeat,
+    MaterialHeatDraft,
     NominalPipeOD,
     NDERig,
     RepairAttempt,
@@ -28,6 +32,8 @@ from .models import (
 from .nominal_od import get_standard_nominal_pipe_sizes, match_nominal_pipe_size, normalize_actual_od
 from .services import build_weld_dashboard_chart_payload, get_project_weld_kpis
 from .views import _migrations_required_message
+from .forms import MaterialHeatForm
+from .tasks import process_mtr_fileversion
 
 
 class WelderModelTests(TestCase):
@@ -1863,3 +1869,196 @@ class WeldDashboardAnalyticsTests(TestCase):
         content = csv_response.content.decode("utf-8")
         self.assertIn("repair_id,weld_id,flagged_at", content)
         self.assertIn(weld_one.weld_id, content)
+
+
+class MTRWorkflowTests(TestCase):
+    def setUp(self):
+        User = get_user_model()
+        self.user = User.objects.create_user(
+            email="qa@example.com",
+            password="pass1234",
+        )
+        self.org = Organization.objects.create(name="Trace", slug="trace", owner=self.user)
+        Membership.objects.create(
+            org=self.org,
+            user=self.user,
+            role=Membership.Role.ADMIN,
+        )
+        self.project = Project.objects.create(
+            org=self.org,
+            name="Pipeline QA",
+            slug="pipeline-qa",
+            created_by=self.user,
+            status=Project.Status.ACTIVE,
+        )
+        ProjectMember.objects.create(
+            project=self.project,
+            user=self.user,
+            role=ProjectMember.Role.PROJECT_MANAGER,
+        )
+        self.folder = Folder.objects.create(
+            org=self.org,
+            project=self.project,
+            name="MTRs",
+        )
+        self.file_node = FileNode.objects.create(
+            org=self.org,
+            project=self.project,
+            folder=self.folder,
+            name="MTR-001.pdf",
+            doc_type=FileNode.DocType.MTR,
+            created_by=self.user,
+        )
+        with patch("welds.signals.process_mtr_fileversion.delay"):
+            version = FileVersion.objects.create(
+                file_node=self.file_node,
+                version=1,
+                blob=ContentFile(b"%PDF-1.4", name="mtr.pdf"),
+            )
+        self.file_node.latest_version = version
+        self.file_node.save(update_fields=["latest_version"])
+        self.client.force_login(self.user)
+
+    @patch("welds.signals.process_mtr_fileversion.delay")
+    def test_uploading_new_mtr_version_clears_approval_and_enqueues(self, mock_delay):
+        self.file_node.mtr_approved = True
+        self.file_node.mtr_approved_by = self.user
+        self.file_node.mtr_approved_at = timezone.now()
+        self.file_node.mtr_approved_version = self.file_node.latest_version
+        self.file_node.save(
+            update_fields=[
+                "mtr_approved",
+                "mtr_approved_by",
+                "mtr_approved_at",
+                "mtr_approved_version",
+            ]
+        )
+
+        new_version = FileVersion.objects.create(
+            file_node=self.file_node,
+            version=2,
+            blob=ContentFile(b"%PDF-1.7", name="mtr2.pdf"),
+        )
+
+        self.file_node.refresh_from_db()
+        self.assertFalse(self.file_node.mtr_approved)
+        self.assertIsNone(self.file_node.mtr_approved_by)
+        self.assertIsNone(self.file_node.mtr_approved_at)
+        self.assertIsNone(self.file_node.mtr_approved_version)
+        mock_delay.assert_called_once_with(new_version.id)
+
+    @patch("welds.tasks._material_payloads_from_text")
+    def test_process_mtr_fileversion_creates_drafts(self, mock_parser):
+        MaterialHeatDraft.objects.create(
+            file_node=self.file_node,
+            org=self.org,
+            heat_number="OLD",
+        )
+        mock_parser.return_value = [
+            {
+                "heat_number": "HX-100",
+                "material_description": "Pipe Section",
+                "material_grade": "X52",
+                "outer_diameter_in": "6.625",
+                "wall_thickness_in": "0.322",
+                "page_numbers": [1, 2],
+                "confidence": 0.85,
+                "notes": "Parsed by test",
+            }
+        ]
+
+        result = process_mtr_fileversion.run(self.file_node.latest_version.id)
+
+        self.file_node.refresh_from_db()
+        drafts = MaterialHeatDraft.objects.filter(file_node=self.file_node)
+        self.assertEqual(result, 1)
+        self.assertEqual(drafts.count(), 1)
+        draft = drafts.first()
+        self.assertEqual(draft.heat_number, "HX-100")
+        self.assertEqual(draft.page_numbers, "1,2")
+        self.assertIsNone(self.file_node.mtr_approved_version)
+
+    def test_material_heat_requires_approved_mtr(self):
+        heat = MaterialHeat(
+            org=self.org,
+            heat_number="HX-200",
+            description="Pipe",
+            material_grade="X60",
+            outer_diameter_in=Decimal("8.000"),
+            wall_thickness_in=Decimal("0.375"),
+            mtr_document=self.file_node,
+        )
+        with self.assertRaises(ValidationError):
+            heat.save()
+
+    def test_material_heat_form_only_lists_approved_mtrs(self):
+        approved_node = FileNode.objects.create(
+            org=self.org,
+            project=self.project,
+            folder=self.folder,
+            name="MTR-APPROVED.pdf",
+            doc_type=FileNode.DocType.MTR,
+        )
+        approved_node.mtr_approved = True
+        approved_node.save(update_fields=["mtr_approved"])
+
+        form = MaterialHeatForm()
+        qs = form.fields["mtr_document"].queryset
+        self.assertIn(approved_node, qs)
+        self.assertNotIn(self.file_node, qs)
+
+    def test_verify_draft_creates_material_heat_and_approves(self):
+        draft = MaterialHeatDraft.objects.create(
+            file_node=self.file_node,
+            org=self.org,
+            heat_number="HX-300",
+            material_description="Line Pipe",
+            material_grade="X65",
+            outer_diameter_in=Decimal("6.625"),
+            wall_thickness_in=Decimal("0.280"),
+            wps_number="WPS-10",
+            page_numbers="1",
+            raw_payload={"heat_number": "HX-300"},
+        )
+
+        url = reverse(
+            "welds:verify_mtr_draft",
+            kwargs={"org_slug": self.org.slug, "draft_id": draft.id},
+        )
+        response = self.client.post(
+            url,
+            {
+                "heat_number": "HX-300",
+                "description": "Line Pipe",
+                "material_grade": "X65",
+                "outer_diameter_in": "6.625",
+                "wall_thickness_in": "0.280",
+                "wps_number": "WPS-10",
+                "is_active": "on",
+            },
+        )
+        self.assertRedirects(
+            response,
+            reverse("welds:mtr_draft_list", kwargs={"org_slug": self.org.slug}),
+        )
+
+        draft.refresh_from_db()
+        self.assertTrue(draft.verified)
+        self.assertIsNotNone(draft.resolved_material_heat)
+        self.file_node.refresh_from_db()
+        self.assertTrue(self.file_node.mtr_approved)
+        self.assertEqual(draft.resolved_material_heat.mtr_document, self.file_node)
+
+    def test_manual_mtr_approval_endpoint(self):
+        url = reverse(
+            "drive_mtr_manual_approve",
+            kwargs={
+                "org_slug": self.org.slug,
+                "project_slug": self.project.slug,
+                "file_id": self.file_node.id,
+            },
+        )
+        response = self.client.post(url)
+        self.assertEqual(response.status_code, 302)
+        self.file_node.refresh_from_db()
+        self.assertTrue(self.file_node.mtr_approved)

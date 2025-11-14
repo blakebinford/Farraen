@@ -1,6 +1,7 @@
 asgiref==3.10.0
 boto3==1.40.53
 botocore==1.40.53
+celery==5.3.6
 certifi==2025.10.5
 cffi==2.0.0
 charset-normalizer==3.4.4
@@ -17,11 +18,16 @@ django-storages==1.14.6
 idna==3.11
 jmespath==1.0.1
 oauthlib==3.3.1
+openai==1.40.2
+Pillow==10.4.0
+PyMuPDF==1.24.10
 psycopg2-binary==2.9.11
 pycparser==2.23
 PyJWT==2.10.1
 python-dateutil==2.9.0.post0
 python-decouple==3.8
+pytesseract==0.3.10
+redis==5.0.4
 requests==2.32.5
 s3transfer==0.14.0
 six==1.17.0

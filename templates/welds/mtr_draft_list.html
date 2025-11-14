@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% load humanize %}
+
+{% block content %}
+<div class="container py-4">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+      <h1 class="h3 mb-1">MTR drafts awaiting verification</h1>
+      <p class="text-muted mb-0">Review parsed heats from uploaded MTR documents. Drafts must be verified before the MTR can be approved for use.</p>
+    </div>
+  </div>
+
+  {% if drafts_page.object_list %}
+    <div class="table-responsive">
+      <table class="table table-sm align-middle">
+        <thead>
+          <tr>
+            <th scope="col">Heat number</th>
+            <th scope="col">Description</th>
+            <th scope="col">Grade</th>
+            <th scope="col">Confidence</th>
+            <th scope="col">Pages</th>
+            <th scope="col">MTR</th>
+            <th scope="col" class="text-end">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for draft in drafts_page.object_list %}
+            <tr>
+              <td class="fw-semibold">{{ draft.heat_number|default:"—" }}</td>
+              <td>{{ draft.material_description|default:"—" }}</td>
+              <td>{{ draft.material_grade|default:"—" }}</td>
+              <td>
+                {% if draft.confidence %}
+                  {{ draft.confidence|floatformat:2 }}
+                {% else %}
+                  —
+                {% endif %}
+              </td>
+              <td>{{ draft.page_numbers|default:"—" }}</td>
+              <td>
+                {% if draft.file_node.project %}
+                  <a href="{% url 'drive_file' org.slug draft.file_node.project.slug draft.file_node.id %}">{{ draft.file_node.name }}</a>
+                {% else %}
+                  {{ draft.file_node.name }}
+                {% endif %}
+                {% if draft.file_node.latest_version %}
+                  <div class="text-muted small">Uploaded {{ draft.file_node.latest_version.created_at|naturaltime }}</div>
+                {% endif %}
+              </td>
+              <td class="text-end">
+                <a class="btn btn-primary btn-sm" href="{% url 'welds:verify_mtr_draft' org.slug draft.id %}">Verify</a>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    {% if drafts_page.has_other_pages %}
+      <nav aria-label="MTR drafts pagination">
+        <ul class="pagination">
+          {% if drafts_page.has_previous %}
+            <li class="page-item"><a class="page-link" href="?page={{ drafts_page.previous_page_number }}">Previous</a></li>
+          {% else %}
+            <li class="page-item disabled"><span class="page-link">Previous</span></li>
+          {% endif %}
+
+          {% for num in drafts_page.paginator.page_range %}
+            {% if drafts_page.number == num %}
+              <li class="page-item active"><span class="page-link">{{ num }}</span></li>
+            {% else %}
+              <li class="page-item"><a class="page-link" href="?page={{ num }}">{{ num }}</a></li>
+            {% endif %}
+          {% endfor %}
+
+          {% if drafts_page.has_next %}
+            <li class="page-item"><a class="page-link" href="?page={{ drafts_page.next_page_number }}">Next</a></li>
+          {% else %}
+            <li class="page-item disabled"><span class="page-link">Next</span></li>
+          {% endif %}
+        </ul>
+      </nav>
+    {% endif %}
+  {% else %}
+    <div class="alert alert-success">All parsed MTR heats have been verified for this organization.</div>
+  {% endif %}
+</div>
+{% endblock %}

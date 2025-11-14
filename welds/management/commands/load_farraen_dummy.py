@@ -25,6 +25,11 @@ class Command(BaseCommand):
         parser.add_argument("--welds", type=int, default=300, help="Number of welds to seed")
         parser.add_argument("--days", type=int, default=19, help="Number of consecutive days to spread welds across")
         parser.add_argument("--seed", type=int, default=42, help="Random seed for deterministic data generation")
+        parser.add_argument(
+            "--approve-demo-mtrs",
+            action="store_true",
+            help="Mark seeded MTRs as already approved.",
+        )
 
     def handle(self, *args, **options):
         org_name: str = options["org"].strip()
@@ -34,6 +39,7 @@ class Command(BaseCommand):
         seed_value: int = int(options["seed"])
 
         rng = random.Random(seed_value)
+        approve_demo_mtrs: bool = bool(options.get("approve_demo_mtrs"))
 
         with transaction.atomic():
             user = self._ensure_seed_user()
@@ -42,7 +48,15 @@ class Command(BaseCommand):
 
             folders = self._ensure_project_folders(org, project, user)
             wps_documents = self._ensure_wps_documents(org, project, folders["WPS"], user)
-            heats = self._ensure_material_heats(org, project, folders["MTR"], wps_documents, rng, user)
+            heats = self._ensure_material_heats(
+                org,
+                project,
+                folders["MTR"],
+                wps_documents,
+                rng,
+                user,
+                approve_demo_mtrs=approve_demo_mtrs,
+            )
             welders = self._ensure_welders(org, wps_documents, rng)
             rigs = self._ensure_nde_rigs(org, project, folders["Inspector Qualification"], rng)
             drawings = self._ensure_drawing_documents(org, project, folders["Drawings"], user)
@@ -183,7 +197,17 @@ class Command(BaseCommand):
             documents[number] = file_node
         return documents
 
-    def _ensure_material_heats(self, org, project, mtr_folder, wps_documents, rng, user):
+    def _ensure_material_heats(
+        self,
+        org,
+        project,
+        mtr_folder,
+        wps_documents,
+        rng,
+        user,
+        *,
+        approve_demo_mtrs: bool = False,
+    ):
         grade_options = ["API 5L X52", "API 5L X65", "ASTM A106 Gr.B", "ASTM A53 Gr.B"]
         od_options = [Decimal("6.625"), Decimal("8.625"), Decimal("10.750"), Decimal("12.750"), Decimal("16.000")]
         wt_options = [Decimal("0.280"), Decimal("0.322"), Decimal("0.365"), Decimal("0.500"), Decimal("0.688")]
@@ -230,7 +254,25 @@ class Command(BaseCommand):
                     updates.append(field)
             if updates:
                 file_node.save(update_fields=updates)
-            self._ensure_placeholder_version(file_node, user)
+            version = self._ensure_placeholder_version(file_node, user)
+            if approve_demo_mtrs:
+                file_node.mtr_approved = True
+                file_node.mtr_approved_by = user
+                file_node.mtr_approved_at = timezone.now()
+                file_node.mtr_approved_version = version
+            else:
+                file_node.mtr_approved = False
+                file_node.mtr_approved_by = None
+                file_node.mtr_approved_at = None
+                file_node.mtr_approved_version = None
+            file_node.save(
+                update_fields=[
+                    "mtr_approved",
+                    "mtr_approved_by",
+                    "mtr_approved_at",
+                    "mtr_approved_version",
+                ]
+            )
 
             material_defaults = {
                 "description": f"{grade} pipe heat {heat_number}",
@@ -242,19 +284,28 @@ class Command(BaseCommand):
                 "wps_document": wps_documents.get(wps_number),
                 "is_active": True,
             }
-            material_heat, created = MaterialHeat.objects.get_or_create(
-                org=org,
-                heat_number=heat_number,
-                defaults=material_defaults,
-            )
-            if not created:
+            material_heat = MaterialHeat.objects.filter(
+                org=org, heat_number=heat_number
+            ).first()
+            if material_heat:
                 changed_fields = []
                 for field, value in material_defaults.items():
                     if getattr(material_heat, field) != value:
                         setattr(material_heat, field, value)
                         changed_fields.append(field)
                 if changed_fields:
+                    if not approve_demo_mtrs:
+                        material_heat._allow_unapproved_mtr = True
                     material_heat.save(update_fields=changed_fields)
+            else:
+                material_heat = MaterialHeat(
+                    org=org,
+                    heat_number=heat_number,
+                    **material_defaults,
+                )
+                if not approve_demo_mtrs:
+                    material_heat._allow_unapproved_mtr = True
+                material_heat.save()
             heats.append(material_heat)
         heats.sort(key=lambda h: h.heat_number)
         return heats

@@ -4,6 +4,7 @@ from django.contrib import admin
 
 from .models import (
     MaterialHeat,
+    MaterialHeatDraft,
     NDERig,
     NominalPipeOD,
     Welder,
@@ -21,11 +22,39 @@ class MaterialHeatAdmin(admin.ModelAdmin):
         "material_grade",
         "outer_diameter_in",
         "wall_thickness_in",
+        "mtr_document",
+        "mtr_document_approved",
         "is_active",
     )
-    list_filter = ("org", "is_active")
+    list_filter = ("org", "is_active", "mtr_document__mtr_approved")
     search_fields = ("heat_number", "description", "material_grade")
     ordering = ("org", "heat_number")
+
+    @admin.display(boolean=True, description="MTR approved")
+    def mtr_document_approved(self, obj: MaterialHeat):
+        if not obj.mtr_document:
+            return False
+        return bool(obj.mtr_document.mtr_approved)
+
+    def save_model(self, request, obj, form, change):
+        obj.full_clean()
+        super().save_model(request, obj, form, change)
+
+
+@admin.register(MaterialHeatDraft)
+class MaterialHeatDraftAdmin(admin.ModelAdmin):
+    list_display = (
+        "heat_number",
+        "org",
+        "file_node",
+        "verified",
+        "verified_by",
+        "verified_at",
+        "parsed_at",
+    )
+    list_filter = ("org", "verified")
+    search_fields = ("heat_number", "material_description", "file_node__name")
+    ordering = ("-parsed_at",)
 
 
 @admin.register(Welder)

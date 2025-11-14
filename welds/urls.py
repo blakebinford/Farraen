@@ -9,6 +9,12 @@ app_name = "welds"
 
 
 urlpatterns = [
+    path("mtrs/drafts/", views.list_mtr_drafts, name="mtr_draft_list"),
+    path(
+        "mtrs/drafts/<int:draft_id>/",
+        views.verify_mtr_draft,
+        name="verify_mtr_draft",
+    ),
     path(
         "projects/<slug:project_slug>/weld-log/",
         views.weld_log,

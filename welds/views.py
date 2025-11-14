@@ -10,8 +10,10 @@ from django.core.paginator import Paginator
 from django.db import connection, transaction, IntegrityError
 from django.db.models import Q
 from django.http import JsonResponse, HttpResponseBadRequest, HttpResponseForbidden, HttpResponse
-from django.shortcuts import render, get_object_or_404
+from django.contrib import messages
+from django.shortcuts import render, get_object_or_404, redirect
 from django.urls import reverse
+from django.utils import timezone
 from django.utils.dateparse import parse_date
 from django.views.decorators.http import require_http_methods
 
@@ -28,8 +30,10 @@ from projects.utils import (
 from drive.models import FileNode
 
 from .analytics import build_dashboard_analytics, build_drilldown
+from .forms import MaterialHeatForm
 from .models import (
     MaterialHeat,
+    MaterialHeatDraft,
     NDERig,
     RepairAttempt,
     Reinspection,
@@ -67,6 +71,18 @@ def _missing_weld_tables():
     if missing:
         logger.warning("Missing weld tables detected", extra={"missing": missing})
     return missing
+
+
+def _draft_initial_from(draft: MaterialHeatDraft) -> dict:
+    return {
+        "heat_number": draft.heat_number,
+        "description": draft.material_description,
+        "material_grade": draft.material_grade,
+        "outer_diameter_in": draft.outer_diameter_in,
+        "wall_thickness_in": draft.wall_thickness_in,
+        "wps_number": draft.wps_number,
+        "mtr_document": draft.file_node,
+    }
 
 
 def _migrations_required_message(missing_labels):
@@ -2750,3 +2766,100 @@ def close_repair(request, org_slug, repair_id: int):
     repair.close(closed_by=actor, closed_at=closed_at)
     repair.refresh_from_db()
     return JsonResponse({"repair": _serialize_repair(repair, include_children=True)})
+
+
+@require_membership()
+def list_mtr_drafts(request, org_slug):
+    drafts_qs = (
+        MaterialHeatDraft.objects.filter(org=request.org, verified=False)
+        .select_related("file_node", "file_node__latest_version", "parsed_by")
+        .order_by("verified", "-parsed_at")
+    )
+    page_number = request.GET.get("page") or 1
+    paginator = Paginator(drafts_qs, 25)
+    drafts_page = paginator.get_page(page_number)
+
+    return render(
+        request,
+        "welds/mtr_draft_list.html",
+        {
+            "org": request.org,
+            "drafts_page": drafts_page,
+        },
+    )
+
+
+@require_membership()
+def verify_mtr_draft(request, org_slug, draft_id: int):
+    draft = get_object_or_404(
+        MaterialHeatDraft.objects.select_related(
+            "file_node",
+            "file_node__latest_version",
+            "resolved_material_heat",
+        ),
+        pk=draft_id,
+        org=request.org,
+    )
+
+    instance = draft.resolved_material_heat
+    initial = _draft_initial_from(draft)
+    form_kwargs = {"instance": instance}
+    if request.method == "POST":
+        form = MaterialHeatForm(request.POST, **form_kwargs)
+    else:
+        form = MaterialHeatForm(initial=initial, **form_kwargs)
+
+    field = form.fields.get("mtr_document")
+    if field:
+        field.queryset = FileNode.objects.filter(pk=draft.file_node_id)
+        field.initial = draft.file_node
+        field.widget = field.hidden_widget()
+
+    if request.method == "POST" and form.is_valid():
+        material_heat = form.save(commit=False)
+        material_heat.org = draft.org
+        material_heat.mtr_document = draft.file_node
+        material_heat._allow_unapproved_mtr = True
+        material_heat.save()
+
+        draft.resolved_material_heat = material_heat
+        draft.verified = True
+        draft.verified_by = request.user
+        draft.verified_at = timezone.now()
+        draft.save(
+            update_fields=[
+                "resolved_material_heat",
+                "verified",
+                "verified_by",
+                "verified_at",
+            ]
+        )
+
+        file_node = draft.file_node
+        if not file_node.material_heat_drafts.filter(verified=False).exists():
+            file_node.mtr_approved = True
+            file_node.mtr_approved_by = request.user
+            file_node.mtr_approved_at = timezone.now()
+            file_node.mtr_approved_version = file_node.latest_version
+            file_node.save(
+                update_fields=[
+                    "mtr_approved",
+                    "mtr_approved_by",
+                    "mtr_approved_at",
+                    "mtr_approved_version",
+                ]
+            )
+
+        messages.success(request, "Material heat verified and saved.")
+        return redirect("welds:mtr_draft_list", org_slug=request.org.slug)
+
+    return render(
+        request,
+        "welds/verify_mtr_draft.html",
+        {
+            "org": request.org,
+            "draft": draft,
+            "form": form,
+            "raw_payload": json.dumps(draft.raw_payload or {}, indent=2, sort_keys=True),
+        },
+    )

@@ -21,6 +21,7 @@
   <div class="d-flex gap-2">
     <a class="btn btn-outline-secondary btn-sm" href="{% url 'projects:project_list' org.slug %}">Back to Projects</a>
     <a class="btn btn-primary btn-sm" href="{% url 'welds:weld_log' org.slug project.slug %}">Open Weld Log</a>
+    <a class="btn btn-outline-primary btn-sm" href="{% url 'welds:repair_log' org.slug project.slug %}">Open Repair Log</a>
   </div>
 </div>
 

@@ -569,6 +569,23 @@ def weld_log(request, org_slug, project_slug):
                     },
                 ).replace("/0/", "/{history_id}/"),
                 "can_rollback_welds": _user_can_rollback(request.user, project),
+                "weld_log_config": {
+                    "markRepairUrlTemplate": reverse(
+                        "welds:mark_weld_for_repair",
+                        kwargs={
+                            "org_slug": request.org.slug,
+                            "weld_id": 0,
+                        },
+                    ).replace("/0/", "/{id}/"),
+                    "csrfToken": get_token(request),
+                    "repairLogUrl": reverse(
+                        "welds:repair_log",
+                        kwargs={
+                            "org_slug": request.org.slug,
+                            "project_slug": project.slug,
+                        },
+                    ),
+                },
             }
         )
 

@@ -1512,12 +1512,33 @@ class WeldRepairAPITests(TestCase):
             "welds:mark_weld_for_repair",
             kwargs={"org_slug": self.org.slug, "weld_id": self.weld.id},
         )
-        response = self.client.post(url, data="{}", content_type="application/json")
+        response = self.client.post(url, data=json.dumps({}), content_type="application/json")
         self.assertEqual(response.status_code, 201)
-        repair_id = response.json()["repair"]["id"]
-        second = self.client.post(url, data="{}", content_type="application/json")
+        payload_one = response.json()
+        self.assertTrue(payload_one.get("created"))
+        repair_id = payload_one["repair"]["id"]
+
+        second = self.client.post(url, data=json.dumps({}), content_type="application/json")
         self.assertEqual(second.status_code, 200)
-        self.assertEqual(second.json()["repair"]["id"], repair_id)
+        payload_two = second.json()
+        self.assertFalse(payload_two.get("created"))
+        self.assertEqual(payload_two["repair"]["id"], repair_id)
+        self.assertEqual(WeldRepair.objects.filter(weld=self.weld).count(), 1)
+
+    def test_mark_repair_creates_repair_and_returns_payload(self):
+        url = reverse(
+            "welds:mark_weld_for_repair",
+            kwargs={"org_slug": self.org.slug, "weld_id": self.weld.id},
+        )
+        response = self.client.post(url, data=json.dumps({}), content_type="application/json")
+        self.assertEqual(response.status_code, 201)
+        payload = response.json()
+        self.assertTrue(payload.get("created"))
+        repair_payload = payload.get("repair")
+        self.assertIsInstance(repair_payload, dict)
+        self.assertEqual(repair_payload.get("weld_id"), self.weld.id)
+        self.assertEqual(repair_payload.get("weld_identifier"), self.weld.weld_id)
+        self.assertTrue(WeldRepair.objects.filter(pk=repair_payload.get("id"), weld=self.weld).exists())
 
     def test_repair_grid_flow(self):
         mark_url = reverse(

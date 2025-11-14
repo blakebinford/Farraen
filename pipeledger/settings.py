@@ -191,3 +191,10 @@ ALLOWED_CONTENT_TYPES = {
 # Nominal pipe size matching configuration.
 NOMINAL_OD_MATCH_TOLERANCE_IN = Decimal("0.01")
 
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+if not OPENAI_API_KEY:
+    raise ImproperlyConfigured("OPENAI_API_KEY is not set")
+
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4")
+CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
+CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/1")

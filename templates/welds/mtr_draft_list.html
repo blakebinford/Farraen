@@ -10,6 +10,53 @@
     </div>
   </div>
 
+  {% if filtered_file %}
+    <div
+      class="alert alert-info"
+      data-mtr-filtered-status
+      data-file-id="{{ filtered_file.id }}"
+      data-drafts-count="{{ filtered_drafts_count|default:0 }}"
+      data-mtr-approved="{{ filtered_mtr_approved|yesno:'true,false' }}"
+      {% if filtered_status_url %}data-status-url="{{ filtered_status_url }}"{% endif %}
+      data-status-state="{{ filtered_status_state }}"
+    >
+      <div class="d-flex flex-wrap justify-content-between align-items-start gap-3">
+        <div>
+          <div class="fw-semibold">
+            Showing drafts for
+            {% if filtered_file.project %}
+              <a href="{% url 'drive_file' org.slug filtered_file.project.slug filtered_file.id %}">{{ filtered_file.name }}</a>
+            {% else %}
+              {{ filtered_file.name }}
+            {% endif %}
+          </div>
+          <div class="small text-muted">
+            Status:
+            <span data-mtr-status-text>{{ filtered_status_label|default:"Parsing" }}</span>
+          </div>
+          {% if filtered_file.latest_version %}
+            <div class="small text-muted">Uploaded {{ filtered_file.latest_version.created_at|naturaltime }}</div>
+          {% endif %}
+        </div>
+        <div class="d-flex flex-wrap gap-2">
+          {% if filtered_file.project %}
+            <a class="btn btn-sm btn-outline-secondary" href="{% url 'drive_file' org.slug filtered_file.project.slug filtered_file.id %}">View file</a>
+          {% endif %}
+          <a class="btn btn-sm btn-outline-primary" href="{% url 'welds:mtr_draft_list' org.slug %}">View all drafts</a>
+        </div>
+      </div>
+      <div class="mt-2 text-muted small" data-mtr-status-help>
+        {% if filtered_status_state == "ready" %}
+          Drafts are ready for verification.
+        {% elif filtered_status_state == "approved" %}
+          All drafts for this MTR have been verified and approved.
+        {% else %}
+          Parsing queued — this page will refresh when drafts are available.
+        {% endif %}
+      </div>
+    </div>
+  {% endif %}
+
   {% if drafts_page.object_list %}
     <div class="table-responsive">
       <table class="table table-sm align-middle">
@@ -47,6 +94,19 @@
                 {% if draft.file_node.latest_version %}
                   <div class="text-muted small">Uploaded {{ draft.file_node.latest_version.created_at|naturaltime }}</div>
                 {% endif %}
+                {% if draft.status_label %}
+                  <div class="mt-1">
+                    {% if draft.status_state == "ready" %}
+                      <span class="badge bg-primary">{{ draft.status_label }}</span>
+                    {% elif draft.status_state == "approved" %}
+                      <span class="badge bg-success">{{ draft.status_label }}</span>
+                    {% elif draft.status_state == "parsing" %}
+                      <span class="badge bg-warning text-dark">{{ draft.status_label }}</span>
+                    {% else %}
+                      <span class="badge bg-secondary">{{ draft.status_label }}</span>
+                    {% endif %}
+                  </div>
+                {% endif %}
               </td>
               <td class="text-end">
                 <a class="btn btn-primary btn-sm" href="{% url 'welds:verify_mtr_draft' org.slug draft.id %}">Verify</a>
@@ -61,7 +121,7 @@
       <nav aria-label="MTR drafts pagination">
         <ul class="pagination">
           {% if drafts_page.has_previous %}
-            <li class="page-item"><a class="page-link" href="?page={{ drafts_page.previous_page_number }}">Previous</a></li>
+            <li class="page-item"><a class="page-link" href="?{% if querystring %}{{ querystring }}&{% endif %}page={{ drafts_page.previous_page_number }}">Previous</a></li>
           {% else %}
             <li class="page-item disabled"><span class="page-link">Previous</span></li>
           {% endif %}
@@ -70,12 +130,12 @@
             {% if drafts_page.number == num %}
               <li class="page-item active"><span class="page-link">{{ num }}</span></li>
             {% else %}
-              <li class="page-item"><a class="page-link" href="?page={{ num }}">{{ num }}</a></li>
+              <li class="page-item"><a class="page-link" href="?{% if querystring %}{{ querystring }}&{% endif %}page={{ num }}">{{ num }}</a></li>
             {% endif %}
           {% endfor %}
 
           {% if drafts_page.has_next %}
-            <li class="page-item"><a class="page-link" href="?page={{ drafts_page.next_page_number }}">Next</a></li>
+            <li class="page-item"><a class="page-link" href="?{% if querystring %}{{ querystring }}&{% endif %}page={{ drafts_page.next_page_number }}">Next</a></li>
           {% else %}
             <li class="page-item disabled"><span class="page-link">Next</span></li>
           {% endif %}
@@ -83,7 +143,109 @@
       </nav>
     {% endif %}
   {% else %}
-    <div class="alert alert-success">All parsed MTR heats have been verified for this organization.</div>
+    {% if filtered_file %}
+      {% if filtered_status_state == "approved" %}
+        <div class="alert alert-success">All drafts for this MTR have been verified and the document is approved.</div>
+      {% elif filtered_status_state == "parsing" or filtered_status_state == "" %}
+        <div class="alert alert-warning">Parsing queued — drafts will appear automatically once processing completes.</div>
+      {% else %}
+        <div class="alert alert-info">No drafts found for this document.</div>
+      {% endif %}
+    {% else %}
+      <div class="alert alert-success">All parsed MTR heats have been verified for this organization.</div>
+    {% endif %}
   {% endif %}
 </div>
+{% endblock %}
+
+{% block extra_js %}
+  {{ block.super }}
+  {% if filtered_file and filtered_status_url %}
+    <script>
+      (function () {
+        const statusContainer = document.querySelector('[data-mtr-filtered-status]');
+        if (!statusContainer) {
+          return;
+        }
+        const statusUrl = statusContainer.dataset.statusUrl;
+        if (!statusUrl) {
+          return;
+        }
+
+        const statusText = statusContainer.querySelector('[data-mtr-status-text]');
+        const helpText = statusContainer.querySelector('[data-mtr-status-help]');
+
+        function setHelp(state) {
+          if (!helpText) {
+            return;
+          }
+          if (state === 'ready') {
+            helpText.textContent = 'Drafts are ready for verification.';
+          } else if (state === 'approved') {
+            helpText.textContent = 'All drafts for this MTR have been verified and approved.';
+          } else {
+            helpText.textContent = 'Parsing queued — this page will refresh when drafts are available.';
+          }
+        }
+
+        function updateStatusDisplay(draftsCount, approved) {
+          let state = 'parsing';
+          let label = 'Parsing';
+          if (approved) {
+            state = 'approved';
+            label = 'Approved';
+          } else if (draftsCount > 0) {
+            const suffix = draftsCount === 1 ? 'draft' : 'drafts';
+            state = 'ready';
+            label = `Ready (${draftsCount} ${suffix})`;
+          }
+          statusContainer.dataset.statusState = state;
+          statusContainer.dataset.draftsCount = String(draftsCount);
+          statusContainer.dataset.mtrApproved = approved ? 'true' : 'false';
+          if (statusText) {
+            statusText.textContent = label;
+          }
+          setHelp(state);
+          return state;
+        }
+
+        const initialCount = parseInt(statusContainer.dataset.draftsCount || '0', 10);
+        const initialApproved = statusContainer.dataset.mtrApproved === 'true';
+        const initialState = updateStatusDisplay(initialCount, initialApproved);
+
+        if (initialState === 'ready' || initialState === 'approved') {
+          return;
+        }
+
+        const interval = setInterval(() => {
+          fetch(statusUrl, {
+            headers: { 'X-Requested-With': 'XMLHttpRequest' },
+            credentials: 'same-origin',
+          })
+            .then((resp) => {
+              if (!resp.ok) {
+                throw new Error('Status request failed');
+              }
+              return resp.json();
+            })
+            .then((payload) => {
+              const draftsCount = payload && typeof payload.drafts_count === 'number'
+                ? payload.drafts_count
+                : parseInt(payload.drafts_count, 10) || 0;
+              const approved = Boolean(payload && payload.mtr_approved);
+              const state = updateStatusDisplay(draftsCount, approved);
+              if (state === 'ready') {
+                clearInterval(interval);
+                window.location.reload();
+              } else if (state === 'approved') {
+                clearInterval(interval);
+              }
+            })
+            .catch((err) => {
+              console.error(err);
+            });
+        }, 2500);
+      })();
+    </script>
+  {% endif %}
 {% endblock %}

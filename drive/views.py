@@ -10,7 +10,7 @@ from django.contrib.auth.decorators import login_required
 from django.db import transaction
 from django.db.models import Q, Max
 from django.utils.text import slugify
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_POST, require_GET
 from django.http import (
     FileResponse,
     HttpResponseBadRequest,
@@ -333,18 +333,47 @@ def file_upload(request, org_slug, project_slug, folder_id):
     org = request.org
     folder = get_object_or_404(Folder, pk=folder_id, org=org)
 
+    def _redirect_back():
+        if folder.project_id:
+            return redirect(
+                "drive_folder",
+                org_slug=org.slug,
+                project_slug=folder.project.slug,
+                folder_id=folder.id,
+            )
+        return redirect(
+            "project_drive_root",
+            org_slug=org.slug,
+            project_slug=project_slug,
+        )
+
+    raw_doc_type = (request.POST.get("doc_type") or "").strip()
+    doc_type = raw_doc_type.upper()
+    number = (request.POST.get("number") or "").strip()[:128]
+    title = (request.POST.get("title") or "").strip()[:256]
     upload = request.FILES.get("file")
     note = (request.POST.get("note") or "").strip()[:500]
 
+    valid_doc_types = {value for value, _label in FileNode.DocType.choices if value}
+    valid_doc_types.add("")
+
+    if doc_type and doc_type not in valid_doc_types:
+        messages.error(request, "Invalid document type selected.")
+        return _redirect_back()
+
+    if doc_type == FileNode.DocType.MTR and not folder.project_id:
+        messages.error(request, "MTRs must be uploaded into a project folder.")
+        return _redirect_back()
+
     if not upload:
         messages.error(request, "No file provided.")
-        return redirect("drive_folder", org_slug=org.slug, project_slug=folder.project.slug, folder_id=folder.id)
+        return _redirect_back()
 
     # Validate size + MIME
     ok, content_type, err = validate_upload(upload, settings.ALLOWED_CONTENT_TYPES, settings.MAX_UPLOAD_SIZE_MB)
     if not ok:
         messages.error(request, err)
-        return redirect("drive_folder", org_slug=org.slug, project_slug=folder.project.slug, folder_id=folder.id)
+        return _redirect_back()
 
     # Keep original user-facing display name
     display_name = upload.name
@@ -357,6 +386,7 @@ def file_upload(request, org_slug, project_slug, folder_id):
     node_slug = slugify(stem)
 
     with transaction.atomic():
+        created_node = False
         try:
             node = (
                 FileNode.objects.select_for_update()
@@ -366,7 +396,7 @@ def file_upload(request, org_slug, project_slug, folder_id):
             # --- ENFORCE CHECKOUT (from Step 3) ---
             if node.checked_out_by_id and node.checked_out_by_id != request.user.id:
                 messages.error(request, "This file is checked out by another user. You cannot upload a new version.")
-                return redirect("drive_folder", org_slug=org.slug, project_slug=folder.project.slug, folder_id=folder.id)
+                return _redirect_back()
 
             latest = node.versions.order_by("-version").first()
             next_version = (latest.version if latest else 0) + 1
@@ -379,8 +409,12 @@ def file_upload(request, org_slug, project_slug, folder_id):
                 slug=node_slug,
                 size=0,
                 created_by=request.user,
+                doc_type=doc_type,
+                number=number,
+                title=title,
             )
             node.save()
+            created_node = True
             next_version = 1
 
         fv = FileVersion.objects.create(
@@ -395,7 +429,23 @@ def file_upload(request, org_slug, project_slug, folder_id):
 
         node.size = fv.size
         node.name = display_name      # always show latest uploaded display name
-        node.save(update_fields=["size", "name"])
+        node.content_type = content_type or upload.content_type or node.content_type
+        node.latest_version = fv
+
+        node_updates = ["size", "name", "content_type", "latest_version"]
+
+        if not created_node:
+            if doc_type and node.doc_type != doc_type:
+                node.doc_type = doc_type
+                node_updates.append("doc_type")
+            if number and node.number != number:
+                node.number = number
+                node_updates.append("number")
+            if title and node.title != title:
+                node.title = title
+                node_updates.append("title")
+
+        node.save(update_fields=list(dict.fromkeys(node_updates)))
 
     try:
         # Audit already wired; ensure UPLOAD is logged with the new version ref
@@ -403,8 +453,13 @@ def file_upload(request, org_slug, project_slug, folder_id):
     except Exception:
         pass
 
+    if node.doc_type == FileNode.DocType.MTR:
+        messages.info(request, "MTR uploaded — parsing has been queued. Review drafts once parsing completes.")
+        drafts_url = reverse("welds:mtr_draft_list", kwargs={"org_slug": org.slug})
+        return HttpResponseRedirect(f"{drafts_url}?file={node.id}")
+
     messages.success(request, f"Uploaded {display_name} as v{next_version}.")
-    return redirect("drive_folder", org_slug=org.slug, project_slug=folder.project.slug, folder_id=folder.id)
+    return _redirect_back()
 
 from organizations.models import Membership
 
@@ -453,6 +508,8 @@ def _file_detail_context(request, project, node):
     mtr_has_unverified = False
     mtr_review_url = ""
     mtr_manual_approve_url = ""
+    mtr_review_filtered_url = ""
+    mtr_status_url = ""
     if node.doc_type == FileNode.DocType.MTR:
         mtr_pending_count = node.material_heat_drafts.filter(verified=False).count()
         mtr_has_unverified = mtr_pending_count > 0
@@ -460,6 +517,9 @@ def _file_detail_context(request, project, node):
             mtr_review_url = reverse("welds:mtr_draft_list", kwargs={"org_slug": request.org.slug})
         except Exception:
             mtr_review_url = ""
+        else:
+            separator = "&" if "?" in mtr_review_url else "?"
+            mtr_review_filtered_url = f"{mtr_review_url}{separator}file={node.id}"
         try:
             mtr_manual_approve_url = reverse(
                 "drive_mtr_manual_approve",
@@ -471,6 +531,17 @@ def _file_detail_context(request, project, node):
             )
         except Exception:
             mtr_manual_approve_url = ""
+        try:
+            mtr_status_url = reverse(
+                "drive_mtr_status",
+                kwargs={
+                    "org_slug": request.org.slug,
+                    "project_slug": project.slug,
+                    "file_id": node.id,
+                },
+            )
+        except Exception:
+            mtr_status_url = ""
 
     return {
         "org": request.org,
@@ -490,8 +561,10 @@ def _file_detail_context(request, project, node):
         "mtr_has_unverified_drafts": mtr_has_unverified,
         "mtr_pending_drafts_count": mtr_pending_count,
         "mtr_review_url": mtr_review_url,
+        "mtr_review_filtered_url": mtr_review_filtered_url,
         "mtr_manual_approve_url": mtr_manual_approve_url,
         "mtr_can_manual_approve": is_admin_or_owner,
+        "mtr_status_url": mtr_status_url,
     }
 
 
@@ -519,6 +592,31 @@ def file_detail(request, org_slug, project_slug, file_id):
     context = _file_detail_context(request, project, node)
     context["standalone"] = True
     return render(request, "drive/file_detail.html", context)
+
+
+@login_required
+@require_membership("GUEST")
+@require_GET
+def file_mtr_status(request, org_slug, project_slug, file_id):
+    project = get_project_for_request(request, request.org, project_slug)
+    forbidden = _require_project_access(request, project)
+    if forbidden:
+        return forbidden
+
+    node = get_object_or_404(
+        FileNode.objects.select_related("project"),
+        pk=file_id,
+        org=request.org,
+        project=project,
+    )
+
+    drafts_count = node.material_heat_drafts.filter(org=request.org, verified=False).count()
+
+    payload = {
+        "drafts_count": drafts_count,
+        "mtr_approved": bool(node.mtr_approved),
+    }
+    return JsonResponse(payload)
 
 
 @login_required

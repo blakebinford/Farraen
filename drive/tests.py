@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 from django.test import TestCase
 from django.urls import reverse
 from django.contrib.auth import get_user_model
@@ -9,6 +11,7 @@ from datetime import timedelta
 from organizations.models import Organization, Membership
 from projects.models import Project, ProjectMember
 from drive.models import Folder, FileNode, FileVersion, FileEvent
+from welds.models import MaterialHeatDraft
 
 
 class DriveUIViewTests(TestCase):
@@ -112,6 +115,107 @@ class DriveUIViewTests(TestCase):
                 version=version,
             ).exists()
         )
+
+    @patch("welds.signals.process_mtr_fileversion.delay")
+    def test_upload_mtr_redirects_to_drafts_with_metadata(self, mock_delay):
+        upload_url = reverse(
+            "drive_upload",
+            kwargs={
+                "org_slug": self.org.slug,
+                "project_slug": self.project.slug,
+                "folder_id": self.folder.id,
+            },
+        )
+        payload = {
+            "file": SimpleUploadedFile(
+                "mtr-report.pdf", b"%PDF-1.4 mtr", content_type="application/pdf"
+            ),
+            "doc_type": FileNode.DocType.MTR,
+            "number": "MTR-42",
+            "title": "QA Heat",
+        }
+        response = self.client.post(upload_url, payload)
+        node = FileNode.objects.get(folder=self.folder, name="mtr-report.pdf")
+        expected_url = (
+            reverse("welds:mtr_draft_list", kwargs={"org_slug": self.org.slug})
+            + f"?file={node.id}"
+        )
+        self.assertRedirects(response, expected_url, fetch_redirect_response=False)
+        self.assertEqual(node.doc_type, FileNode.DocType.MTR)
+        self.assertEqual(node.number, "MTR-42")
+        self.assertEqual(node.title, "QA Heat")
+        self.assertIsNotNone(node.latest_version)
+        self.assertEqual(node.latest_version.uploaded_by, self.user)
+        mock_delay.assert_called_once_with(node.latest_version.id)
+
+    @patch("welds.signals.process_mtr_fileversion.delay")
+    def test_upload_mtr_rejected_for_org_folder(self, mock_delay):
+        org_folder = Folder.objects.create(
+            org=self.org,
+            project=None,
+            name="Org Docs",
+            created_by=self.user,
+        )
+        upload_url = reverse(
+            "drive_upload",
+            kwargs={
+                "org_slug": self.org.slug,
+                "project_slug": self.project.slug,
+                "folder_id": org_folder.id,
+            },
+        )
+        payload = {
+            "file": SimpleUploadedFile(
+                "blocked.pdf", b"%PDF-1.4 blocked", content_type="application/pdf"
+            ),
+            "doc_type": FileNode.DocType.MTR,
+        }
+        response = self.client.post(upload_url, payload)
+        expected_url = reverse(
+            "project_drive_root",
+            kwargs={"org_slug": self.org.slug, "project_slug": self.project.slug},
+        )
+        self.assertRedirects(response, expected_url, fetch_redirect_response=False)
+        self.assertFalse(
+            FileNode.objects.filter(
+                folder=org_folder, doc_type=FileNode.DocType.MTR
+            ).exists()
+        )
+        mock_delay.assert_not_called()
+
+    def test_file_mtr_status_endpoint(self):
+        status_url = reverse(
+            "drive_mtr_status",
+            kwargs={
+                "org_slug": self.org.slug,
+                "project_slug": self.project.slug,
+                "file_id": self.node.id,
+            },
+        )
+        MaterialHeatDraft.objects.create(
+            file_node=self.node,
+            org=self.org,
+            heat_number="HX-1",
+        )
+        MaterialHeatDraft.objects.create(
+            file_node=self.node,
+            org=self.org,
+            heat_number="HX-2",
+            verified=True,
+        )
+
+        response = self.client.get(status_url)
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["drafts_count"], 1)
+        self.assertFalse(payload["mtr_approved"])
+
+        self.node.mtr_approved = True
+        self.node.save(update_fields=["mtr_approved"])
+
+        response = self.client.get(status_url)
+        payload = response.json()
+        self.assertTrue(payload["mtr_approved"])
 
     def test_file_detail_drawer_endpoint(self):
         response = self.client.get(self._drawer_url())

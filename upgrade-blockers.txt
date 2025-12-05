@@ -1,0 +1,1 @@
+- torch==2.7.1+cpu is unavailable on the default PyPI index for Python 3.12. A compatible wheel may require using the official PyTorch index URL or pinning to a supported build (e.g., torch==2.7.1 without the +cpu suffix). Installation failure blocks running the existing requirements set under Python 3.12 and should be resolved before proceeding with further upgrades.

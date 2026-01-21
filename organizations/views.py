@@ -5,6 +5,7 @@ from .models import Organization, Membership, Invitation
 from .decorators import require_membership
 
 @login_required
+@require_membership("GUEST")
 def org_dashboard(request, org_slug):
     org = request.org
     if not org:

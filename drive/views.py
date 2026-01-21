@@ -331,7 +331,12 @@ def folder_create(request, org_slug, project_slug, folder_id):
 @require_membership(min_role="MEMBER")
 def file_upload(request, org_slug, project_slug, folder_id):
     org = request.org
-    folder = get_object_or_404(Folder, pk=folder_id, org=org)
+    project = get_project_for_request(request, org, project_slug)
+    forbidden = _require_project_access(request, project)
+    if forbidden:
+        return forbidden
+
+    folder = get_object_or_404(Folder, pk=folder_id, org=org, project=project)
 
     def _redirect_back():
         if folder.project_id:

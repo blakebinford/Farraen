@@ -25,6 +25,13 @@ class MaterialHeat(models.Model):
         on_delete=models.CASCADE,
         related_name="material_heats",
     )
+    project = models.ForeignKey(
+        "projects.Project",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="material_heats",
+    )
     heat_number = models.CharField(max_length=128)
     description = models.CharField(max_length=255, blank=True)
     material_grade = models.CharField(max_length=120, blank=True)
@@ -155,6 +162,13 @@ class Welder(models.Model):
     org = models.ForeignKey(
         "organizations.Organization",
         on_delete=models.CASCADE,
+        related_name="welders",
+    )
+    project = models.ForeignKey(
+        "projects.Project",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
         related_name="welders",
     )
     name = models.CharField(max_length=255)

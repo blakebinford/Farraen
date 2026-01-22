@@ -2420,6 +2420,7 @@ def _ensure_repair_access(request, repair: WeldRepair):
     return None
 
 
+@require_membership("MEMBER")
 @require_http_methods(["POST"])
 def mark_weld_for_repair(request, org_slug, weld_id: int):
     """Create or retrieve the active repair case for a weld.
@@ -2471,6 +2472,7 @@ def mark_weld_for_repair(request, org_slug, weld_id: int):
     )
 
 
+@require_membership("GUEST")
 @require_http_methods(["GET"])
 def project_repairs(request, org_slug, project_id: int):
     project = get_object_or_404(Project, pk=project_id)
@@ -2589,6 +2591,7 @@ def project_repairs(request, org_slug, project_id: int):
     )
 
 
+@require_membership("MEMBER")
 @require_http_methods(["PATCH"])
 def update_repair(request, org_slug, repair_id: int):
     repair = get_object_or_404(
@@ -2663,6 +2666,7 @@ def update_repair(request, org_slug, repair_id: int):
     return JsonResponse({"repair": _serialize_repair(repair, include_children=include_children)})
 
 
+@require_membership("MEMBER")
 @require_http_methods(["POST"])
 def create_repair_attempt(request, org_slug, repair_id: int):
     repair = get_object_or_404(
@@ -2714,6 +2718,7 @@ def create_repair_attempt(request, org_slug, repair_id: int):
     )
 
 
+@require_membership("MEMBER")
 @require_http_methods(["POST"])
 def create_repair_reinspection(request, org_slug, repair_id: int):
     repair = get_object_or_404(
@@ -2759,6 +2764,7 @@ def create_repair_reinspection(request, org_slug, repair_id: int):
     )
 
 
+@require_membership("MEMBER")
 @require_http_methods(["POST"])
 def close_repair(request, org_slug, repair_id: int):
     repair = get_object_or_404(

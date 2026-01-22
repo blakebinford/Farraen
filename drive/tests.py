@@ -171,17 +171,14 @@ class DriveUIViewTests(TestCase):
             "doc_type": FileNode.DocType.MTR,
         }
         response = self.client.post(upload_url, payload)
-        expected_url = reverse(
-            "project_drive_root",
-            kwargs={"org_slug": self.org.slug, "project_slug": self.project.slug},
-        )
-        self.assertRedirects(response, expected_url, fetch_redirect_response=False)
+        self.assertEqual(response.status_code, 404)
         self.assertFalse(
             FileNode.objects.filter(
                 folder=org_folder, doc_type=FileNode.DocType.MTR
             ).exists()
         )
         mock_delay.assert_not_called()
+
 
     def test_file_mtr_status_endpoint(self):
         status_url = reverse(
@@ -531,3 +528,60 @@ class DriveUIViewTests(TestCase):
         response = self.client.get(self._folder_url())
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "No recent documents.")
+
+
+class DriveUploadAccessTests(TestCase):
+    def setUp(self):
+        User = get_user_model()
+        self.user = User.objects.create_user(email="member@example.com", password="testpass123")
+        self.org = Organization.objects.create(name="Acme", slug="acme", owner=self.user)
+        Membership.objects.create(org=self.org, user=self.user, role=Membership.Role.MEMBER)
+        self.project = Project.objects.create(org=self.org, name="Bridge", slug="bridge", created_by=self.user)
+        self.folder = Folder.objects.create(org=self.org, project=self.project, name="Drawings", created_by=self.user)
+        self.client.force_login(self.user)
+
+    def _upload_url(self, project_slug, folder_id):
+        return reverse(
+            "drive_upload",
+            kwargs={
+                "org_slug": self.org.slug,
+                "project_slug": project_slug,
+                "folder_id": folder_id,
+            },
+        )
+
+    def _payload(self):
+        return {
+            "file": SimpleUploadedFile(
+                "report.pdf", b"%PDF-1.4 test", content_type="application/pdf"
+            )
+        }
+
+    def test_upload_forbidden_without_project_membership(self):
+        response = self.client.post(self._upload_url(self.project.slug, self.folder.id), self._payload())
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(FileNode.objects.filter(folder=self.folder, name="report.pdf").exists())
+
+    def test_upload_allowed_with_project_membership(self):
+        ProjectMember.objects.create(project=self.project, user=self.user)
+        response = self.client.post(self._upload_url(self.project.slug, self.folder.id), self._payload())
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(FileNode.objects.filter(folder=self.folder, name="report.pdf").exists())
+
+    def test_upload_rejects_mismatched_project_folder(self):
+        ProjectMember.objects.create(project=self.project, user=self.user)
+        other_project = Project.objects.create(org=self.org, name="Tunnel", slug="tunnel", created_by=self.user)
+        other_folder = Folder.objects.create(org=self.org, project=other_project, name="Specs", created_by=self.user)
+
+        response = self.client.post(self._upload_url(self.project.slug, other_folder.id), self._payload())
+        self.assertEqual(response.status_code, 404)
+        self.assertFalse(FileNode.objects.filter(folder=other_folder, name="report.pdf").exists())
+
+    def test_upload_blocked_for_archived_project(self):
+        self.project.status = Project.Status.ARCHIVED
+        self.project.save(update_fields=["status"])
+        ProjectMember.objects.create(project=self.project, user=self.user)
+
+        response = self.client.post(self._upload_url(self.project.slug, self.folder.id), self._payload())
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(FileNode.objects.filter(folder=self.folder, name="report.pdf").exists())

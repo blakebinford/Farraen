@@ -560,7 +560,7 @@ class WeldLogMissingTablesTests(TestCase):
             user=self.user,
             role=ProjectMember.Role.MEMBER,
         )
-        self.client.force_login(self.user)
+
 
     def _weld_log_url(self, name="weld_log"):
         return reverse(
@@ -608,6 +608,191 @@ class WeldLogMissingTablesTests(TestCase):
         self.assertEqual(response.json(), {"error": expected_message})
 
         self.assertEqual(mock_missing.call_count, 4)
+
+
+class RepairEndpointMembershipTests(TestCase):
+    def setUp(self):
+        User = get_user_model()
+        self.owner = User.objects.create_user(
+            email="owner@example.com",
+            password="pass1234",
+        )
+        self.member_user = User.objects.create_user(
+            email="member@example.com",
+            password="pass1234",
+        )
+        self.guest_user = User.objects.create_user(
+            email="guest@example.com",
+            password="pass1234",
+        )
+        self.org = Organization.objects.create(
+            name="Acme", slug="acme", owner=self.owner
+        )
+        Membership.objects.create(
+            org=self.org,
+            user=self.owner,
+            role=Membership.Role.OWNER,
+        )
+        Membership.objects.create(
+            org=self.org,
+            user=self.member_user,
+            role=Membership.Role.MEMBER,
+        )
+        Membership.objects.create(
+            org=self.org,
+            user=self.guest_user,
+            role=Membership.Role.GUEST,
+        )
+        self.project = Project.objects.create(
+            org=self.org,
+            name="Pipeline A",
+            slug="pipeline-a",
+            created_by=self.owner,
+            status=Project.Status.ACTIVE,
+        )
+        ProjectMember.objects.create(
+            project=self.project,
+            user=self.member_user,
+            role=ProjectMember.Role.MEMBER,
+        )
+        ProjectMember.objects.create(
+            project=self.project,
+            user=self.guest_user,
+            role=ProjectMember.Role.MEMBER,
+        )
+        self.weld = Weld.objects.create(
+            project=self.project,
+            weld_id="W-100",
+        )
+        self.repair_weld = Weld.objects.create(
+            project=self.project,
+            weld_id="W-200",
+        )
+        self.repair = WeldRepair.objects.create(
+            weld=self.repair_weld,
+            flagged_at=date.today(),
+        )
+
+    def _mark_url(self):
+        return reverse(
+            "welds:mark_weld_for_repair",
+            kwargs={
+                "org_slug": self.org.slug,
+                "weld_id": self.weld.id,
+            },
+        )
+
+    def _update_url(self):
+        return reverse(
+            "welds:update_repair",
+            kwargs={
+                "org_slug": self.org.slug,
+                "repair_id": self.repair.id,
+            },
+        )
+
+    def _attempt_url(self):
+        return reverse(
+            "welds:repair_add_attempt",
+            kwargs={
+                "org_slug": self.org.slug,
+                "repair_id": self.repair.id,
+            },
+        )
+
+    def _reinspection_url(self):
+        return reverse(
+            "welds:repair_add_reinspection",
+            kwargs={
+                "org_slug": self.org.slug,
+                "repair_id": self.repair.id,
+            },
+        )
+
+    def _close_url(self):
+        return reverse(
+            "welds:repair_close",
+            kwargs={
+                "org_slug": self.org.slug,
+                "repair_id": self.repair.id,
+            },
+        )
+
+    def test_org_guest_cannot_write_repairs(self):
+        self.client.force_login(self.guest_user)
+
+        response = self.client.post(
+            self._mark_url(),
+            data=json.dumps({}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 403)
+
+        response = self.client.patch(
+            self._update_url(),
+            data=json.dumps({"comments": "updated"}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 403)
+
+        response = self.client.post(
+            self._attempt_url(),
+            data=json.dumps({"performed_at": date.today().isoformat()}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 403)
+
+        response = self.client.post(
+            self._reinspection_url(),
+            data=json.dumps({"reinspection_date": date.today().isoformat()}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 403)
+
+        response = self.client.post(
+            self._close_url(),
+            data=json.dumps({}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_org_member_can_write_repairs(self):
+        self.client.force_login(self.member_user)
+
+        response = self.client.post(
+            self._mark_url(),
+            data=json.dumps({}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 201)
+
+        response = self.client.patch(
+            self._update_url(),
+            data=json.dumps({"comments": "updated"}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+
+        response = self.client.post(
+            self._attempt_url(),
+            data=json.dumps({"performed_at": date.today().isoformat()}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 201)
+
+        response = self.client.post(
+            self._reinspection_url(),
+            data=json.dumps({"reinspection_date": date.today().isoformat()}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 201)
+
+        response = self.client.post(
+            self._close_url(),
+            data=json.dumps({}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
 
 
 class WeldKPIDashboardServiceTests(TestCase):

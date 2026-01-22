@@ -28,7 +28,12 @@ from welds.services import (
 
 from .forms import ProjectForm, ProjectInfoForm, ProjectStatusForm
 from .models import Project, ProjectMember
-from .permissions import can_invite_project_members, can_view_project
+from .permissions import (
+    can_invite_project_members,
+    can_view_project,
+    is_org_guest,
+    is_project_guest,
+)
 from .utils import (
     assert_project_not_archived,
     ensure_membership,
@@ -279,6 +284,12 @@ class ProjectDashboardView(View):
         self.project = get_project_for_request(
             request, request.org, kwargs.get("project_slug")
         )
+        if is_org_guest(request.user, request.org) or is_project_guest(
+            request.user, self.project
+        ):
+            raise PermissionDenied(
+                "Guests only have access to the Weld Log and Repair Log."
+            )
         if not can_view_project(request.user, self.project):
             raise PermissionDenied("You do not have access to this project.")
         self.membership = (
@@ -490,6 +501,12 @@ class ProjectDashboardView(View):
 @require_membership("GUEST")
 def project_members(request, org_slug, project_slug):
     project = get_project_for_request(request, request.org, project_slug)
+    if is_org_guest(request.user, request.org) or is_project_guest(
+        request.user, project
+    ):
+        raise PermissionDenied(
+            "Guests only have access to the Weld Log and Repair Log."
+        )
     if not can_view_project(request.user, project):
         raise PermissionDenied("You do not have access to this project.")
     if not can_invite_project_members(request.user, project):

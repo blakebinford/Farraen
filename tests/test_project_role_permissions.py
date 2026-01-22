@@ -66,11 +66,11 @@ def test_project_role_permissions_for_drive_and_welds(client):
 
     client.force_login(member_user)
     response = client.post(repair_url, data="{}", content_type="application/json")
-    assert response.status_code in {200, 201}
+    assert response.status_code in {403, 404}
 
     client.force_login(tech_user)
     response = client.post(repair_url, data="{}", content_type="application/json")
-    assert response.status_code in {403, 404}
+    assert response.status_code in {200, 201}
 
     client.force_login(viewer_user)
     response = client.post(repair_url, data="{}", content_type="application/json")

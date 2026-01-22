@@ -34,15 +34,15 @@
 
   <div class="card mt-4 mb-3">
     <div class="card-body">
-      <h6 class="card-title mb-3">Role guide</h6>
+      <h6 class="card-title mb-3">Role descriptions</h6>
       <ul class="mb-3">
-        <li><strong>Project Manager</strong>: Full project oversight with edit access to drive content and welds.</li>
-        <li><strong>Superintendent</strong>: Manages field execution with drive and weld edit access.</li>
-        <li><strong>Quality Manager</strong>: Oversees quality processes with drive and weld edit access.</li>
-        <li><strong>Quality Tech</strong>: Supports quality documentation with drive edit access but no weld edits.</li>
-        <li><strong>Project Member</strong>: Standard contributor with drive and weld edit access.</li>
-        <li><strong>Project Viewer</strong>: Read-only access to project information.</li>
-        <li><strong>Client (Guest)</strong>: Read-only access for external stakeholders.</li>
+        <li><strong>Project Manager</strong>: Full project oversight with Drive edit access. Does not edit welds.</li>
+        <li><strong>Superintendent</strong>: Field execution with Drive edit access. Does not edit welds.</li>
+        <li><strong>Quality Manager</strong>: Quality leadership with Drive and Weld edit access.</li>
+        <li><strong>Quality Tech</strong>: Documentation support with Drive and Weld edit access.</li>
+        <li><strong>Project Member</strong>: Standard contributor with Drive edit access. Does not edit welds.</li>
+        <li><strong>Project Viewer</strong>: Read-only access to project information and Drive.</li>
+        <li><strong>Client (Guest)</strong>: Read-only access limited to the Weld Log and Repair Log.</li>
       </ul>
       <p class="small text-muted mb-2">
         Project viewing requires being both an organization member and a project member.
@@ -61,13 +61,13 @@
             <tr>
               <td>Project Manager</td>
               <td>Yes</td>
-              <td>Yes</td>
+              <td>No</td>
               <td>Full project oversight.</td>
             </tr>
             <tr>
               <td>Superintendent</td>
               <td>Yes</td>
-              <td>Yes</td>
+              <td>No</td>
               <td>Field execution.</td>
             </tr>
             <tr>
@@ -79,13 +79,13 @@
             <tr>
               <td>Quality Tech</td>
               <td>Yes</td>
-              <td>No</td>
+              <td>Yes</td>
               <td>Documentation support.</td>
             </tr>
             <tr>
               <td>Project Member</td>
               <td>Yes</td>
-              <td>Yes</td>
+              <td>No</td>
               <td>Standard contributor.</td>
             </tr>
             <tr>
@@ -98,7 +98,7 @@
               <td>Client (Guest)</td>
               <td>No</td>
               <td>No</td>
-              <td>Read-only.</td>
+              <td>Read-only. Only access Weld Log and Repair Log.</td>
             </tr>
           </tbody>
         </table>
@@ -110,30 +110,27 @@
   <form method="post" class="row gy-2 gx-3 align-items-center" id="add-project-member-form">
     {% csrf_token %}
     <div class="col-auto">
-      <label class="form-label fw-semibold mb-1" for="org-member-search">Choose an org member</label>
+      <label class="form-label fw-semibold mb-1" for="org-member-search">Search organization members</label>
       <input
         type="text"
         id="org-member-search"
         class="form-control"
-        list="org-member-options"
         placeholder="Start typing a name or email"
         autocomplete="off"
-        required
       >
-      <datalist id="org-member-options">
+    </div>
+    <div class="col-auto">
+      <label class="form-label fw-semibold mb-1" for="org-member-select">Choose an org member</label>
+      <select name="user_id" id="org-member-select" class="form-select" required>
+        <option value="" selected disabled>Select a member</option>
         {% for member in org_members %}
           {% with label=member.user.email|default:member.user.username %}
-            <option
-              value="{{ label }} ({{ member.get_role_display }}) [id:{{ member.user.id }}]"
-              data-user-id="{{ member.user.id }}"
-            ></option>
+            <option value="{{ member.user.id }}">
+              {{ label }} ({{ member.get_role_display }})
+            </option>
           {% endwith %}
         {% endfor %}
-      </datalist>
-      <input type="hidden" name="user_id" id="org-member-user-id">
-      <div class="text-danger small d-none" id="org-member-error">
-        Please select a valid organization member from the list.
-      </div>
+      </select>
     </div>
     <div class="col-auto">
       <select name="role" class="form-select" required>
@@ -152,34 +149,37 @@
   </form>
   <script>
     (() => {
-      const form = document.getElementById("add-project-member-form");
       const searchInput = document.getElementById("org-member-search");
-      const hiddenInput = document.getElementById("org-member-user-id");
-      const errorMessage = document.getElementById("org-member-error");
-      const options = Array.from(
-        document.querySelectorAll("#org-member-options option")
-      );
+      const memberSelect = document.getElementById("org-member-select");
+      const placeholder = memberSelect.querySelector("option[value='']");
+      const optionData = Array.from(memberSelect.options)
+        .filter((option) => option.value)
+        .map((option) => ({ value: option.value, text: option.text }));
 
-      const syncUserId = () => {
-        const match = options.find((option) => option.value === searchInput.value);
-        if (match) {
-          hiddenInput.value = match.dataset.userId;
-          errorMessage.classList.add("d-none");
-        } else {
-          hiddenInput.value = "";
+      const renderOptions = (term) => {
+        const normalized = term.trim().toLowerCase();
+        const selectedValue = memberSelect.value;
+        memberSelect.innerHTML = "";
+        if (placeholder) {
+          const placeholderClone = placeholder.cloneNode(true);
+          placeholderClone.selected = !selectedValue;
+          memberSelect.appendChild(placeholderClone);
+        }
+        optionData
+          .filter((option) => option.text.toLowerCase().includes(normalized))
+          .forEach((option) => {
+            const optionNode = document.createElement("option");
+            optionNode.value = option.value;
+            optionNode.textContent = option.text;
+            memberSelect.appendChild(optionNode);
+          });
+        if (selectedValue) {
+          memberSelect.value = selectedValue;
         }
       };
 
-      searchInput.addEventListener("input", syncUserId);
-      searchInput.addEventListener("change", syncUserId);
-
-      form.addEventListener("submit", (event) => {
-        syncUserId();
-        if (!hiddenInput.value) {
-          event.preventDefault();
-          errorMessage.classList.remove("d-none");
-          searchInput.focus();
-        }
+      searchInput.addEventListener("input", (event) => {
+        renderOptions(event.target.value);
       });
     })();
   </script>

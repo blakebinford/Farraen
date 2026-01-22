@@ -47,6 +47,8 @@ from django.core.paginator import Paginator, EmptyPage
 # ---------- helpers ----------
 
 def _require_project_access(request, project):
+    if is_org_guest(request.user, project.org) or is_project_guest(request.user, project):
+        return HttpResponseForbidden("Guests do not have access to Drive.")
     if not can_view_project(request.user, project):
         return HttpResponseForbidden("No project access")
     if request.method not in ("GET", "HEAD", "OPTIONS"):

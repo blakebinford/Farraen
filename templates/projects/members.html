@@ -110,30 +110,27 @@
   <form method="post" class="row gy-2 gx-3 align-items-center" id="add-project-member-form">
     {% csrf_token %}
     <div class="col-auto">
-      <label class="form-label fw-semibold mb-1" for="org-member-search">Choose an org member</label>
+      <label class="form-label fw-semibold mb-1" for="org-member-search">Search organization members</label>
       <input
         type="text"
         id="org-member-search"
         class="form-control"
-        list="org-member-options"
         placeholder="Start typing a name or email"
         autocomplete="off"
-        required
       >
-      <datalist id="org-member-options">
+    </div>
+    <div class="col-auto">
+      <label class="form-label fw-semibold mb-1" for="org-member-select">Choose an org member</label>
+      <select name="user_id" id="org-member-select" class="form-select" required>
+        <option value="" selected disabled>Select a member</option>
         {% for member in org_members %}
           {% with label=member.user.email|default:member.user.username %}
-            <option
-              value="{{ label }} ({{ member.get_role_display }})"
-              data-user-id="{{ member.user.id }}"
-            ></option>
+            <option value="{{ member.user.id }}">
+              {{ label }} ({{ member.get_role_display }})
+            </option>
           {% endwith %}
         {% endfor %}
-      </datalist>
-      <input type="hidden" name="user_id" id="org-member-user-id">
-      <div class="text-danger small d-none" id="org-member-error">
-        Please select a valid organization member from the list.
-      </div>
+      </select>
     </div>
     <div class="col-auto">
       <select name="role" class="form-select" required>
@@ -153,35 +150,37 @@
   <script>
     (() => {
       const searchInput = document.getElementById("org-member-search");
-      const hiddenInput = document.getElementById("org-member-user-id");
-      const errorMessage = document.getElementById("org-member-error");
-      const options = Array.from(
-        document.querySelectorAll("#org-member-options option")
-      );
+      const memberSelect = document.getElementById("org-member-select");
+      const placeholder = memberSelect.querySelector("option[value='']");
+      const optionData = Array.from(memberSelect.options)
+        .filter((option) => option.value)
+        .map((option) => ({ value: option.value, text: option.text }));
 
-      const syncUserId = () => {
-        const match = options.find((option) => option.value === searchInput.value);
-        if (match) {
-          hiddenInput.value = match.dataset.userId;
-          errorMessage.classList.add("d-none");
-        } else {
-          hiddenInput.value = "";
+      const renderOptions = (term) => {
+        const normalized = term.trim().toLowerCase();
+        const selectedValue = memberSelect.value;
+        memberSelect.innerHTML = "";
+        if (placeholder) {
+          const placeholderClone = placeholder.cloneNode(true);
+          placeholderClone.selected = !selectedValue;
+          memberSelect.appendChild(placeholderClone);
+        }
+        optionData
+          .filter((option) => option.text.toLowerCase().includes(normalized))
+          .forEach((option) => {
+            const optionNode = document.createElement("option");
+            optionNode.value = option.value;
+            optionNode.textContent = option.text;
+            memberSelect.appendChild(optionNode);
+          });
+        if (selectedValue) {
+          memberSelect.value = selectedValue;
         }
       };
 
-      searchInput.addEventListener("input", syncUserId);
-      searchInput.addEventListener("change", syncUserId);
-
-      document
-        .getElementById("add-project-member-form")
-        .addEventListener("submit", (event) => {
-          syncUserId();
-          if (!hiddenInput.value) {
-            event.preventDefault();
-            errorMessage.classList.remove("d-none");
-            searchInput.focus();
-          }
-        });
+      searchInput.addEventListener("input", (event) => {
+        renderOptions(event.target.value);
+      });
     })();
   </script>
 {% endblock %}

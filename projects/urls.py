@@ -1,5 +1,4 @@
 from django.urls import path
-
 from . import views
 
 app_name = "projects"
@@ -16,5 +15,10 @@ urlpatterns = [
         "projects/<slug:project_slug>/weld-dashboard/",
         views.ProjectWeldDashboardView.as_view(),
         name="weld_dashboard",
+    ),
+    path(
+        "projects/<slug:project_slug>/members/",
+        views.project_members,
+        name="project_members",
     ),
 ]

@@ -197,10 +197,6 @@
                 <a class="nav-link{% if url_name == 'org_dashboard' %} active{% endif %}" href="{% url 'org_dashboard' request.org.slug %}">Dashboard</a>
               </li>
               <li class="nav-item">
-                <a class="nav-link{% if url_name == 'doc_list' or url_name == 'doc_detail' or url_name == 'doc_upload' %} active{% endif %}"
-                   href="{% url 'doc_list' request.org.slug %}">Documents</a>
-              </li>
-              <li class="nav-item">
                 <a class="nav-link{% if url_name == 'project_list' or url_name == 'project_create' %} active{% endif %}"
                    href="{% url 'projects:project_list' request.org.slug %}">Projects</a>
               </li>

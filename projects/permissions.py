@@ -64,10 +64,8 @@ def can_edit_welds(user, project: Project) -> bool:
     if not membership:
         return False
     return membership.role in {
-        ProjectMember.Role.PROJECT_MANAGER,
-        ProjectMember.Role.SUPERINTENDENT,
         ProjectMember.Role.QUALITY_MANAGER,
-        ProjectMember.Role.MEMBER,
+        ProjectMember.Role.QUALITY_TECH,
     }
 
 

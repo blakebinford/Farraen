@@ -34,15 +34,15 @@
 
   <div class="card mt-4 mb-3">
     <div class="card-body">
-      <h6 class="card-title mb-3">Role guide</h6>
+      <h6 class="card-title mb-3">Role descriptions</h6>
       <ul class="mb-3">
-        <li><strong>Project Manager</strong>: Full project oversight with edit access to drive content and welds.</li>
-        <li><strong>Superintendent</strong>: Manages field execution with drive and weld edit access.</li>
-        <li><strong>Quality Manager</strong>: Oversees quality processes with drive and weld edit access.</li>
-        <li><strong>Quality Tech</strong>: Supports quality documentation with drive edit access but no weld edits.</li>
-        <li><strong>Project Member</strong>: Standard contributor with drive and weld edit access.</li>
-        <li><strong>Project Viewer</strong>: Read-only access to project information.</li>
-        <li><strong>Client (Guest)</strong>: Read-only access for external stakeholders.</li>
+        <li><strong>Project Manager</strong>: Full project oversight with Drive edit access. Does not edit welds.</li>
+        <li><strong>Superintendent</strong>: Field execution with Drive edit access. Does not edit welds.</li>
+        <li><strong>Quality Manager</strong>: Quality leadership with Drive and Weld edit access.</li>
+        <li><strong>Quality Tech</strong>: Documentation support with Drive and Weld edit access.</li>
+        <li><strong>Project Member</strong>: Standard contributor with Drive edit access. Does not edit welds.</li>
+        <li><strong>Project Viewer</strong>: Read-only access to project information and Drive.</li>
+        <li><strong>Client (Guest)</strong>: Read-only access limited to the Weld Log and Repair Log.</li>
       </ul>
       <p class="small text-muted mb-2">
         Project viewing requires being both an organization member and a project member.
@@ -61,13 +61,13 @@
             <tr>
               <td>Project Manager</td>
               <td>Yes</td>
-              <td>Yes</td>
+              <td>No</td>
               <td>Full project oversight.</td>
             </tr>
             <tr>
               <td>Superintendent</td>
               <td>Yes</td>
-              <td>Yes</td>
+              <td>No</td>
               <td>Field execution.</td>
             </tr>
             <tr>
@@ -79,13 +79,13 @@
             <tr>
               <td>Quality Tech</td>
               <td>Yes</td>
-              <td>No</td>
+              <td>Yes</td>
               <td>Documentation support.</td>
             </tr>
             <tr>
               <td>Project Member</td>
               <td>Yes</td>
-              <td>Yes</td>
+              <td>No</td>
               <td>Standard contributor.</td>
             </tr>
             <tr>
@@ -98,7 +98,7 @@
               <td>Client (Guest)</td>
               <td>No</td>
               <td>No</td>
-              <td>Read-only.</td>
+              <td>Read-only. Only access Weld Log and Repair Log.</td>
             </tr>
           </tbody>
         </table>
@@ -124,7 +124,7 @@
         {% for member in org_members %}
           {% with label=member.user.email|default:member.user.username %}
             <option
-              value="{{ label }} ({{ member.get_role_display }}) [id:{{ member.user.id }}]"
+              value="{{ label }} ({{ member.get_role_display }})"
               data-user-id="{{ member.user.id }}"
             ></option>
           {% endwith %}
@@ -152,7 +152,6 @@
   </form>
   <script>
     (() => {
-      const form = document.getElementById("add-project-member-form");
       const searchInput = document.getElementById("org-member-search");
       const hiddenInput = document.getElementById("org-member-user-id");
       const errorMessage = document.getElementById("org-member-error");
@@ -173,14 +172,16 @@
       searchInput.addEventListener("input", syncUserId);
       searchInput.addEventListener("change", syncUserId);
 
-      form.addEventListener("submit", (event) => {
-        syncUserId();
-        if (!hiddenInput.value) {
-          event.preventDefault();
-          errorMessage.classList.remove("d-none");
-          searchInput.focus();
-        }
-      });
+      document
+        .getElementById("add-project-member-form")
+        .addEventListener("submit", (event) => {
+          syncUserId();
+          if (!hiddenInput.value) {
+            event.preventDefault();
+            errorMessage.classList.remove("d-none");
+            searchInput.focus();
+          }
+        });
     })();
   </script>
 {% endblock %}

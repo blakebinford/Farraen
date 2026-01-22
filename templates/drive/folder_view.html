@@ -107,7 +107,7 @@
     </aside>
 
     <section class="drive-main" role="main" aria-labelledby="drive-main-heading">
-      {% include "drive/_topbar.html" %}
+      {% include "drive/_topbar.html" with can_edit_drive=can_edit_drive %}
 
       {% if child_folders %}
         <div class="mb-3">
@@ -155,17 +155,17 @@
                       tabindex="0"
                       role="button"
                       aria-label="Open {{ node.name|default:'document' }}">
-                      <td class="editable-cell" data-editable="true" data-field="number" data-value="{{ node.number|default_if_none:''|escape }}">
+                      <td class="editable-cell" data-editable="{% if can_edit_drive %}true{% else %}false{% endif %}" data-field="number" data-value="{{ node.number|default_if_none:''|escape }}">
                         <span class="cell-display">{{ node.number|default:"—" }}</span>
                       </td>
 
-                      <td class="editable-cell" data-editable="true" data-field="name" data-value="{{ node.name|default_if_none:''|escape }}">
+                      <td class="editable-cell" data-editable="{% if can_edit_drive %}true{% else %}false{% endif %}" data-field="name" data-value="{{ node.name|default_if_none:''|escape }}">
                         <span class="cell-display">
                           <a href="{% url 'drive_file' org.slug project.slug node.id %}" class="text-decoration-none" data-drive-ignore>{{ node.name|default:"—" }}</a>
                         </span>
                       </td>
 
-                      <td class="editable-cell" data-editable="true" data-field="doc_type" data-value="{{ node.doc_type|default_if_none:''|escape }}">
+                      <td class="editable-cell" data-editable="{% if can_edit_drive %}true{% else %}false{% endif %}" data-field="doc_type" data-value="{{ node.doc_type|default_if_none:''|escape }}">
                         <span class="cell-display">{{ node.get_doc_type_display|default:"—" }}</span>
                       </td>
 

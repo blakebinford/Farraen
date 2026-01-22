@@ -17,4 +17,9 @@ urlpatterns = [
         views.ProjectWeldDashboardView.as_view(),
         name="weld_dashboard",
     ),
+    path(
+        "projects/<slug:project_slug>/members/",
+        views.project_members,
+        name="project_members",
+    ),
 ]

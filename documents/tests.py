@@ -113,9 +113,15 @@ class DocumentDetailViewTests(TestCase):
         cls.user = get_user_model().objects.create_user(
             email="welder@example.com", password="password123"
         )
+        cls.guest = get_user_model().objects.create_user(
+            email="guest@example.com", password="password123"
+        )
         cls.org = Organization.objects.create(name="Pipe Ledger", owner=cls.user)
         Membership.objects.create(
             org=cls.org, user=cls.user, role=Membership.Role.MEMBER
+        )
+        Membership.objects.create(
+            org=cls.org, user=cls.guest, role=Membership.Role.GUEST
         )
 
     def setUp(self):
@@ -154,3 +160,17 @@ class DocumentDetailViewTests(TestCase):
         self.assertIsNone(response.context.get("material_heat_form"))
         self.assertNotContains(response, "Material heat details")
         self.assertNotContains(response, "name=\"heat_number\"")
+
+    def test_kpi_template_blocked_for_guests(self):
+        doc = self._create_document(doc_type="NDE", number="KPI-001")
+        doc.is_kpi_template = True
+        doc.save(update_fields=["is_kpi_template"])
+        url = reverse("doc_detail", kwargs={"org_slug": self.org.slug, "doc_id": doc.id})
+
+        self.client.force_login(self.guest)
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 403)
+
+        self.client.force_login(self.user)
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)

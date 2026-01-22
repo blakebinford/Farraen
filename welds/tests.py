@@ -344,6 +344,7 @@ class WeldLogAPITests(TestCase):
         )
         self.heat = MaterialHeat.objects.create(
             org=self.org,
+            project=self.project,
             heat_number="H-123",
             description="Pipe",
             material_grade="X52",
@@ -359,6 +360,7 @@ class WeldLogAPITests(TestCase):
         self.rig.refresh_from_db()
         self.welder = Welder.objects.create(
             org=self.org,
+            project=self.project,
             name="Alice Welder",
             stencil="A123",
         )
@@ -531,6 +533,152 @@ class WeldLogAPITests(TestCase):
         self.assertEqual(row.get("welder_stencil_repair"), "")
         self.assertEqual(row["nde_rig_id"], self.rig.id)
         self.assertTrue(row["nde_rig_folder_url"])
+
+
+class WeldOptionProjectScopeTests(TestCase):
+    def setUp(self):
+        User = get_user_model()
+        self.owner = User.objects.create_user(
+            email="owner@example.com",
+            password="pass1234",
+        )
+        self.member_user = User.objects.create_user(
+            email="member@example.com",
+            password="pass1234",
+        )
+        self.guest_user = User.objects.create_user(
+            email="guest@example.com",
+            password="pass1234",
+        )
+        self.org = Organization.objects.create(
+            name="Acme", slug="acme", owner=self.owner
+        )
+        Membership.objects.create(
+            org=self.org,
+            user=self.owner,
+            role=Membership.Role.OWNER,
+        )
+        Membership.objects.create(
+            org=self.org,
+            user=self.member_user,
+            role=Membership.Role.MEMBER,
+        )
+        Membership.objects.create(
+            org=self.org,
+            user=self.guest_user,
+            role=Membership.Role.GUEST,
+        )
+        self.project_a = Project.objects.create(
+            org=self.org,
+            name="Pipeline A",
+            slug="pipeline-a",
+            created_by=self.owner,
+            status=Project.Status.ACTIVE,
+        )
+        self.project_b = Project.objects.create(
+            org=self.org,
+            name="Pipeline B",
+            slug="pipeline-b",
+            created_by=self.owner,
+            status=Project.Status.ACTIVE,
+        )
+        ProjectMember.objects.create(
+            project=self.project_a,
+            user=self.member_user,
+            role=ProjectMember.Role.MEMBER,
+        )
+        ProjectMember.objects.create(
+            project=self.project_a,
+            user=self.guest_user,
+            role=ProjectMember.Role.GUEST,
+        )
+        self.heat_a = MaterialHeat.objects.create(
+            org=self.org,
+            project=self.project_a,
+            heat_number="H-A1",
+            description="Pipe A",
+            material_grade="X52",
+        )
+        self.heat_b = MaterialHeat.objects.create(
+            org=self.org,
+            project=self.project_b,
+            heat_number="H-B1",
+            description="Pipe B",
+            material_grade="X70",
+        )
+        self.welder_a = Welder.objects.create(
+            org=self.org,
+            project=self.project_a,
+            name="Alice Welder",
+            stencil="A123",
+        )
+        self.welder_b = Welder.objects.create(
+            org=self.org,
+            project=self.project_b,
+            name="Bob Welder",
+            stencil="B456",
+        )
+        self.rig_a = NDERig.objects.create(
+            org=self.org,
+            project=self.project_a,
+            name="Rig A",
+        )
+        self.rig_b = NDERig.objects.create(
+            org=self.org,
+            project=self.project_b,
+            name="Rig B",
+        )
+
+    def _options_url(self, name, project):
+        return reverse(
+            f"welds:{name}",
+            kwargs={
+                "org_slug": self.org.slug,
+                "project_slug": project.slug,
+            },
+        )
+
+    def _assert_project_scoped_options(self, user):
+        self.client.force_login(user)
+
+        response = self.client.get(
+            self._options_url("weld_material_heat_options", self.project_a)
+        )
+        self.assertEqual(response.status_code, 200)
+        heats = response.json().get("heats", [])
+        heat_numbers = [heat["heat_number"] for heat in heats]
+        self.assertEqual(heat_numbers, [self.heat_a.heat_number])
+
+        response = self.client.get(
+            self._options_url("weld_material_heat_search", self.project_a),
+            {"q": "H-"},
+        )
+        self.assertEqual(response.status_code, 200)
+        search_results = response.json().get("results", [])
+        search_numbers = [heat["heat_number"] for heat in search_results]
+        self.assertEqual(search_numbers, [self.heat_a.heat_number])
+
+        response = self.client.get(
+            self._options_url("weld_welder_options", self.project_a)
+        )
+        self.assertEqual(response.status_code, 200)
+        welders = response.json().get("welders", [])
+        welder_stencils = [welder["stencil"] for welder in welders]
+        self.assertEqual(welder_stencils, [self.welder_a.stencil])
+
+        response = self.client.get(
+            self._options_url("weld_nde_rig_options", self.project_a)
+        )
+        self.assertEqual(response.status_code, 200)
+        rigs = response.json().get("nde_rigs", [])
+        rig_names = [rig["name"] for rig in rigs]
+        self.assertEqual(rig_names, [self.rig_a.name])
+
+    def test_member_sees_only_project_a_options(self):
+        self._assert_project_scoped_options(self.member_user)
+
+    def test_guest_sees_only_project_a_options(self):
+        self._assert_project_scoped_options(self.guest_user)
 
 
 class WeldLogMissingTablesTests(TestCase):

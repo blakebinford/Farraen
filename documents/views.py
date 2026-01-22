@@ -4,11 +4,12 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError
-from django.http import JsonResponse
+from django.http import JsonResponse, HttpResponseForbidden
 from django.shortcuts import render, redirect, get_object_or_404
 from django.views.decorators.http import require_POST
 
 from organizations.decorators import require_membership
+from organizations.models import Membership
 
 from welds.forms import MaterialHeatForm
 from welds.models import MaterialHeat
@@ -24,6 +25,9 @@ def doc_list(request, org_slug):
         .select_related("latest_version", "checked_out_by")
         .order_by("doc_type", "number", "-latest_version__version", "name")
     )
+    membership = Membership.objects.filter(org=request.org, user=request.user).first()
+    if membership and membership.role == Membership.Role.GUEST:
+        docs = docs.filter(is_kpi_template=False)
     doc_type_choices = Document.DocType.choices
     context = {
         "org": request.org,
@@ -54,6 +58,9 @@ def doc_detail(request, org_slug, doc_id):
         pk=doc_id,
         org=request.org,
     )
+    membership = Membership.objects.filter(org=request.org, user=request.user).first()
+    if doc.is_kpi_template and membership and membership.role == Membership.Role.GUEST:
+        return HttpResponseForbidden("Guests cannot access KPI templates.")
 
     material_heat_form = None
     material_heat = None

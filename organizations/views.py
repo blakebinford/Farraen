@@ -1,6 +1,6 @@
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import render, redirect, get_object_or_404
-from django.http import HttpResponseBadRequest
+from django.http import HttpResponseBadRequest, HttpResponseForbidden
 from .models import Organization, Membership, Invitation
 from .decorators import require_membership
 
@@ -26,9 +26,23 @@ def invite_member(request, org_slug):
     org = request.org
     if request.method == "POST":
         email = request.POST.get("email", "").strip().lower()
-        role = request.POST.get("role", "MEMBER")
+        role = (request.POST.get("role", "MEMBER") or "MEMBER").strip().upper()
         if not email:
             return HttpResponseBadRequest("Email required")
+        if role == Membership.Role.OWNER:
+            return HttpResponseBadRequest("Inviting owners is not supported.")
+        if role == Membership.Role.ADMIN:
+            inviter = Membership.objects.filter(org=org, user=request.user).first()
+            if not inviter or inviter.role != Membership.Role.OWNER:
+                return HttpResponseForbidden("Only organization owners may invite org admins.")
+        allowed_roles = {
+            Membership.Role.ADMIN,
+            Membership.Role.MEMBER,
+            Membership.Role.VIEWER,
+            Membership.Role.GUEST,
+        }
+        if role not in allowed_roles:
+            return HttpResponseBadRequest("Invalid role.")
         inv = Invitation.objects.create(org=org, email=email, role=role, invited_by=request.user)
         # TODO: send email with link
         # Link: /o/<org_slug>/invite/accept/<token>/

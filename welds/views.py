@@ -21,10 +21,10 @@ from django.middleware.csrf import get_token
 
 from organizations.decorators import require_membership
 from projects.models import Project, ProjectMember
+from projects.permissions import can_edit_welds, can_view_project
 from projects.utils import (
     assert_project_not_archived,
     get_project_for_request,
-    user_has_project_access,
 )
 
 from drive.models import FileNode
@@ -96,9 +96,11 @@ def _migrations_required_message(missing_labels):
 
 
 def _require_project_membership(request, project):
-    if not user_has_project_access(request.user, project):
+    if not can_view_project(request.user, project):
         return HttpResponseForbidden("No project access")
     if request.method not in ("GET", "HEAD", "OPTIONS"):
+        if not can_edit_welds(request.user, project):
+            return HttpResponseForbidden("Weld log access is read-only for this role.")
         try:
             assert_project_not_archived(project)
         except PermissionDenied:
@@ -1686,7 +1688,11 @@ def material_heat_options(request, org_slug, project_slug):
         return JsonResponse({"error": message}, status=503)
 
     heats = (
-        MaterialHeat.objects.filter(org=request.org, is_active=True)
+        MaterialHeat.objects.filter(
+            org=request.org,
+            project=project,
+            is_active=True,
+        )
         .select_related("mtr_document")
         .order_by("heat_number")
     )
@@ -1743,7 +1749,10 @@ def material_heat_search(request, org_slug, project_slug):
 
     heats = (
         MaterialHeat.objects.filter(
-            org=request.org, is_active=True, heat_number__icontains=query
+            org=request.org,
+            project=project,
+            is_active=True,
+            heat_number__icontains=query,
         )
         .select_related("mtr_document")
         .order_by("heat_number")[:20]
@@ -1802,7 +1811,11 @@ def welder_options(request, org_slug, project_slug):
         return JsonResponse({"error": message}, status=503)
 
     welders = (
-        Welder.objects.filter(org=request.org, is_active=True)
+        Welder.objects.filter(
+            org=request.org,
+            project=project,
+            is_active=True,
+        )
         .order_by("stencil", "name")
     )
     data = [
@@ -1855,8 +1868,11 @@ def nde_rig_options(request, org_slug, project_slug):
         return JsonResponse({"error": message}, status=503)
 
     rigs = (
-        NDERig.objects.filter(org=request.org, is_active=True)
-        .filter(Q(project=project) | Q(project__isnull=True))
+        NDERig.objects.filter(
+            org=request.org,
+            project=project,
+            is_active=True,
+        )
         .select_related("qualification_folder")
         .order_by("name")
     )
@@ -2920,6 +2936,7 @@ def verify_mtr_draft(request, org_slug, draft_id: int):
     if request.method == "POST" and form.is_valid():
         material_heat = form.save(commit=False)
         material_heat.org = draft.org
+        material_heat.project = draft.file_node.project
         material_heat.mtr_document = draft.file_node
         material_heat._allow_unapproved_mtr = True
         material_heat.save()

@@ -17,6 +17,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from organizations.models import Membership, Organization
+from organizations.decorators import ROLE_ORDER
 from projects.models import Project, ProjectMember
 
 from ..models import MaterialHeatDraft, QuiltQueryLog, Weld
@@ -236,7 +237,24 @@ def _apply_repair_filters(qs, filters: dict[str, Any]):
     return qs
 
 
-def _resolve_scope(user, payload: dict[str, Any]) -> QueryScope:
+def _roles_at_least(min_role: str) -> list[str]:
+    if min_role not in ROLE_ORDER:
+        raise PermissionDenied("Invalid role threshold")
+    start_index = ROLE_ORDER.index(min_role)
+    return ROLE_ORDER[start_index:]
+
+
+def _ensure_org_role(user, org: Organization, min_role: str) -> None:
+    if user.is_superuser or org.owner_id == user.id:
+        return
+    membership = Membership.objects.filter(org=org, user=user).only("role").first()
+    if not membership:
+        raise PermissionDenied("You do not have access to this organization.")
+    if ROLE_ORDER.index(membership.role) < ROLE_ORDER.index(min_role):
+        raise PermissionDenied("Insufficient role.")
+
+
+def _resolve_scope(user, payload: dict[str, Any], *, min_role: str | None = None) -> QueryScope:
     org_id = payload.get("org_id")
     project_id = payload.get("project_id")
 
@@ -258,6 +276,8 @@ def _resolve_scope(user, payload: dict[str, Any]) -> QueryScope:
         raise PermissionDenied("An org_id or project_id is required")
 
     helper_used = _enforce_scope_permissions(user, org, project)
+    if min_role:
+        _ensure_org_role(user, org, min_role)
     return QueryScope(org=org, project=project, helper_used=helper_used)
 
 
@@ -507,7 +527,7 @@ class QuiltQueryView(APIView):
         data = serializer.validated_data
 
         try:
-            scope = _resolve_scope(request.user, data)
+            scope = _resolve_scope(request.user, data, min_role=Membership.Role.VIEWER)
         except Project.DoesNotExist:
             return Response({"error": "Project not found."}, status=status.HTTP_404_NOT_FOUND)
         except Organization.DoesNotExist:
@@ -675,13 +695,17 @@ class QuiltSourcesView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        allowed_roles = _roles_at_least(Membership.Role.VIEWER)
         memberships = (
-            Membership.objects.filter(user=request.user)
+            Membership.objects.filter(user=request.user, role__in=allowed_roles)
             .select_related("org")
             .order_by("org__name")
         )
+        if not memberships.exists():
+            return Response({"error": "Insufficient role."}, status=status.HTTP_403_FORBIDDEN)
+        allowed_org_ids = [membership.org_id for membership in memberships]
         project_memberships = (
-            ProjectMember.objects.filter(user=request.user)
+            ProjectMember.objects.filter(user=request.user, project__org_id__in=allowed_org_ids)
             .select_related("project", "project__org")
             .order_by("project__org__name", "project__name")
         )

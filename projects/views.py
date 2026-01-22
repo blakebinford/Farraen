@@ -5,7 +5,8 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.db.models import Count, Max, Q
-from django.shortcuts import redirect, render
+from django.http import HttpResponseBadRequest
+from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils.decorators import method_decorator
 from django.utils.dateparse import parse_date
@@ -13,6 +14,7 @@ from django.views import View
 from django.views.generic import TemplateView
 
 from organizations.decorators import require_membership
+from organizations.models import Membership
 
 from welds.analytics import (
     WeldLengthInfo,
@@ -26,11 +28,11 @@ from welds.services import (
 
 from .forms import ProjectForm, ProjectInfoForm, ProjectStatusForm
 from .models import Project, ProjectMember
+from .permissions import can_invite_project_members, can_view_project
 from .utils import (
     assert_project_not_archived,
     ensure_membership,
     get_project_for_request,
-    user_has_project_access,
 )
 from welds.models import Weld
 
@@ -134,7 +136,7 @@ class ProjectWeldDashboardView(TemplateView):
         self.project = get_project_for_request(
             request, request.org, kwargs.get("project_slug")
         )
-        if not user_has_project_access(request.user, self.project):
+        if not can_view_project(request.user, self.project):
             raise PermissionDenied("You do not have access to this project.")
         return super().dispatch(request, *args, **kwargs)
 
@@ -277,7 +279,7 @@ class ProjectDashboardView(View):
         self.project = get_project_for_request(
             request, request.org, kwargs.get("project_slug")
         )
-        if not user_has_project_access(request.user, self.project):
+        if not can_view_project(request.user, self.project):
             raise PermissionDenied("You do not have access to this project.")
         self.membership = (
             ProjectMember.objects.filter(
@@ -289,6 +291,7 @@ class ProjectDashboardView(View):
         self.membership_role = getattr(self.membership, "role", None)
         self.can_edit_project = self._determine_can_edit_project(request.user)
         self.can_edit_status = self._determine_can_edit_status(request.user)
+        self.can_manage_members = can_invite_project_members(request.user, self.project)
         return super().dispatch(request, *args, **kwargs)
 
     def _determine_can_edit_project(self, user):
@@ -414,6 +417,7 @@ class ProjectDashboardView(View):
             "status_badge_class": status_badge_class,
             "can_edit_project": self.can_edit_project,
             "can_edit_status": self.can_edit_status,
+            "can_manage_members": self.can_manage_members,
             "info_form": info_form,
             "status_form": status_form,
             "show_edit_panel": show_edit_panel,
@@ -480,3 +484,95 @@ class ProjectDashboardView(View):
             .select_related("primary_welder")
             .order_by("-created_at")[:5]
         )
+
+
+@login_required
+@require_membership("GUEST")
+def project_members(request, org_slug, project_slug):
+    project = get_project_for_request(request, request.org, project_slug)
+    if not can_view_project(request.user, project):
+        raise PermissionDenied("You do not have access to this project.")
+    if not can_invite_project_members(request.user, project):
+        raise PermissionDenied("You do not have permission to manage project members.")
+
+    org_members = (
+        Membership.objects.filter(org=request.org)
+        .select_related("user")
+        .order_by("user__email", "user__username")
+    )
+    memberships = (
+        ProjectMember.objects.filter(project=project)
+        .select_related("user")
+        .order_by("user__email", "user__username")
+    )
+
+    if request.method == "POST":
+        user_id = request.POST.get("user_id")
+        role = (request.POST.get("role") or ProjectMember.Role.MEMBER).strip().upper()
+        allowed_roles = {
+            ProjectMember.Role.PROJECT_MANAGER,
+            ProjectMember.Role.SUPERINTENDENT,
+            ProjectMember.Role.QUALITY_MANAGER,
+            ProjectMember.Role.QUALITY_TECH,
+            ProjectMember.Role.MEMBER,
+            ProjectMember.Role.VIEWER,
+            ProjectMember.Role.GUEST,
+        }
+        if role not in allowed_roles:
+            return HttpResponseBadRequest("Invalid project role.")
+
+        org_membership = get_object_or_404(Membership, org=request.org, user_id=user_id)
+
+        if role == ProjectMember.Role.GUEST and org_membership.role != Membership.Role.GUEST:
+            org_membership.role = Membership.Role.GUEST
+            org_membership.save(update_fields=["role"])
+
+        user = org_membership.user
+        if role == ProjectMember.Role.PROJECT_MANAGER:
+            project.project_manager = user
+            project.updated_by = request.user
+            project.save(update_fields=["project_manager", "updated_by", "updated_at"])
+            project.sync_role_memberships()
+            messages.success(request, f"Set {user.email} as Project Manager.")
+        elif role == ProjectMember.Role.SUPERINTENDENT:
+            project.superintendent = user
+            project.updated_by = request.user
+            project.save(update_fields=["superintendent", "updated_by", "updated_at"])
+            project.sync_role_memberships()
+            messages.success(request, f"Set {user.email} as Superintendent.")
+        elif role == ProjectMember.Role.QUALITY_MANAGER:
+            project.quality_manager = user
+            project.updated_by = request.user
+            project.save(update_fields=["quality_manager", "updated_by", "updated_at"])
+            project.sync_role_memberships()
+            messages.success(request, f"Set {user.email} as Quality Manager.")
+        elif role == ProjectMember.Role.QUALITY_TECH:
+            project.quality_techs.add(user)
+            project.updated_by = request.user
+            project.save(update_fields=["updated_by", "updated_at"])
+            project.sync_role_memberships()
+            messages.success(request, f"Added {user.email} as Quality Tech.")
+        else:
+            ProjectMember.objects.update_or_create(
+                project=project,
+                user=user,
+                defaults={"role": role, "added_by": request.user},
+            )
+            messages.success(request, f"Added {user.email} to the project.")
+
+        return redirect(
+            "projects:project_members",
+            org_slug=request.org.slug,
+            project_slug=project.slug,
+        )
+
+    return render(
+        request,
+        "projects/members.html",
+        {
+            "org": request.org,
+            "project": project,
+            "org_members": org_members,
+            "memberships": memberships,
+        },
+    )

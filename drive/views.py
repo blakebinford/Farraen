@@ -31,10 +31,15 @@ from organizations.decorators import require_membership
 from .models import Folder, FileNode, FileVersion, FileEvent
 from django.core.exceptions import PermissionDenied
 
+from projects.permissions import (
+    can_edit_drive,
+    can_view_project,
+    is_org_guest,
+    is_project_guest,
+)
 from projects.utils import (
     assert_project_not_archived,
     get_project_for_request,
-    user_has_project_access,
 )
 from .utils import log_file_event, sanitize_filename, validate_upload
 from django.core.paginator import Paginator, EmptyPage
@@ -42,9 +47,11 @@ from django.core.paginator import Paginator, EmptyPage
 # ---------- helpers ----------
 
 def _require_project_access(request, project):
-    if not user_has_project_access(request.user, project):
+    if not can_view_project(request.user, project):
         return HttpResponseForbidden("No project access")
     if request.method not in ("GET", "HEAD", "OPTIONS"):
+        if not can_edit_drive(request.user, project):
+            return HttpResponseForbidden("Drive access is read-only for this role.")
         try:
             assert_project_not_archived(project)
         except PermissionDenied:
@@ -70,15 +77,18 @@ def _recently_viewed_files(request, project, limit=5):
 
     org = getattr(request, "org", None) or project.org
 
+    events = FileEvent.objects.filter(
+        org=org,
+        actor=user,
+        action=FileEvent.Action.VIEW,
+        file_node__project=project,
+        file_node__is_archived=False,
+    )
+    if is_org_guest(user, org) or is_project_guest(user, project):
+        events = events.filter(file_node__is_kpi_template=False)
+
     events = (
-        FileEvent.objects.filter(
-            org=org,
-            actor=user,
-            action=FileEvent.Action.VIEW,
-            file_node__project=project,
-            file_node__is_archived=False,
-        )
-        .values("file_node_id")
+        events.values("file_node_id")
         .annotate(last_at=Max("at"))
         .order_by("-last_at")
     )
@@ -103,6 +113,14 @@ def _recently_viewed_files(request, project, limit=5):
                 "last_at": row["last_at"],
             })
     return results
+
+
+def _block_kpi_template(request, project, node):
+    if not getattr(node, "is_kpi_template", False):
+        return None
+    if is_org_guest(request.user, project.org) or is_project_guest(request.user, project):
+        return HttpResponseForbidden("Guests cannot access KPI templates.")
+    return None
 
 
 # ---------- views ----------
@@ -141,6 +159,7 @@ def project_drive_root(request, org_slug, project_slug):
             "active_filter": active_filter,
             "active_doc_types": active_doc_types,
             "recently_viewed": _recently_viewed_files(request, project),
+            "can_edit_drive": can_edit_drive(request.user, project),
         },
     )
 
@@ -149,8 +168,8 @@ def project_drive_root(request, org_slug, project_slug):
 @require_membership("GUEST")  # guests can view
 def folder_view(request, org_slug, project_slug, folder_id):
     org = request.org
-    folder = get_object_or_404(Folder, pk=folder_id, org=org)
-    project = folder.project
+    project = get_project_for_request(request, org, project_slug)
+    folder = get_object_or_404(Folder, pk=folder_id, org=org, project=project)
 
     forbidden = _require_project_access(request, project)
     if forbidden:
@@ -206,6 +225,9 @@ def folder_view(request, org_slug, project_slug, folder_id):
     if needs_distinct:
         files = files.distinct()
 
+    if is_org_guest(request.user, org) or is_project_guest(request.user, project):
+        files = files.filter(is_kpi_template=False)
+
     folder_tree = (
         Folder.objects.filter(org=org, project=project, is_archived=False)
         .order_by("path")
@@ -226,17 +248,22 @@ def folder_view(request, org_slug, project_slug, folder_id):
         "allowed_types_json": json.dumps(allowed_list),
         "active_filter": active_filter,
         "active_doc_types": doc_types,
-        "upload_url": reverse(
-            "drive_upload",
-            kwargs={
-                "org_slug": org.slug,
-                "project_slug": project.slug,
-                "folder_id": folder.id,
-            },
+        "upload_url": (
+            reverse(
+                "drive_upload",
+                kwargs={
+                    "org_slug": org.slug,
+                    "project_slug": project.slug,
+                    "folder_id": folder.id,
+                },
+            )
+            if can_edit_drive(request.user, project)
+            else None
         ),
         "folder_tree": folder_tree,
         "breadcrumb": breadcrumb,
         "recently_viewed": _recently_viewed_files(request, project),
+        "can_edit_drive": can_edit_drive(request.user, project),
     }
     return render(request, "drive/folder_view.html", context)
 
@@ -466,8 +493,6 @@ def file_upload(request, org_slug, project_slug, folder_id):
     messages.success(request, f"Uploaded {display_name} as v{next_version}.")
     return _redirect_back()
 
-from organizations.models import Membership
-
 def _file_detail_context(request, project, node):
     versions = node.versions.all().order_by("-version")
 
@@ -484,11 +509,7 @@ def _file_detail_context(request, project, node):
         user_role = None
 
     is_admin_or_owner = user_role in (Membership.Role.ADMIN, Membership.Role.OWNER)
-    is_member = user_role in (
-        Membership.Role.MEMBER,
-        Membership.Role.ADMIN,
-        Membership.Role.OWNER,
-    )
+    is_member = can_edit_drive(request.user, project)
     is_creator = node.created_by_id == request.user.id
 
     can_view_activity = bool(is_member or is_creator)
@@ -594,6 +615,10 @@ def file_detail(request, org_slug, project_slug, file_id):
         project=project,
     )
 
+    blocked = _block_kpi_template(request, project, node)
+    if blocked:
+        return blocked
+
     context = _file_detail_context(request, project, node)
     context["standalone"] = True
     return render(request, "drive/file_detail.html", context)
@@ -614,6 +639,10 @@ def file_mtr_status(request, org_slug, project_slug, file_id):
         org=request.org,
         project=project,
     )
+
+    blocked = _block_kpi_template(request, project, node)
+    if blocked:
+        return blocked
 
     drafts_count = node.material_heat_drafts.filter(org=request.org, verified=False).count()
 
@@ -644,6 +673,10 @@ def file_detail_drawer(request, org_slug, project_slug, file_id):
         org=request.org,
         project=project,
     )
+
+    blocked = _block_kpi_template(request, project, node)
+    if blocked:
+        return blocked
 
     context = _file_detail_context(request, project, node)
 
@@ -725,6 +758,9 @@ def file_download_latest(request, org_slug, project_slug, file_id):
         org=request.org,
         project=project,
     )
+    blocked = _block_kpi_template(request, project, node)
+    if blocked:
+        return blocked
     if not node.latest_version:
         return HttpResponseBadRequest("No content")
     try:
@@ -749,6 +785,9 @@ def file_download_version(request, org_slug, project_slug, file_id, version):
     node = get_object_or_404(
         FileNode, pk=file_id, org=request.org, project=project
     )
+    blocked = _block_kpi_template(request, project, node)
+    if blocked:
+        return blocked
     fv = get_object_or_404(FileVersion, file_node=node, version=version)
     try:
         log_file_event(request, node, FileEvent.Action.DOWNLOAD, fv)
@@ -773,6 +812,9 @@ def file_stream_latest(request, org_slug, project_slug, file_id):
         FileNode.objects.select_related("latest_version"),
         pk=file_id, org=request.org, project=project
     )
+    blocked = _block_kpi_template(request, project, node)
+    if blocked:
+        return blocked
     if not node.latest_version:
         return HttpResponseBadRequest("No content")
 
@@ -800,6 +842,9 @@ def file_stream_version(request, org_slug, project_slug, file_id, version):
         return forbidden
 
     node = get_object_or_404(FileNode, pk=file_id, org=request.org, project=project)
+    blocked = _block_kpi_template(request, project, node)
+    if blocked:
+        return blocked
     fv = get_object_or_404(FileVersion, file_node=node, version=version)
 
     f = fv.blob.open("rb")

@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+      <h1 class="h4 mb-1">Project Members — {{ project.name }}</h1>
+      <p class="text-muted mb-0">Manage project-specific access and roles.</p>
+    </div>
+  </div>
+
+  <h6 class="mt-3">Current Project Members</h6>
+  <table class="table table-sm align-middle">
+    <thead>
+      <tr>
+        <th>Email</th>
+        <th>Role</th>
+        <th>Added</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for membership in memberships %}
+        <tr>
+          <td>{{ membership.user.email|default:membership.user.username }}</td>
+          <td>{{ membership.get_role_display }}</td>
+          <td>{{ membership.created_at|date:"Y-m-d H:i" }}</td>
+        </tr>
+      {% empty %}
+        <tr>
+          <td colspan="3" class="text-muted">No project members yet.</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h6 class="mt-4">Add Organization Member</h6>
+  <form method="post" class="row gy-2 gx-3 align-items-center">
+    {% csrf_token %}
+    <div class="col-auto">
+      <select name="user_id" class="form-select" required>
+        <option value="" disabled selected>Select a user</option>
+        {% for member in org_members %}
+          <option value="{{ member.user.id }}">
+            {{ member.user.email|default:member.user.username }} ({{ member.get_role_display }})
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-auto">
+      <select name="role" class="form-select" required>
+        <option value="PROJECT_MANAGER">Project Manager</option>
+        <option value="SUPERINTENDENT">Superintendent</option>
+        <option value="QUALITY_MANAGER">Quality Manager</option>
+        <option value="QUALITY_TECH">Quality Tech</option>
+        <option value="MEMBER">Project Member</option>
+        <option value="VIEWER">Project Viewer</option>
+        <option value="GUEST">Client (Guest)</option>
+      </select>
+    </div>
+    <div class="col-auto">
+      <button class="btn btn-primary">Add to Project</button>
+    </div>
+  </form>
+{% endblock %}

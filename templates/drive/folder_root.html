@@ -148,7 +148,7 @@
     </aside>
 
     <section class="drive-main" role="main" aria-labelledby="drive-main-heading">
-      {% include "drive/_topbar.html" with folder=None upload_url=None %}
+      {% include "drive/_topbar.html" with folder=None upload_url=None can_edit_drive=can_edit_drive %}
 
       <div class="drive-list-view" data-drive-list data-drive-hidden="false" aria-live="polite">
         <div class="document-grid-container" role="region" aria-label="Project folders">

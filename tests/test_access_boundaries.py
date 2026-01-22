@@ -557,3 +557,56 @@ def test_quilt_role_thresholds(access_setup, client):
     response = client.get(reverse("welds-api:quilt-sources"))
     # Regression guard: org members can access Quilt sources.
     assert response.status_code == 200
+
+
+@pytest.mark.django_db
+def test_kpi_template_hidden_from_guests(access_setup, client):
+    org = access_setup["org"]
+    project_a = access_setup["project_a"]
+    folder_a = access_setup["folder_a"]
+    file_a = access_setup["file_a"]
+    guest_a = access_setup["users"]["project_a_guest_user"]
+    member_a = access_setup["users"]["project_a_member_user"]
+
+    file_a.is_kpi_template = True
+    file_a.save(update_fields=["is_kpi_template"])
+
+    client.force_login(guest_a)
+    response = client.get(
+        reverse(
+            "drive_folder",
+            kwargs={
+                "org_slug": org.slug,
+                "project_slug": project_a.slug,
+                "folder_id": folder_a.id,
+            },
+        )
+    )
+    assert response.status_code == 200
+    assert file_a.name not in response.content.decode()
+
+    response = client.get(
+        reverse(
+            "drive_file",
+            kwargs={
+                "org_slug": org.slug,
+                "project_slug": project_a.slug,
+                "file_id": file_a.id,
+            },
+        )
+    )
+    _assert_forbidden(response)
+
+    client.force_login(member_a)
+    response = client.get(
+        reverse(
+            "drive_folder",
+            kwargs={
+                "org_slug": org.slug,
+                "project_slug": project_a.slug,
+                "folder_id": folder_a.id,
+            },
+        )
+    )
+    assert response.status_code == 200
+    assert file_a.name in response.content.decode()

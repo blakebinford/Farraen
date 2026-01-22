@@ -21,10 +21,10 @@ from django.middleware.csrf import get_token
 
 from organizations.decorators import require_membership
 from projects.models import Project, ProjectMember
+from projects.permissions import can_edit_welds, can_view_project
 from projects.utils import (
     assert_project_not_archived,
     get_project_for_request,
-    user_has_project_access,
 )
 
 from drive.models import FileNode
@@ -96,9 +96,11 @@ def _migrations_required_message(missing_labels):
 
 
 def _require_project_membership(request, project):
-    if not user_has_project_access(request.user, project):
+    if not can_view_project(request.user, project):
         return HttpResponseForbidden("No project access")
     if request.method not in ("GET", "HEAD", "OPTIONS"):
+        if not can_edit_welds(request.user, project):
+            return HttpResponseForbidden("Weld log access is read-only for this role.")
         try:
             assert_project_not_archived(project)
         except PermissionDenied:

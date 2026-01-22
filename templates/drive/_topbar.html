@@ -190,15 +190,17 @@
 
     <span class="editing-indicator visually-hidden" id="drive-documents-editing-indicator" aria-hidden="true">Editing</span>
 
-    <button type="button"
-            class="btn btn-outline-primary d-flex align-items-center"
-            id="drive-documents-edit-toggle"
-            aria-pressed="false"
-            aria-controls="drive-documents-list"
-            title="Toggle edit mode">
-      <i class="bi bi-pencil-square me-1" aria-hidden="true"></i>
-      <span class="d-none d-md-inline">Edit</span>
-    </button>
+    {% if can_edit_drive %}
+      <button type="button"
+              class="btn btn-outline-primary d-flex align-items-center"
+              id="drive-documents-edit-toggle"
+              aria-pressed="false"
+              aria-controls="drive-documents-list"
+              title="Toggle edit mode">
+        <i class="bi bi-pencil-square me-1" aria-hidden="true"></i>
+        <span class="d-none d-md-inline">Edit</span>
+      </button>
+    {% endif %}
 
     {% if folder %}
       <a class="btn btn-outline-secondary d-flex align-items-center"
@@ -208,15 +210,17 @@
         <span class="d-none d-md-inline">Up one level</span>
       </a>
 
-      <a class="btn btn-outline-secondary d-flex align-items-center"
-         href="{% url 'drive_folder_create' org.slug project.slug folder.id %}"
-         title="Create new folder">
-        <i class="bi bi-folder-plus me-1" aria-hidden="true"></i>
-        <span class="d-none d-md-inline">New folder</span>
-      </a>
+      {% if can_edit_drive %}
+        <a class="btn btn-outline-secondary d-flex align-items-center"
+           href="{% url 'drive_folder_create' org.slug project.slug folder.id %}"
+           title="Create new folder">
+          <i class="bi bi-folder-plus me-1" aria-hidden="true"></i>
+          <span class="d-none d-md-inline">New folder</span>
+        </a>
+      {% endif %}
     {% endif %}
 
-    {% if upload_url %}
+    {% if upload_url and can_edit_drive %}
       <button type="button"
               class="btn btn-primary d-flex align-items-center"
               data-bs-toggle="modal"

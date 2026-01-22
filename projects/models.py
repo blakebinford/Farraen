@@ -252,6 +252,7 @@ class ProjectMember(models.Model):
         QUALITY_MANAGER = "QUALITY_MANAGER", "Quality Manager"
         QUALITY_TECH = "QUALITY_TECH", "Quality Tech"
         MEMBER = "MEMBER", "Member"
+        VIEWER = "VIEWER", "Viewer"
         GUEST = "GUEST", "Guest"  # read-only
 
         @classmethod

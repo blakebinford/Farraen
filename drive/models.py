@@ -98,6 +98,10 @@ class FileNode(models.Model):
         on_delete=models.SET_NULL,
         related_name="approved_mtr_for",
     )
+    is_kpi_template = models.BooleanField(
+        default=False,
+        help_text="Marks this file as the KPI template for access restrictions.",
+    )
 
     class Meta:
         unique_together = [("org", "folder", "slug")]
